@@ -9,9 +9,9 @@
 
 <style scoped>
 .panel {
-  display: grid;
-  grid-gap: 1%;
-  justify-content: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 </style>
 

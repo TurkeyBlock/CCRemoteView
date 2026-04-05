@@ -1,3 +1,4 @@
+require('dotenv').config({ path: '.env.local' });
 const express = require('express');
 const cors = require('cors');
 const compression = require('compression')
@@ -6,11 +7,23 @@ const fs = require('fs');
 const app = express();
 const httpTerminator = require('http-terminator');
 const simpleNodeLogger = require('simple-node-logger');
+let _jwtDecode = null;
+async function jwtDecode(params) {
+  if (!_jwtDecode) _jwtDecode = (await import('@auth/core/jwt')).decode;
+  return _jwtDecode(params);
+}
 const UserManagement = require('./utils/userManagement.js');
+const TurtleIpManager = require('./utils/turtleIpManager.js');
+const OperatorManager = require('./utils/operatorManager.js');
+const TurtleIdManager = require('./utils/turtleIdManager.js');
 const CommandLineInterface = require('./utils/cmdLineInterface.js');
 
 const AUTOSAVE_INTERVAL_MIN = 1;
 const TRANSACTION_CACHE_COUNT = 10000;
+const IS_PROD = process.env.NODE_ENV === 'production';
+const COOKIE_NAME = IS_PROD ? '__Secure-authjs.session-token' : 'authjs.session-token';
+const APP_URL = IS_PROD ? process.env.APP_URL : 'http://localhost:3001';
+const SIGNIN_URL = `${IS_PROD ? process.env.NEXTAUTH_URL : 'http://localhost:3000'}/auth/signin?callbackUrl=${encodeURIComponent(APP_URL)}`;
 
 fs.mkdirSync('logs', { recursive: true });
 const log = simpleNodeLogger.createSimpleLogger({
@@ -18,20 +31,27 @@ const log = simpleNodeLogger.createSimpleLogger({
   timestampFormat: 'YYYY-MM-DD HH:mm:ss.SSS'
 });
 
-app.use(cors({
-  origin: 'http://localhost:3000'
-}));
+app.use(cors({ origin: IS_PROD ? process.env.NEXTAUTH_URL : 'http://localhost:3000' }));
 app.use(express.json());
+// Gate the SPA entry point — browser navigations redirect to sign-in if no session
+app.get('/', async (req, res, next) => {
+  const token = await getSession(req);
+  if (!token) return res.redirect(SIGNIN_URL);
+  next();
+});
 app.use(express.static('dist'));
 app.use('/turtle', express.static('turtle'));
 app.use('/textures', express.static('textures'));
 
-// API
+const HOME_URL = IS_PROD ? process.env.NEXTAUTH_URL : 'http://localhost:3000';
+
+app.get('/api/signin', (_req, res) => res.redirect(SIGNIN_URL));
+app.get('/api/home', (_req, res) => res.redirect(HOME_URL));
+
+// --- State ---
 let state = {
   turtle: {},
-  world: {
-    blocks: {},
-  },
+  world: { blocks: {} },
   lastTransactionId: 0,
   lastReadyTransactionId: 0,
 }
@@ -39,22 +59,121 @@ let transactionCache = {}
 let commandResultCache = {}
 let cmds = {}
 let stopSignal = {}
-const userManagement = new UserManagement();
 
+const userManagement = new UserManagement();
+const turtleIpManager = new TurtleIpManager();
+const turtleIdManager = new TurtleIdManager();
+const operatorManager = new OperatorManager();
 const cmdLineInterface = new CommandLineInterface();
 cmdLineInterface.on('users', () => console.log(userManagement.getUserDataString()));
 cmdLineInterface.on('deleteTurtle', (id) => delete state.turtle[id]);
 
-
 try {
-  let fs = require('fs');
-  state = JSON.parse(fs.readFileSync('./src/server/saved/saved_state.json', 'utf8'));
+  state = deserializeState(fs.readFileSync('./src/server/saved/saved_state.json', 'utf8'));
   state.lastTransactionId = 0;
   state.lastReadyTransactionId = 0;
-}
-catch { }
+} catch { }
 
-// transaction has format : { id: number, blocks: { [locstring] : BlockState | null }}
+// --- Auth helpers ---
+function parseCookies(req) {
+  const cookieHeader = req.headers.cookie || '';
+  return Object.fromEntries(
+    cookieHeader.split(';').map(c => {
+      const [k, ...v] = c.trim().split('=');
+      return [k, decodeURIComponent(v.join('='))];
+    })
+  );
+}
+
+async function getSession(req) {
+  try {
+    const cookies = parseCookies(req);
+    const raw = cookies[COOKIE_NAME];
+    if (!raw) return null;
+    return await jwtDecode({
+      token: raw,
+      secret: process.env.NEXTAUTH_SECRET,
+      salt: COOKIE_NAME,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function loadAdmins() {
+  try {
+    return JSON.parse(fs.readFileSync('./src/server/saved/admins.json', 'utf8'));
+  } catch {
+    return [];
+  }
+}
+
+function isAdmin(sub) {
+  return loadAdmins().includes(sub);
+}
+
+function isOperator(sub) {
+  return operatorManager.isOperator(sub);
+}
+
+// Middleware: require valid session (API routes — returns 401 JSON, not redirect)
+async function requireAuth(req, res, next) {
+  const token = await getSession(req);
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+  req.token = token;
+  userManagement.updateLastActive(token.sub, token.username);
+  next();
+}
+
+// Middleware: require valid session and operator role
+async function requireOperator(req, res, next) {
+  const token = await getSession(req);
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+  if (!isOperator(token.sub)) return res.status(403).json({ error: 'Forbidden' });
+  req.token = token;
+  userManagement.updateLastActive(token.sub, token.username);
+  next();
+}
+
+// Middleware: require valid session and admin role
+async function requireAdmin(req, res, next) {
+  const token = await getSession(req);
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+  if (!isAdmin(token.sub)) return res.status(403).json({ error: 'Forbidden' });
+  req.token = token;
+  userManagement.updateLastActive(token.sub, token.username);
+  next();
+}
+
+// Middleware: require approved turtle IP, then (if allowByIp is off) approved turtle ID
+function requireApprovedTurtle(req, res, next) {
+  const ip = req.ip;
+
+  // Stage 1: IP must be approved first
+  if (!turtleIpManager.isApproved(ip)) {
+    if (!turtleIpManager.isPending(ip)) {
+      turtleIpManager.addPending(ip);
+      log.info(`New turtle IP pending approval: ${ip}`);
+    }
+    return res.status(403).json({ status: 'pending_ip', message: 'Turtle IP is awaiting admin approval.' });
+  }
+
+  // Stage 2: individual turtle ID (skipped when allowByIp override is on)
+  const id = req.body?.id ?? req.body?.turtleId;
+  if (!turtleIdManager.allowByIp && id !== undefined) {
+    if (!turtleIdManager.isApproved(id)) {
+      if (!turtleIdManager.isPending(id)) {
+        turtleIdManager.addPending(id, ip);
+        log.info(`New turtle ID pending approval: ${id} from ${ip}`);
+      }
+      return res.status(403).json({ status: 'pending_id', message: 'Turtle ID is awaiting admin approval.' });
+    }
+  }
+
+  next();
+}
+
+// --- Core logic ---
 function applyTransaction(transaction, state, transactionCache) {
   for (const [locString, block] of Object.entries(transaction.blocks)) {
     if (block) state.world.blocks[locString] = block;
@@ -63,11 +182,9 @@ function applyTransaction(transaction, state, transactionCache) {
   for (const [id, turtleState] of Object.entries(transaction.turtles)) {
     state.turtle[id] = turtleState;
   }
-
-  // cache transaction
   transactionCache[transaction.id] = transaction;
-  // keep only last TRANSACTION_CACHE_COUNT transactions in cache
-  if (transactionCache[transaction.id - TRANSACTION_CACHE_COUNT]) delete transactionCache[transaction.id - TRANSACTION_CACHE_COUNT]
+  if (transactionCache[transaction.id - TRANSACTION_CACHE_COUNT])
+    delete transactionCache[transaction.id - TRANSACTION_CACHE_COUNT];
 }
 
 function Vec3toString(vec) {
@@ -76,189 +193,352 @@ function Vec3toString(vec) {
 
 function extractState(turtleState, state) {
   let loc = new Vector3(turtleState.loc.x, turtleState.loc.y, turtleState.loc.z);
-  let transaction = {
-    id: ++state.lastTransactionId,
-    blocks: {},
-    turtles: {},
-  }
+  let transaction = { id: ++state.lastTransactionId, blocks: {}, turtles: {} };
 
-  transaction.blocks[Vec3toString(loc.add(Vector3.up))] = (turtleState.view.top) ? turtleState.view.top : null;
-  transaction.blocks[Vec3toString(loc.add(Vector3.down))] = (turtleState.view.bottom) ? turtleState.view.bottom : null;
+  transaction.blocks[Vec3toString(loc.add(Vector3.up))] = turtleState.view.top || null;
+  transaction.blocks[Vec3toString(loc.add(Vector3.down))] = turtleState.view.bottom || null;
 
   let locString;
   switch (turtleState.rot) {
-    case 3:
-      locString = Vec3toString(loc.add(Vector3.forward));
-      break;
-    case 2:
-      locString = Vec3toString(loc.add(Vector3.right));
-      break;
-    case 1:
-      locString = Vec3toString(loc.add(Vector3.back));
-      break;
-    case 0:
-      locString = Vec3toString(loc.add(Vector3.left));
-      break;
-    default:
-      log.warn(`error in extractBlockState: rot is invalid (${turtleState.rot})`);
+    case 3: locString = Vec3toString(loc.add(Vector3.forward)); break;
+    case 2: locString = Vec3toString(loc.add(Vector3.right)); break;
+    case 1: locString = Vec3toString(loc.add(Vector3.back)); break;
+    case 0: locString = Vec3toString(loc.add(Vector3.left)); break;
+    default: log.warn(`error in extractBlockState: rot is invalid (${turtleState.rot})`);
   }
-  transaction.blocks[locString] = (turtleState.view.front) ? turtleState.view.front : null;
+  transaction.blocks[locString] = turtleState.view.front || null;
   transaction.turtles[turtleState.id] = turtleState;
   state.lastReadyTransactionId++;
   return transaction;
 }
 
-app.use((req, res, next) => {
-  // console.log('Time: ', new Date(Date.now()));
-  // console.log(req.method + " " + req.originalUrl)
-  userManagement.updateLastActive(req.ip);
-  next();
+// --- Scan rate limiting ---
+const SCAN_MIN_INTERVAL_MS = 1000;
+const scanLastTime = {};
+
+// --- Turtle endpoints (IP allowlist gated) ---
+app.post('/api/state', requireApprovedTurtle, (req, res) => {
+  applyTransaction(extractState(req.body, state), state, transactionCache);
+  if (state.turtle[req.body.id]) state.turtle[req.body.id].lastSeen = Date.now();
+  res.sendStatus(200);
 });
 
-app.get('/api/state', compression(), (req, res) => {
-  res.send(state);
+app.post('/api/scan', requireApprovedTurtle, (req, res) => {
+  const { id, blocks } = req.body;
+  if (!Array.isArray(blocks)) return res.status(400).json({ error: 'blocks must be an array' });
+
+  const now = Date.now();
+  if (scanLastTime[id] && now - scanLastTime[id] < SCAN_MIN_INTERVAL_MS)
+    return res.status(429).json({ error: 'rate limited' });
+  scanLastTime[id] = now;
+
+  const turtle = state.turtle[String(id)];
+  if (!turtle?.loc) return res.status(400).json({ error: 'turtle position unknown — send a state update first' });
+
+  const { x: tx, y: ty, z: tz } = turtle.loc;
+  const transaction = { id: ++state.lastTransactionId, blocks: {}, turtles: {} };
+
+  for (const block of blocks) {
+    const locString = `${tx + block.x},${ty + block.y},${tz + block.z}`;
+    if (!block.name || block.name === 'minecraft:air') {
+      // If we previously thought there was a block here, remove it
+      if (state.world.blocks[locString]) transaction.blocks[locString] = null;
+    } else {
+      transaction.blocks[locString] = { name: block.name };
+    }
+  }
+
+  if (Object.keys(transaction.blocks).length > 0) {
+    applyTransaction(transaction, state, transactionCache);
+    state.lastReadyTransactionId++;
+    log.info(`/api/scan id=${id} mapped ${Object.keys(transaction.blocks).length} block changes`);
+  }
+
+  res.json({ ok: true });
 });
 
-app.post('/api/getStateUpdate', compression(), (req, res) => {
-  const useOldStateUpdateMethod = false; // until the transaction-only update method works bug free, use the old method
-  if (useOldStateUpdateMethod) { res.send({ state: state }); return; }
-  // console.log(`${req.body.lastTransactionId} | ${state.lastReadyTransactionId} | ${state.lastTransactionId}`);
-  // if no remote last transaction is given, send complete state
-  if (!req.body.lastTransactionId == -1) {
-    res.send({ state: state });
-    log.info(`/api/getStateUpdate : sent full state to ${req.ip}`);
-    return;
-  }
-  // if frontend last transaction > server last transaction, send complete state
-  if (req.body.lastTransactionId > state.lastReadyTransactionId) {
-    res.send({ state: state });
-    log.info(`/api/getStateUpdate : sent full state to ${req.ip} (server has been restarted inbetween)`);
-    return;
-  }
-  let newTransactionId = req.body.lastTransactionId + 1;
-  let resJson = { transactions: {} }
-  // if no further transactions happened since the remote last transaction return empty transaction obj
-  if (newTransactionId > state.lastTransactionId) { res.send(resJson); return; }
-  // if transactions are not cached, send complete state
-  if (!transactionCache[newTransactionId]) {
-    res.send({ state: state });
-    log.info(`/api/getStateUpdate : sent full state to ${req.ip} (transactions not cached)`);
-    return;
-  }
-  // else fill transaction object with all new transactions and send
-  for (let i = newTransactionId; i <= state.lastReadyTransactionId; i++) {
-    resJson.transactions[transactionCache[i].id] = transactionCache[i];
-  }
-  res.send(resJson); return;
-});
-
-app.post('/api/state', (req, res) => {
-  let s = req.body;
-  applyTransaction(extractState(s, state), state, transactionCache);
-  // console.log(s);
-  res.sendStatus(200)
-});
-
-app.post('/api/getCommand', (req, res) => {
-  let s = req.body;
-  // console.log(s);
-  // console.log('/api/getCommand');
-  if (!cmds[s.id]) {
-    res.send();
-    return;
-  }
+app.post('/api/getCommand', requireApprovedTurtle, (req, res) => {
+  const s = req.body;
+  if (!cmds[s.id]) { res.send(); return; }
   res.send(cmds[s.id].shift());
 });
 
-app.post('/api/commandResult', (req, res) => {
-  let turtleId = req.body.turtleId;
+app.post('/api/commandResult', requireApprovedTurtle, (req, res) => {
+  const turtleId = req.body.turtleId;
   if (!commandResultCache[turtleId]) commandResultCache[turtleId] = [];
   commandResultCache[turtleId].push(req.body.result);
-  res.sendStatus(200)
+  res.sendStatus(200);
 });
 
-app.post('/api/getCommandResult', compression(), (req, res) => {
-  let turtleId = req.body.turtleId;
-  if (!commandResultCache[turtleId]) {
-    res.send({});
-    return;
-  }
-  if (req.body.getOnlyLatest) {
-    res.send({ turtleId, result: commandResultCache[turtleId].at(-1) });
-    return;
-  }
-  let startIndex = req.body.lastReceivedIndex ? req.body.lastReceivedIndex + 1 : 0;
-  res.send({ turtleId, cmdResults: commandResultCache[turtleId].slice(startIndex) })
-});
-
-app.post('/api/setCommand', (req, res) => {
-  let s = req.body;
-  if (!cmds[s.id]) cmds[s.id] = []
-  cmds[s.id].push(s.cmd);
-  log.info(`/api/setCommand id=${s.id} req.ip=${req.ip} <${s.cmd}>`);
-  userManagement.users[req.ip].actionCount++;
-  res.send({ response: "command set" })
-});
-
-app.post('/api/clearCommandQueue', (req, res) => {
-  let s = req.body;
-  clearCommandQueue(s.id, req.ip);
-  res.send({ response: "command queue cleared" })
-});
-
-app.get('/api/turtleFileNames', (req, res) => {
-  fs.readdirSync('turtle')
-  res.send(fs.readdirSync('turtle'));
-});
-
-app.post('/api/saveState', (req, res) => {
-  saveStateToDisk();
-  res.sendStatus(200)
-});
-
-app.post('/api/setStopSignal', (req, res) => {
-  let json = req.body;
-  if (isNaN(json.id)) { res.sendStatus(400); return; }
-  // stopSignal[json.id] = true;
-  clearCommandQueue(json.id, req.ip);
-  log.info(`/api/setStopSignal id=${json.id} req.ip=${req.ip}`);
-  userManagement.users[req.ip].actionCount++;
-  res.sendStatus(200)
-});
-
-app.post('/api/getStopSignal', (req, res) => {
-  let json = req.body;
+app.post('/api/getStopSignal', requireApprovedTurtle, (req, res) => {
+  const json = req.body;
   if (isNaN(json.id)) { res.sendStatus(400); return; }
   res.send(stopSignal[json.id] ? true : false);
   delete stopSignal[json.id];
 });
 
-function clearCommandQueue(id, ip) {
+// --- Browser endpoints (session gated) ---
+app.get('/api/state', requireAuth, compression(), (_req, res) => {
+  res.send(state);
+});
+
+app.post('/api/getStateUpdate', requireAuth, compression(), (req, res) => {
+  const useOldStateUpdateMethod = false;
+  if (useOldStateUpdateMethod) { res.send({ state }); return; }
+  if (!req.body.lastTransactionId == -1) {
+    res.send({ state });
+    log.info(`/api/getStateUpdate : sent full state to ${req.token.sub}`);
+    return;
+  }
+  if (req.body.lastTransactionId > state.lastReadyTransactionId) {
+    res.send({ state });
+    log.info(`/api/getStateUpdate : sent full state to ${req.token.sub} (server restarted)`);
+    return;
+  }
+  let newTransactionId = req.body.lastTransactionId + 1;
+  let resJson = { transactions: {} };
+  if (newTransactionId > state.lastTransactionId) { res.send(resJson); return; }
+  if (!transactionCache[newTransactionId]) {
+    res.send({ state });
+    log.info(`/api/getStateUpdate : sent full state to ${req.token.sub} (transactions not cached)`);
+    return;
+  }
+  for (let i = newTransactionId; i <= state.lastReadyTransactionId; i++) {
+    resJson.transactions[transactionCache[i].id] = transactionCache[i];
+  }
+  res.send(resJson);
+});
+
+app.post('/api/setCommand', requireOperator, (req, res) => {
+  const s = req.body;
+  if (!cmds[s.id]) cmds[s.id] = [];
+  cmds[s.id].push(s.cmd);
+  log.info(`/api/setCommand id=${s.id} user=${req.token.sub} <${s.cmd}>`);
+  userManagement.incrementActionCount(req.token.sub);
+  res.send({ response: 'command set' });
+});
+
+app.post('/api/setStopSignal', requireOperator, (req, res) => {
+  const json = req.body;
+  if (isNaN(json.id)) { res.sendStatus(400); return; }
+  clearCommandQueue(json.id, req.token.sub);
+  log.info(`/api/setStopSignal id=${json.id} user=${req.token.sub}`);
+  userManagement.incrementActionCount(req.token.sub);
+  res.sendStatus(200);
+});
+
+app.post('/api/clearCommandQueue', requireOperator, (req, res) => {
+  const s = req.body;
+  clearCommandQueue(s.id, req.token.sub);
+  res.send({ response: 'command queue cleared' });
+});
+
+app.post('/api/getCommandResult', requireAuth, compression(), (req, res) => {
+  const turtleId = req.body.turtleId;
+  if (!commandResultCache[turtleId]) { res.send({}); return; }
+  if (req.body.getOnlyLatest) {
+    res.send({ turtleId, result: commandResultCache[turtleId].at(-1) });
+    return;
+  }
+  const startIndex = req.body.lastReceivedIndex ? req.body.lastReceivedIndex + 1 : 0;
+  res.send({ turtleId, cmdResults: commandResultCache[turtleId].slice(startIndex) });
+});
+
+app.get('/api/turtleFileNames', requireApprovedTurtle, (_req, res) => {
+  res.send(fs.readdirSync('turtle'));
+});
+
+app.post('/api/saveState', requireAuth, (_req, res) => {
+  saveStateToDisk();
+  res.sendStatus(200);
+});
+
+app.get('/api/me', requireAuth, (req, res) => {
+  let savedFileSizeBytes = null;
+  try { savedFileSizeBytes = fs.statSync('./src/server/saved/saved_state.json').size; } catch {}
+  res.json({
+    username: req.token.username ?? req.token.name ?? null,
+    email: req.token.email ?? null,
+    isAdmin: isAdmin(req.token.sub),
+    isOperator: isOperator(req.token.sub),
+    savedFileSizeBytes,
+  });
+});
+
+app.post('/api/requestOperator', requireAuth, (req, res) => {
+  const email = req.token.email ?? null;
+  if (!email) return res.status(400).json({ error: 'No email in session token.' });
+  const result = operatorManager.addRequest(req.token.sub, email);
+  res.json({ result });
+});
+
+// --- Admin endpoints ---
+app.get('/api/admin/turtleIps', requireAdmin, (_req, res) => {
+  res.json(turtleIpManager.getAll());
+});
+
+app.post('/api/admin/denyTurtle', requireAdmin, (req, res) => {
+  const { ip } = req.body;
+  if (!ip) return res.status(400).json({ error: 'ip required' });
+  turtleIpManager.deny(ip);
+  log.info(`Turtle IP denied: ${ip} by ${req.token.sub}`);
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/approveTurtle', requireAdmin, (req, res) => {
+  const { ip } = req.body;
+  if (!ip) return res.status(400).json({ error: 'ip required' });
+  turtleIpManager.approve(ip);
+  log.info(`Turtle IP approved: ${ip} by ${req.token.sub}`);
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/revokeTurtle', requireAdmin, (req, res) => {
+  const { ip } = req.body;
+  if (!ip) return res.status(400).json({ error: 'ip required' });
+  turtleIpManager.revoke(ip);
+  log.info(`Turtle IP revoked: ${ip} by ${req.token.sub}`);
+  res.json({ ok: true });
+});
+
+app.get('/api/admin/operatorRequests', requireAdmin, (_req, res) => {
+  res.json(operatorManager.getRequests());
+});
+
+app.get('/api/admin/operators', requireAdmin, (_req, res) => {
+  res.json(operatorManager.getOperators());
+});
+
+app.post('/api/admin/approveOperator', requireAdmin, (req, res) => {
+  const { sub } = req.body;
+  if (!sub) return res.status(400).json({ error: 'sub required' });
+  operatorManager.approveRequest(sub);
+  log.info(`Operator approved: ${sub} by ${req.token.sub}`);
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/denyOperatorRequest', requireAdmin, (req, res) => {
+  const { sub } = req.body;
+  if (!sub) return res.status(400).json({ error: 'sub required' });
+  operatorManager.denyRequest(sub);
+  log.info(`Operator request denied: ${sub} by ${req.token.sub}`);
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/revokeOperator', requireAdmin, (req, res) => {
+  const { sub } = req.body;
+  if (!sub) return res.status(400).json({ error: 'sub required' });
+  operatorManager.revokeOperator(sub);
+  log.info(`Operator revoked: ${sub} by ${req.token.sub}`);
+  res.json({ ok: true });
+});
+
+app.get('/api/admin/turtleIds', requireAdmin, (_req, res) => {
+  res.json(turtleIdManager.getAll());
+});
+
+app.post('/api/admin/approveTurtleId', requireAdmin, (req, res) => {
+  const { id } = req.body;
+  if (!id) return res.status(400).json({ error: 'id required' });
+  turtleIdManager.approve(id);
+  log.info(`Turtle ID approved: ${id} by ${req.token.sub}`);
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/denyTurtleId', requireAdmin, (req, res) => {
+  const { id } = req.body;
+  if (!id) return res.status(400).json({ error: 'id required' });
+  turtleIdManager.deny(id);
+  log.info(`Turtle ID denied: ${id} by ${req.token.sub}`);
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/revokeTurtleId', requireAdmin, (req, res) => {
+  const { id } = req.body;
+  if (!id) return res.status(400).json({ error: 'id required' });
+  turtleIdManager.revoke(id);
+  log.info(`Turtle ID revoked: ${id} by ${req.token.sub}`);
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/setAllowByIp', requireAdmin, (req, res) => {
+  const { enabled } = req.body;
+  if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled (boolean) required' });
+  turtleIdManager.setAllowByIp(enabled);
+  log.info(`allowByIp set to ${enabled} by ${req.token.sub}`);
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/deleteTurtle', requireAdmin, (req, res) => {
+  const { id } = req.body;
+  if (id === undefined) return res.status(400).json({ error: 'id required' });
+  delete state.turtle[id];
   cmds[id] = [];
-  log.info(`/api/clearCommandQueue id=${id} req.ip=${ip}`);
-  userManagement.users[ip].actionCount++;
+  log.info(`Turtle ${id} deleted by ${req.token.sub}`);
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/clearWorld', requireAdmin, (req, res) => {
+  state.world.blocks = {};
+  log.info(`World cleared by ${req.token.sub}`);
+  res.json({ ok: true });
+});
+
+// --- Helpers ---
+function clearCommandQueue(id, sub) {
+  cmds[id] = [];
+  log.info(`/api/clearCommandQueue id=${id} user=${sub}`);
+  userManagement.incrementActionCount(sub);
+}
+
+function serializeState(s) {
+  const palette = [];
+  const nameToIdx = {};
+  const blocks = {};
+  for (const [locString, block] of Object.entries(s.world.blocks)) {
+    const name = block.name;
+    if (nameToIdx[name] === undefined) {
+      nameToIdx[name] = palette.length;
+      palette.push(name);
+    }
+    blocks[locString] = nameToIdx[name];
+  }
+  return JSON.stringify({ turtle: s.turtle, world: { palette, blocks } });
+}
+
+function deserializeState(raw) {
+  const parsed = JSON.parse(raw);
+  if (parsed.world && Array.isArray(parsed.world.palette)) {
+    // Palette format: expand back to { locString: { name } }
+    const { palette, blocks: indexed } = parsed.world;
+    const blocks = {};
+    for (const [locString, idx] of Object.entries(indexed)) {
+      blocks[locString] = { name: palette[idx] };
+    }
+    parsed.world = { blocks };
+  }
+  // else: old flat format — already in correct shape
+  return parsed;
 }
 
 function saveStateToDisk() {
-  fs.mkdirSync('./src/server/saved', { recursive: true }, (err) => { if (err) throw err; });
-  fs.writeFileSync('./src/server/saved/saved_state.json', JSON.stringify(state));
+  fs.mkdirSync('./src/server/saved', { recursive: true });
+  const target = './src/server/saved/saved_state.json';
+  const tmp    = './src/server/saved/saved_state.tmp.json';
+  fs.writeFileSync(tmp, serializeState(state));
+  fs.renameSync(tmp, target);
 }
 
 function autoSave() {
   saveStateToDisk();
   userManagement.save();
-  setTimeout(() => autoSave(), AUTOSAVE_INTERVAL_MIN * 60 * 1000);
+  setTimeout(autoSave, AUTOSAVE_INTERVAL_MIN * 60 * 1000);
 }
 
-const server = app.listen(80, () => log.info('Turtle remote controller server is listening on port 80.'));
-
+const server = app.listen(80, () => log.info('Turtle remote controller server listening on port 80.'));
 autoSave();
 
-const terminator = httpTerminator.createHttpTerminator({
-  gracefulTerminationTimeout: 200,
-  server,
-});
-
+const terminator = httpTerminator.createHttpTerminator({ gracefulTerminationTimeout: 200, server });
 process.on('SIGINT', async () => {
   await terminator.terminate();
   saveStateToDisk();

@@ -37,3 +37,7 @@ src/server/saved/*
 # packaged binary
 packaged
 packagedZip
+
+# domain secrets (auth)
+.env
+.env.local

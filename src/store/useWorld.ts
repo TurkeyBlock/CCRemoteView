@@ -17,6 +17,7 @@ export const useWorldStore = defineStore('world', {
     textureURL: `${url}textures/`,
     lastTransactionId: -1,
     isLoading: true,
+    isUnauthorized: false,
   }),
   getters: {
     getTurtleIds(): number[] {
@@ -118,6 +119,18 @@ export const useWorldStore = defineStore('world', {
         .then((data) => {
           console.log(data);
         });
+    },
+    removeTurtle(id: string | number) {
+      const worldView = useWorldViewStore();
+      delete this.turtles[String(id)];
+      if (worldView.selectedTurtleId === Number(id)) {
+        worldView.selectedTurtleId = -1;
+      }
+    },
+    clearBlocks() {
+      const worldView = useWorldViewStore();
+      worldView.clearAllBlocks();
+      this.blocks = {};
     },
     getBlockByObjPosition(pos: THREE.Vector3) {
       return this.blocks[pos.x + "," + pos.y + "," + pos.z];

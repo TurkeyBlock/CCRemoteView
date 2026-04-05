@@ -91,6 +91,27 @@ function send_status_update()
   http.request(state_url, state, headers)
 end
 
+-- send scanner data to server (requires plethora scanner module equipped)
+-- Must be called after send_status_update() so the server has the turtle's
+-- current position before it processes the scan.
+function send_scan()
+  if not aid or not aid.is_module_equipped("scanner") then return end
+  local ok, blocks = pcall(scan)
+  if not ok or type(blocks) ~= "table" then return end
+  -- filter out air to keep payload small
+  local nonAir = {}
+  for _, b in ipairs(blocks) do
+    if b.name ~= "minecraft:air" then
+      table.insert(nonAir, { x = b.x, y = b.y, z = b.z, name = b.name })
+    end
+  end
+  http.post(
+    url .. "scan",
+    textutils.serialiseJSON({ id = state.id, blocks = nonAir }),
+    headers
+  )
+end
+
 local function does_side_have_inventory(side)
   if not peripheral.isPresent(side) then return false end
   if not peripheral.hasType then

@@ -54,6 +54,11 @@ class BlockRenderStructure {
     if (instMeshIdx === undefined) return;
     this.meshArray[instMeshIdx].removeBlock(locString);
   }
+  clearAll() {
+    for (const mesh of this.meshArray) {
+      mesh.clearAll();
+    }
+  }
   getBlockGeometry(block: Block): BufferGeometry {
     const worldView = useWorldViewStore();
     let geometryId = worldView.geometryMap[block.name];

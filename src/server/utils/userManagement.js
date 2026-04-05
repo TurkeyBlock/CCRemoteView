@@ -1,91 +1,57 @@
 const fs = require('fs');
 
-function getDateDiffString(date1, date2) {
-  let diff = date1 - date2;
-  const rtf1 = new Intl.RelativeTimeFormat('en', { style: 'narrow' });
-
-  const diff_sec = diff / 1000;
-
-  // if diff is smaller than one minute output in seconds
-  if (-diff_sec < 60)
-    return rtf1.format(parseInt(diff_sec), 'second');
-  else if (-diff_sec < 60 * 60)
-    return rtf1.format(parseInt(diff_sec / 60), 'minute');
-  else if (-diff_sec < 24 * 60 * 60)
-    return rtf1.format(parseInt(diff_sec / 60 / 60), 'hour');
-  else
-    return rtf1.format(parseInt(diff_sec / 60 / 60 / 24), 'day');
+function getDateDiffString(date) {
+  const diff = date - Date.now();
+  const rtf = new Intl.RelativeTimeFormat('en', { style: 'narrow' });
+  const diffSec = diff / 1000;
+  if (Math.abs(diffSec) < 60) return rtf.format(Math.trunc(diffSec), 'second');
+  if (Math.abs(diffSec) < 3600) return rtf.format(Math.trunc(diffSec / 60), 'minute');
+  if (Math.abs(diffSec) < 86400) return rtf.format(Math.trunc(diffSec / 3600), 'hour');
+  return rtf.format(Math.trunc(diffSec / 86400), 'day');
 }
 
 class UserManagement {
-  users = {}
-  saveFile;
+  users = {};
+  saveFile = './src/server/saved/users.json';
 
   constructor() {
-    this.saveFile = "./src/server/saved/users.json";
     this.load();
   }
 
-  _createUser(ip) {
-    this.users[ip] = {
-      actionCount: 0,
-    };
+  _createUser(sub, username) {
+    this.users[sub] = { username, actionCount: 0, lastActive: Date.now() };
   }
-  updateLastActive(ip) {
-    if (!this.users[ip]) this._createUser(ip);
-    this.users[ip].lastActive = Date.now();
-  }
-  validateUsername(username) {
-    // min of 3 characters, max of 16
-    if (username.length < 3 || username.length > 16) return 'username length must be >= 3 and <= 16';
-    // allow only letters and numbers
-    if (!/^[A-Za-z0-9]*$/.test(username)) return 'only a-Z and 0-9 characters allowed';
-    return true;
-  }
-  setUsername(ip, username) {
-    // check for username allowed characters
-    const result = this.validateUsername(username)
-    if (result !== true) return result;
 
-    // check if it already exists
-    for (const [_, v] of Object.entries(this.users))
-      if (username === v.username)
-        return 'username already taken';
+  updateLastActive(sub, username) {
+    if (!this.users[sub]) this._createUser(sub, username);
+    this.users[sub].lastActive = Date.now();
+    // keep username fresh in case it changed on the main site
+    if (username) this.users[sub].username = username;
+  }
 
-    this.users[ip].username = username;
-    return true;
+  incrementActionCount(sub) {
+    if (this.users[sub]) this.users[sub].actionCount++;
   }
-  getUsername(ip) {
-    if (!this.users[ip]) return false;
-    return this.users[ip].username;
-  }
-  getUserDataList() {
-    return this.users;
-  }
+
   getUserDataString() {
-    let list = []
-    for (const [ip, user] of Object.entries(this.users)) {
-      let el = Object.assign({}, user);
-      el.ip = ip;
-      list.push(el)
-    }
-    list.sort((a, b) => (a.lastActive > b.lastActive) ? 1 : -1)
-    let str = "";
-    for (const user of list) {
-      const usernameStr = user.username ? `\t, username: ${user.username}` : "";
-      str += `{ '${user.ip}': { lastActive: ${getDateDiffString(user.lastActive, Date.now())}\t, actionCount: ${user.actionCount}${usernameStr} } }\n`;
-    }
-    return str;
+    const list = Object.entries(this.users)
+      .map(([sub, u]) => ({ sub, ...u }))
+      .sort((a, b) => a.lastActive - b.lastActive);
+
+    return list.map(u =>
+      `{ sub: '${u.sub}', username: '${u.username ?? 'unset'}', lastActive: ${getDateDiffString(u.lastActive)}, actionCount: ${u.actionCount} }`
+    ).join('\n');
   }
+
   save() {
-    fs.mkdirSync('./src/server/saved', { recursive: true }, (err) => { if (err) throw err; });
+    fs.mkdirSync('./src/server/saved', { recursive: true });
     fs.writeFileSync(this.saveFile, JSON.stringify(this.users));
   }
+
   load() {
     try {
       this.users = JSON.parse(fs.readFileSync(this.saveFile, 'utf8'));
-    }
-    catch { }
+    } catch { }
   }
 }
 

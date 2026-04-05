@@ -43,6 +43,11 @@ class DynamicInstancedMesh extends InstancedMesh {
     this.locStringToInstance.add(movedLocString, remIdx);
     this.count--;
   }
+  clearAll() {
+    this.locStringToInstance = new BidirectionalMap({});
+    this.count = 0;
+    this.instanceMatrix.needsUpdate = true;
+  }
   setFromDynamicInstancedMesh(dynInstMesh: DynamicInstancedMesh) {
     this.locStringToInstance = dynInstMesh.locStringToInstance;
     let mat = new Matrix4();

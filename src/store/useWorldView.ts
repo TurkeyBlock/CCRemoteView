@@ -13,6 +13,7 @@ export const useWorldViewStore = defineStore('worldView', {
     focusOnTurtle: (turtleId: number) => { },
     addBlock: (locString: string, block: Block) => { },
     removeBlock: (locString: string) => { },
+    clearAllBlocks: () => { },
     updateTurtle: (turtleId: string) => { },
     addAnimatedTexture: (texture: THREE.Texture) => { },
     followedTurtle: {
@@ -27,6 +28,11 @@ export const useWorldViewStore = defineStore('worldView', {
     turtles: {} as { [id: string]: THREE.Object3D; },
     selectedInventory: null as Inventory | null,
     selectedInventorySize: 0 as number,
+    transparencyList: [] as string[],
+    transparencyOpacity: 0.3 as number,
+    yMin: 0 as number,
+    yMax: 255 as number,
+    turtleRangeXZ: null as number | null,
     blockTint: {
       "minecraft:water": 0x1e97f2,
       "minecraft:grass": BIOME_TINT,
@@ -96,6 +102,48 @@ export const useWorldViewStore = defineStore('worldView', {
 
   },
   actions: {
+    isBlockVisible(locString: string): boolean {
+      const [x, y, z] = locString.split(',').map(Number);
+      if (y < this.yMin || y > this.yMax) return false;
+      if (this.turtleRangeXZ !== null && this.selectedTurtleId !== -1) {
+        const world = useWorldStore();
+        const turtle = world.turtles[this.selectedTurtleId];
+        if (turtle) {
+          if (Math.abs(x - turtle.loc.x) > this.turtleRangeXZ) return false;
+          if (Math.abs(z - turtle.loc.z) > this.turtleRangeXZ) return false;
+        }
+      }
+      return true;
+    },
+    addToTransparencyList(blockName: string) {
+      const name = blockName.trim();
+      if (!name || this.transparencyList.includes(name)) return;
+      this.transparencyList.push(name);
+      if (this.materials[name]) {
+        this.materials[name].transparent = true;
+        this.materials[name].opacity = this.transparencyOpacity;
+        this.materials[name].needsUpdate = true;
+      }
+    },
+    removeFromTransparencyList(blockName: string) {
+      const idx = this.transparencyList.indexOf(blockName);
+      if (idx === -1) return;
+      this.transparencyList.splice(idx, 1);
+      if (this.materials[blockName]) {
+        this.materials[blockName].transparent = false;
+        this.materials[blockName].opacity = 1;
+        this.materials[blockName].needsUpdate = true;
+      }
+    },
+    setTransparencyOpacity(value: number) {
+      this.transparencyOpacity = value;
+      for (const name of this.transparencyList) {
+        if (this.materials[name]) {
+          this.materials[name].opacity = value;
+          this.materials[name].needsUpdate = true;
+        }
+      }
+    },
     getBlockMaterial(id: string) {
       if (!this.materials[id]) {
         this.materials[id] = new THREE.MeshPhongMaterial({
@@ -123,6 +171,10 @@ export const useWorldViewStore = defineStore('worldView', {
               this.addAnimatedTexture(texture);
             // this.materials[id].transparent = true;
             // this.materials[id].opacity = .5;
+            if (this.transparencyList.includes(id)) {
+              this.materials[id].transparent = true;
+              this.materials[id].opacity = this.transparencyOpacity;
+            }
             this.materials[id].needsUpdate = true;
           },
 

@@ -3,12 +3,10 @@
 // Check out https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup
 // import HelloWorld from './components/HelloWorld.vue'
 import CCRemoteController from "./components/CCRemoteController.vue";
-import DiscordWidget from "./components/DiscordWidget.vue";
 </script>
 
 <template>
   <CCRemoteController />
-  <DiscordWidget />
 </template>
 
 <style>

@@ -260,6 +260,7 @@ export default defineComponent({
 
       // add blocks
       for (const locString in world.blocks) {
+        if (!this.worldView.isBlockVisible(locString)) continue;
         blockMeshes.addBlock(locString, world.blocks[locString]);
       }
       scene.add(blocks);
@@ -268,18 +269,14 @@ export default defineComponent({
       this.addTurtles();
     },
     addBlock(locString: string, block: Block) {
-      const material = this.worldView.getBlockMaterial(block.name);
-      const cube = new THREE.Mesh(this.geometry, material);
-      let coords = locString.split(",");
-      cube.position.set(
-        Number(coords[0]),
-        Number(coords[1]),
-        Number(coords[2])
-      );
+      if (!this.worldView.isBlockVisible(locString)) return;
       blockMeshes.addBlock(locString, block);
     },
     removeBlock(locString: string) {
       blockMeshes.removeBlock(locString);
+    },
+    clearAllBlocks() {
+      blockMeshes.clearAll();
     },
     addTurtles() {
       for (const turtleId in this.world.turtles) {
@@ -334,6 +331,7 @@ export default defineComponent({
     worldView.focusOnTurtle = this.focusOnTurtle;
     worldView.addBlock = this.addBlock;
     worldView.removeBlock = this.removeBlock;
+    worldView.clearAllBlocks = this.clearAllBlocks;
     worldView.updateTurtle = this.updateTurtle;
     worldView.addAnimatedTexture = this.addAnimatedTexture;
   },

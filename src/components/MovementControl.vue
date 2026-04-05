@@ -10,7 +10,10 @@
       <button @click="world.sendCommand(turtleId, 'return tapi.suckAll()')">Suck All</button>
       <!-- <button @click="world.sendCommand(turtleId, programRandomExplore)">Explore</button> -->
       <button @click="worldView.focusOnTurtle(turtleId)">Focus Camera</button>
-      <button @click="worldView.followTurtle(turtleId)">Toggle Follow</button>
+      <button
+        :class="{ active: worldView.followedTurtle.turtleId === turtleId }"
+        @click="worldView.followTurtle(turtleId)"
+      >Toggle Follow</button>
       <button @click="world.sendCommand(turtleId, 'return tapi.digDown()')">Dig Down</button>
       <button @click="world.sendCommand(turtleId, 'return tapi.dig()')">Dig</button>
       <button @click="world.sendCommand(turtleId, 'return tapi.digUp()')">Dig Up</button>
@@ -45,6 +48,11 @@ button {
   border-radius: 4px 4px;
   background-color: #383e42;
   color: darkgray;
+}
+
+button.active {
+  background-color: rgb(50, 100, 50);
+  color: rgb(150, 220, 150);
 }
 </style>
 

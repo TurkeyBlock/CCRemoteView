@@ -1,5 +1,5 @@
 <template>
-  <div class="panel">
+  <div class="inventory-wrapper">
     <div class="inventory-container">
       <InventorySlot
         v-for="[index, slot] in world.turtles[turtleId].inv.entries()"
@@ -30,9 +30,13 @@
   color: darkgray;
 }
 
-.panel {
+.inventory-wrapper {
   background-color: #383e42;
   color: darkgray;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
 }
 </style>
 
