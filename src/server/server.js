@@ -31,17 +31,22 @@ const log = simpleNodeLogger.createSimpleLogger({
   timestampFormat: 'YYYY-MM-DD HH:mm:ss.SSS'
 });
 
-app.use(cors({ origin: IS_PROD ? process.env.NEXTAUTH_URL : 'http://localhost:3000' }));
-app.use(express.json());
+app.use(cors({
+  origin: IS_PROD
+    ? /turkeyblock\.org$/
+    : 'http://localhost:3000'
+}));
+app.use(express.json({ limit: '10mb' }));
 // Gate the SPA entry point — browser navigations redirect to sign-in if no session
 app.get('/', async (req, res, next) => {
   const token = await getSession(req);
   if (!token) return res.redirect(SIGNIN_URL);
   next();
 });
+
 app.use(express.static('dist'));
-app.use('/turtle', express.static('turtle'));
 app.use('/textures', express.static('textures'));
+app.use('/turtle', express.static('turtle'));
 
 const HOME_URL = IS_PROD ? process.env.NEXTAUTH_URL : 'http://localhost:3000';
 
@@ -241,7 +246,6 @@ app.post('/api/scan', requireApprovedTurtle, (req, res) => {
   for (const block of blocks) {
     const locString = `${tx + block.x},${ty + block.y},${tz + block.z}`;
     if (!block.name || block.name === 'minecraft:air') {
-      // If we previously thought there was a block here, remove it
       if (state.world.blocks[locString]) transaction.blocks[locString] = null;
     } else {
       transaction.blocks[locString] = { name: block.name };
@@ -509,7 +513,6 @@ function serializeState(s) {
 function deserializeState(raw) {
   const parsed = JSON.parse(raw);
   if (parsed.world && Array.isArray(parsed.world.palette)) {
-    // Palette format: expand back to { locString: { name } }
     const { palette, blocks: indexed } = parsed.world;
     const blocks = {};
     for (const [locString, idx] of Object.entries(indexed)) {
@@ -517,7 +520,6 @@ function deserializeState(raw) {
     }
     parsed.world = { blocks };
   }
-  // else: old flat format — already in correct shape
   return parsed;
 }
 
@@ -535,7 +537,7 @@ function autoSave() {
   setTimeout(autoSave, AUTOSAVE_INTERVAL_MIN * 60 * 1000);
 }
 
-const server = app.listen(80, () => log.info('Turtle remote controller server listening on port 80.'));
+const server = app.listen(8081, () => log.info('Turtle remote controller server listening on port 8081.'));
 autoSave();
 
 const terminator = httpTerminator.createHttpTerminator({ gracefulTerminationTimeout: 200, server });

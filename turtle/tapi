@@ -4,7 +4,7 @@
 os.loadAPI("location")
 
 -- !MUST END WITH '/api/' 
-url = "http://localhost/api/"
+url = "http://turtles.turkeyblock.org/api/"
 state_url = url .. "state/"
 local headers = {
   ["Content-Type"] = "application/json"
@@ -89,27 +89,6 @@ function send_status_update()
 
   local state = textutils.serializeJSON(state)
   http.request(state_url, state, headers)
-end
-
--- send scanner data to server (requires plethora scanner module equipped)
--- Must be called after send_status_update() so the server has the turtle's
--- current position before it processes the scan.
-function send_scan()
-  if not aid or not aid.is_module_equipped("scanner") then return end
-  local ok, blocks = pcall(scan)
-  if not ok or type(blocks) ~= "table" then return end
-  -- filter out air to keep payload small
-  local nonAir = {}
-  for _, b in ipairs(blocks) do
-    if b.name ~= "minecraft:air" then
-      table.insert(nonAir, { x = b.x, y = b.y, z = b.z, name = b.name })
-    end
-  end
-  http.post(
-    url .. "scan",
-    textutils.serialiseJSON({ id = state.id, blocks = nonAir }),
-    headers
-  )
 end
 
 local function does_side_have_inventory(side)
@@ -768,4 +747,19 @@ function placeIntermediateChest(chestId)
   end
   if not side then return false, "can not place intermediate chest anywhere" end
   return side
+end
+
+function scan()
+    local scanner = peripheral.find("plethora:scanner")
+    if not scanner then return false, "no scanner attached" end
+    local raw = scanner.scan(4)
+    print("? block scan");
+    local blocks = {}
+    for _, b in ipairs(raw) do
+        table.insert(blocks, { x = b.x, y = b.y, z = b.z, name = b.name })
+    end
+    local json = textutils.serializeJSON({ id = os.getComputerID(), blocks = blocks })
+    local res = http.post(tapi.url .. "scan", json, { ["Content-Type"] = "application/json" })
+    if res then res.close() end
+    return true
 end

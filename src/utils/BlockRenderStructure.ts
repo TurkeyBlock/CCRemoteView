@@ -13,29 +13,23 @@ class BlockRenderStructure {
   geometryCache = {} as { [geometryId: string]: BufferGeometry | Promise<void> | null };
 
   constructor(parentSceneObject: Object3D) {
-    // console.log("New BlockRenderStructure created");
     this.meshArray = parentSceneObject.children as DynamicInstancedMesh[];
     this.boxGeometry = new BoxGeometry();
   }
+
   addBlock(locString: string, block: Block) {
     if (!block || !locString) throw new Error(`Given block is ${block}`);
     const worldView = useWorldViewStore();
 
-    // create new mesh if none exists
-    // console.log(`Old array: `); console.log(this.meshArray);
     let instMeshIdx = this.blockToMeshIdxMap[block.name];
     if (instMeshIdx === undefined) {
-      // console.log(`Creating mesh for new block type: ${block.name}`);
       let newMesh = new DynamicInstancedMesh(this.getBlockGeometry(block), worldView.getBlockMaterial(block.name));
       instMeshIdx = this.meshArray.push(newMesh) - 1;
       this.blockToMeshIdxMap[block.name] = instMeshIdx;
-      // console.log(`New array: `); console.log(this.meshArray);
-      // console.log(`New blockToMeshIdxMap: `); console.log(this.blockToMeshIdxMap);
     }
     instMeshIdx = this.blockToMeshIdxMap[block.name];
     let mesh = this.meshArray[instMeshIdx];
 
-    // recreate mesh if max instance count is reached
     if (mesh.count == mesh.maxInstanceCount) {
       const oldMesh = mesh;
       mesh = new DynamicInstancedMesh(oldMesh.geometry, worldView.getBlockMaterial(block.name), oldMesh.count * 2);
@@ -43,9 +37,9 @@ class BlockRenderStructure {
       this.meshArray[instMeshIdx] = mesh;
     }
 
-    // add block to mesh
     mesh.addBlock(locString, block);
   }
+
   removeBlock(locString: string) {
     const world = useWorldStore();
     const block = world.blocks[locString];
@@ -54,30 +48,31 @@ class BlockRenderStructure {
     if (instMeshIdx === undefined) return;
     this.meshArray[instMeshIdx].removeBlock(locString);
   }
+
   clearAll() {
     for (const mesh of this.meshArray) {
       mesh.clearAll();
     }
   }
+
   getBlockGeometry(block: Block): BufferGeometry {
     const worldView = useWorldViewStore();
     let geometryId = worldView.geometryMap[block.name];
     if (!geometryId && (block.name.includes("sapling") || block.name.includes("kelp") || block.name.includes("seagrass") || block.name.includes("magrove_root"))) geometryId = "cross";
-    if (!geometryId) return this.boxGeometry;
+    if (!geometryId || geometryId === "cube") return this.boxGeometry;
+
     if (!this.geometryCache[geometryId]) {
       const loader = new GLTFLoader();
+      const blockName = block.name; // capture for closure
 
-      /* @ts-ignore */
       const promise = loader.loadAsync(`textures/turtle/${geometryId}.glb`)
-        .then(
-          (gltf) => gltf.scene.traverse((child) => {
-            /* @ts-ignore */
-            if (child.isMesh) {
-              this.geometryCache[geometryId] = (child as Mesh).geometry;
-              console.log("geometry request response:")
-              console.log(this.geometryCache);
-            }
-          }))
+        .then((gltf) => gltf.scene.traverse((child) => {
+          /* @ts-ignore */
+          if (child.isMesh) {
+            this.geometryCache[geometryId] = (child as Mesh).geometry;
+            console.log("geometry request response:", this.geometryCache);
+          }
+        }))
       promise.catch((error) => {
         console.error(error);
         this.geometryCache[geometryId] = null;
@@ -86,30 +81,29 @@ class BlockRenderStructure {
     }
 
     let geometryOrPromise: BufferGeometry | Promise<void> | null = this.geometryCache[geometryId];
-    // in case a previous request for the resource failed just return a box geometry
     if (geometryOrPromise === null) return this.boxGeometry;
+
     /* @ts-ignore */
     if (geometryOrPromise.catch) {
-      // in case the geometry is already being requested, return box geom and change geom later
-      console.log("geometry is being requested - returning box geometry")
+      console.log("geometry is being requested - returning box geometry");
       /* @ts-ignore */
       geometryOrPromise.then(() => {
         const geometry = this.geometryCache[geometryId];
-        console.log("geometry request done")
+        console.log(`geometry request done — geometryId=${geometryId} block=${block.name}`);
         if (geometry) {
-          console.log("geometry request successful - swapping mesh")
-          this.meshArray[this.blockToMeshIdxMap[block.name]].geometry = geometry as BufferGeometry;
+          const meshIdx = this.blockToMeshIdxMap[block.name];
+          if (meshIdx !== undefined) {
+            console.log(`geometry swap: geometryId=${geometryId} block=${block.name}`);
+            this.meshArray[meshIdx].geometry = geometry as BufferGeometry;
+          }
         }
-        console.log(geometry)
       });
       return this.boxGeometry;
-    }
-    else {
-      // in case the geometry is already cached, return it immediately
-      console.log("geometry is already cached")
+    } else {
+      console.log("geometry is already cached");
       return geometryOrPromise as BufferGeometry;
     }
   }
-};
+}
 
 export default BlockRenderStructure;

@@ -1,30 +1,76 @@
 const fs = require('fs');
 const path = require('path');
 const unzipper = require('unzipper');
-let MC_FILE = `${process.env.APPDATA}/.minecraft/versions/1.18/1.18.jar`.replaceAll('\\', '/');
-let MOD_DIR = `${process.env.USERPROFILE}/curseforge/minecraft/Instances/computercraft thing/mods`.replaceAll('\\', '/');
 const { exec } = require("child_process");
 
+let MOD_DIR = `${process.env.USERPROFILE}/curseforge/minecraft/Instances/computercraft thing/mods`.replaceAll('\\', '/');
+
 function extractTexturesFromJar(fileName) {
-  fs.createReadStream(fileName)
-    .pipe(unzipper.Parse())
-    .on('entry', function (entry) {
-      const fileName = entry.path;
-      let regex = /assets\/(?<modname>.*)\/textures\/(?<textureType>.*)\/.*\.png$/m;
-      let match = regex.exec(fileName);
-      if (match && match.groups.textureType == "block") {
-        const blockPath = `textures/blocks/${match.groups.modname}`
-        fs.mkdirSync(blockPath, { recursive: true });
-        entry.pipe(fs.createWriteStream(`${blockPath}/${path.parse(fileName).base}`));
-      }
-      else if (match && match.groups.textureType == "item") {
-        const itemPath = `textures/items/${match.groups.modname}`
-        fs.mkdirSync(itemPath, { recursive: true });
-        entry.pipe(fs.createWriteStream(`${itemPath}/${path.parse(fileName).base}`));
-      } else {
-        entry.autodrain();
-      }
-    });
+  return new Promise((resolve, reject) => {
+    fs.createReadStream(fileName)
+      .pipe(unzipper.Parse())
+      .on('entry', function (entry) {
+        const fileName = entry.path;
+        let regex = /assets\/(?<modname>.*)\/textures\/(?<textureType>.*)\/.*\.png$/m;
+        let match = regex.exec(fileName);
+        if (match && match.groups.textureType == "block") {
+          const blockPath = `textures/blocks/${match.groups.modname}`;
+          fs.mkdirSync(blockPath, { recursive: true });
+          entry.pipe(fs.createWriteStream(`${blockPath}/${path.parse(fileName).base}`));
+        } else if (match && match.groups.textureType == "item") {
+          const itemPath = `textures/items/${match.groups.modname}`;
+          fs.mkdirSync(itemPath, { recursive: true });
+          entry.pipe(fs.createWriteStream(`${itemPath}/${path.parse(fileName).base}`));
+        } else {
+          entry.autodrain();
+        }
+      })
+      .on('finish', resolve)
+      .on('error', reject);
+  });
+}
+
+function extractTexturesFromZip(zipPath) {
+  return new Promise((resolve, reject) => {
+    fs.createReadStream(zipPath)
+      .pipe(unzipper.Parse())
+      .on('entry', function (entry) {
+        const entryPath = entry.path;
+        let textureType = null;
+        let file = null;
+        let modname = 'minecraft';
+
+        // try: assets/minecraft/textures/blocks/stone.png
+        let m = /assets\/(?<mod>[^/]+)\/textures\/(?<type>blocks|items)\/(?<f>[^/]+\.png)$/.exec(entryPath);
+        if (m) {
+          textureType = m.groups.type;
+          file = m.groups.f;
+          modname = m.groups.mod;
+        }
+
+        // try: textures/blocks/stone.png
+        if (!m) {
+          m = /textures\/(?<type>blocks|items)\/(?<f>[^/]+\.png)$/.exec(entryPath);
+          if (m) { textureType = m.groups.type; file = m.groups.f; }
+        }
+
+        // try bare: blocks/stone.png or items/stone.png
+        if (!m) {
+          m = /^(?<type>blocks|items)\/(?<f>[^/]+\.png)$/.exec(entryPath);
+          if (m) { textureType = m.groups.type; file = m.groups.f; }
+        }
+
+        if (textureType && file) {
+          const outDir = `textures/${textureType}/${modname}`;
+          fs.mkdirSync(outDir, { recursive: true });
+          entry.pipe(fs.createWriteStream(`${outDir}/${file}`));
+        } else {
+          entry.autodrain();
+        }
+      })
+      .on('finish', resolve)
+      .on('error', reject);
+  });
 }
 
 function renderBlockTextures() {
@@ -39,7 +85,7 @@ function renderBlockTextures() {
       }
       resolve();
     });
-  })
+  });
 }
 
 function createBlockTextures() {
@@ -67,7 +113,6 @@ function copyFolderSync(from, to) {
 }
 
 function pickMultiFaceBlockDisplaySide() {
-  // this adds some basic display for e.g. furnaces who dont have a furnace.png, but only furnace_front.png
   fs.readdirSync('textures/blocks/').forEach(modName => {
     const modDir = 'textures/blocks/' + modName;
     fs.readdirSync(modDir).forEach(fileName => {
@@ -82,21 +127,32 @@ function pickMultiFaceBlockDisplaySide() {
   });
 }
 
-process.stdout.write("Gathering textures...");
 if (!process.argv[2])
-  throw new Error("Usage: node run build-textures <pathToYourMinecraftJar> <optional: pathToDirectoryContainingYourModJars>\nPaths might need to be absolute, but I'm not sure.");
-MC_FILE = process.argv[2].replaceAll('\\\\', '/').replaceAll('\\', '/');
-MOD_DIR = process.argv[3] ? process.argv[3].replaceAll('\\\\', '/').replaceAll('\\', '/') : '.';
+  throw new Error("Usage: node build-textures.js <mcJarOrZip> <optional: modJarsDir>\nExample: node build-textures.js /path/to/1.18.jar /path/to/mods");
 
-extractTexturesFromJar(MC_FILE)
-fs.readdirSync(MOD_DIR).forEach(fileName => {
-  if (fileName.endsWith('.jar'))
-    extractTexturesFromJar(MOD_DIR + '/' + fileName)
-});
-process.stdout.write("DONE\nRendering blocks for display as items...");
-createBlockTextures()
-  .then(() => {
-    process.stdout.write("DONE\nSelecting appropriate side image to display for multi side blocks...");
-    pickMultiFaceBlockDisplaySide();
-    console.log("DONE\n\u001b[33mIF YOU GET ANY ERRORS, JUST RERUN THE COMMAND UNTIL NO ERRORS POP UP. Also please make sure to run this command at least twice to also get some basic support for multi side blocks like the furnace!\u001b[0m");
-  });
+const MC_FILE = process.argv[2].replaceAll('\\\\', '/').replaceAll('\\', '/');
+MOD_DIR = process.argv[3] ? process.argv[3].replaceAll('\\\\', '/').replaceAll('\\', '/') : null;
+
+(async () => {
+  process.stdout.write("Gathering textures...");
+
+  if (MC_FILE.endsWith('.jar')) {
+    await extractTexturesFromJar(MC_FILE);
+  } else {
+    await extractTexturesFromZip(MC_FILE);
+  }
+
+  if (MOD_DIR) {
+    const modJars = fs.readdirSync(MOD_DIR).filter(f => f.endsWith('.jar'));
+    for (const fileName of modJars) {
+      await extractTexturesFromJar(MOD_DIR + '/' + fileName);
+    }
+  }
+
+  process.stdout.write("DONE\nRendering blocks for display as items...");
+  await createBlockTextures();
+
+  process.stdout.write("DONE\nSelecting appropriate side image to display for multi side blocks...");
+  pickMultiFaceBlockDisplaySide();
+  console.log("DONE\n\u001b[33mIF YOU GET ANY ERRORS, JUST RERUN THE COMMAND UNTIL NO ERRORS POP UP. Also please make sure to run this command at least twice to also get some basic support for multi side blocks like the furnace!\u001b[0m");
+})();

@@ -1,6 +1,6 @@
 -- github: https://github.com/exa-byte/CCTurtleRemoteController
 -- !MUST END WITH A '/' 
-base_url = "http://localhost/"
+base_url = "http://turtles.turkeyblock.org/"
 
 -- lib
 function Split(s, delimiter)

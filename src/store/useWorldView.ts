@@ -36,6 +36,7 @@ export const useWorldViewStore = defineStore('worldView', {
     blockTint: {
       "minecraft:water": 0x1e97f2,
       "minecraft:grass": BIOME_TINT,
+      "grass": BIOME_TINT,
       "minecraft:tall_grass": BIOME_TINT,
       "minecraft:grass_block": BIOME_TINT,
       "minecraft:acacia_leaves": BIOME_TINT,
@@ -78,7 +79,8 @@ export const useWorldViewStore = defineStore('worldView', {
       "minecraft:dead_bush": "cross",
       "minecraft:fern": "cross",
       "minecraft:large_fern": "cross",
-      "minecraft:grass": "cross",
+      "minecraft:grass": "cube",
+      "grass": "cube",
       "minecraft:tall_grass": "cross",
       "minecraft:vine": "cross",
       "minecraft:dandelion": "cross",
@@ -151,9 +153,11 @@ export const useWorldViewStore = defineStore('worldView', {
         });
         const loader = new THREE.TextureLoader();
         const world = useWorldStore();
+        const textureUrl = world.textureURL + `blocks/${id.replace(':', '/')}.png`;
+        console.log('Loading texture:', textureUrl);
         loader.load(
           // resource URL
-          world.textureURL + `blocks/${id.replace(':', '/')}.png`,
+          textureUrl,
 
           // onLoad callback
           (texture) => {
@@ -169,8 +173,6 @@ export const useWorldViewStore = defineStore('worldView', {
               this.materials[id].side = THREE.DoubleSide;
             if (texture.image.width !== texture.image.height)
               this.addAnimatedTexture(texture);
-            // this.materials[id].transparent = true;
-            // this.materials[id].opacity = .5;
             if (this.transparencyList.includes(id)) {
               this.materials[id].transparent = true;
               this.materials[id].opacity = this.transparencyOpacity;

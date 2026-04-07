@@ -7,7 +7,8 @@ export default defineConfig({
   server: {
     port: 3001,
     proxy: {
-      '/api': 'http://localhost'
+      '/api': 'http://localhost:8081',
+      '/textures': 'http://localhost:8081'
     }
   }
 })
