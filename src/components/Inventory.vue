@@ -4,7 +4,7 @@
       <GenericInventorySlot
         v-for="slotIdx in inventorySize"
         :key="`${inventory[slotIdx-1] && inventory[slotIdx-1].name}${inventory[slotIdx-1] && inventory[slotIdx-1].count}`"
-        :turtleId="-1"
+        :computerId="-1"
         :invSlot="inventory[slotIdx-1]"
         :slotNum="slotIdx"
         :isSelected="false"

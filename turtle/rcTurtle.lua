@@ -8,9 +8,9 @@ local command_result_url = tapi.url .. "commandResult/"
 local command_received = false
 
 function send_command_result(succ, ret)
-    local valid, cmd_result = pcall(textutils.serializeJSON, { turtleId = os.getComputerID(), result = { succ = succ, ret = ret } })
+    local valid, cmd_result = pcall(textutils.serializeJSON, { computerId = os.getComputerID(), result = { succ = succ, ret = ret } })
     if not valid then
-        cmd_result = textutils.serializeJSON({ turtleId = os.getComputerID(), result = { succ = false, ret = "error: result contains function which cannot be serialized" } })
+        cmd_result = textutils.serializeJSON({ computerId = os.getComputerID(), result = { succ = false, ret = "error: result contains function which cannot be serialized" } })
     end
     -- print("sending cmd_result: " .. tostring(succ) .. ", " .. tostring(ret))
     local res = http.post(command_result_url, cmd_result, { ["Content-Type"] = "application/json" })

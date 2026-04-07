@@ -1,38 +1,38 @@
 <template>
   <div class="panel">
     <div class="move-btn-container">
-      <button @click="world.sendCommand(turtleId, 'return tapi.down()')">Down (q)</button>
-      <button @click="world.sendCommand(turtleId, 'return tapi.forward()')">Forward (w)</button>
-      <button @click="world.sendCommand(turtleId, 'return tapi.up()')">Up (e)</button>
-      <button @click="world.sendCommand(turtleId, 'return tapi.left()')">Turn Left (a)</button>
-      <button @click="world.sendCommand(turtleId, 'return tapi.back()')">Back (s)</button>
-      <button @click="world.sendCommand(turtleId, 'return tapi.right()')">Turn Right (d)</button>
-      <button @click="world.sendCommand(turtleId, 'return tapi.suckAll()')">Suck All</button>
-      <!-- <button @click="world.sendCommand(turtleId, programRandomExplore)">Explore</button> -->
-      <button @click="worldView.focusOnTurtle(turtleId)">Focus Camera</button>
+      <button @click="world.sendCommand(computerId, 'return tapi.down()')">Down (q)</button>
+      <button @click="world.sendCommand(computerId, 'return tapi.forward()')">Forward (w)</button>
+      <button @click="world.sendCommand(computerId, 'return tapi.up()')">Up (e)</button>
+      <button @click="world.sendCommand(computerId, 'return tapi.left()')">Turn Left (a)</button>
+      <button @click="world.sendCommand(computerId, 'return tapi.back()')">Back (s)</button>
+      <button @click="world.sendCommand(computerId, 'return tapi.right()')">Turn Right (d)</button>
+      <button @click="world.sendCommand(computerId, 'return tapi.suckAll()')">Suck All</button>
+      <!-- <button @click="world.sendCommand(computerId, programRandomExplore)">Explore</button> -->
+      <button @click="worldView.focusOnComputer(computerId)">Focus Camera</button>
       <button
-        :class="{ active: worldView.followedTurtle.turtleId === turtleId }"
-        @click="worldView.followTurtle(turtleId)"
+        :class="{ active: worldView.followedComputer.computerId === computerId }"
+        @click="worldView.followComputer(computerId)"
       >Toggle Follow</button>
-      <button @click="world.sendCommand(turtleId, 'return tapi.digDown()')">Dig Down</button>
-      <button @click="world.sendCommand(turtleId, 'return tapi.dig()')">Dig</button>
-      <button @click="world.sendCommand(turtleId, 'return tapi.digUp()')">Dig Up</button>
-      <button @click="world.sendCommand(turtleId, 'return tapi.placeDown()')">Place Down</button>
-      <button @click="world.sendCommand(turtleId, 'return tapi.place()')">Place</button>
-      <button @click="world.sendCommand(turtleId, 'return tapi.placeUp()')">Place Up</button>
-      <button @click="world.sendCommand(turtleId, 'return tapi.dropDown()')">Drop Down</button>
-      <button @click="world.sendCommand(turtleId, 'return tapi.drop()')">Drop</button>
-      <button @click="world.sendCommand(turtleId, 'return tapi.dropUp()')">Drop Up</button>
-      <button @click="world.sendCommand(turtleId, programVeinMiner)">Mine Vein</button>
-      <button @click="world.sendCommand(turtleId, programTreeMiner)">Mine Tree</button>
-      <button @click="world.sendCommand(turtleId, 'return tapi.craft()')">Craft</button>
-      <button @click="world.sendCommand(turtleId, 'return tapi.refuel()')">Refuel</button>
-      <button @click="world.sendStopSignal(turtleId)">🛑 Stop 🛑</button>
-      <!-- <button @click="world.sendCommand(turtleId, programStairsToLava)">Stairs Down</button>
-      <button @click="world.sendCommand(turtleId, programMiningTunnel2)">Mining Tunnel 2</button>
-      <button @click="world.sendCommand(turtleId, programMiningTunnel3)">Mining Tunnel 3</button> -->
-      <!-- <button @click="world.sendCommand(turtleId, 'while turtle.attack() do end')">⚔️ATTACK⚔️</button> -->
-      <button @click="world.sendCommand(turtleId, skynetExpander)">New Turtle</button>
+      <button @click="world.sendCommand(computerId, 'return tapi.digDown()')">Dig Down</button>
+      <button @click="world.sendCommand(computerId, 'return tapi.dig()')">Dig</button>
+      <button @click="world.sendCommand(computerId, 'return tapi.digUp()')">Dig Up</button>
+      <button @click="world.sendCommand(computerId, 'return tapi.placeDown()')">Place Down</button>
+      <button @click="world.sendCommand(computerId, 'return tapi.place()')">Place</button>
+      <button @click="world.sendCommand(computerId, 'return tapi.placeUp()')">Place Up</button>
+      <button @click="world.sendCommand(computerId, 'return tapi.dropDown()')">Drop Down</button>
+      <button @click="world.sendCommand(computerId, 'return tapi.drop()')">Drop</button>
+      <button @click="world.sendCommand(computerId, 'return tapi.dropUp()')">Drop Up</button>
+      <button @click="world.sendCommand(computerId, programVeinMiner)">Mine Vein</button>
+      <button @click="world.sendCommand(computerId, programTreeMiner)">Mine Tree</button>
+      <button @click="world.sendCommand(computerId, 'return tapi.craft()')">Craft</button>
+      <button @click="world.sendCommand(computerId, 'return tapi.refuel()')">Refuel</button>
+      <button @click="world.sendStopSignal(computerId)">🛑 Stop 🛑</button>
+      <!-- <button @click="world.sendCommand(computerId, programStairsToLava)">Stairs Down</button>
+      <button @click="world.sendCommand(computerId, programMiningTunnel2)">Mining Tunnel 2</button>
+      <button @click="world.sendCommand(computerId, programMiningTunnel3)">Mining Tunnel 3</button> -->
+      <!-- <button @click="world.sendCommand(computerId, 'while turtle.attack() do end')">⚔️ATTACK⚔️</button> -->
+      <button @click="world.sendCommand(computerId, skynetExpander)">New Turtle</button>
     </div>
   </div>
 </template>
@@ -75,7 +75,7 @@ export default defineComponent({
     return { world, worldView, programRandomExplore, programVeinMiner, programTreeMiner, programStairsToLava, programMiningTunnel2, programMiningTunnel3, skynetExpander };
   },
   props:{
-    turtleId: {
+    computerId: {
       required: true,
       type: Number,
     }

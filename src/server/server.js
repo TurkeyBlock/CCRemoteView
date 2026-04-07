@@ -15,7 +15,7 @@ async function jwtDecode(params) {
 const UserManagement = require('./utils/userManagement.js');
 const TurtleIpManager = require('./utils/turtleIpManager.js');
 const OperatorManager = require('./utils/operatorManager.js');
-const TurtleIdManager = require('./utils/turtleIdManager.js');
+const ComputerIdManager = require('./utils/computerIdManager.js');
 const CommandLineInterface = require('./utils/cmdLineInterface.js');
 
 const AUTOSAVE_INTERVAL_MIN = 1;
@@ -55,7 +55,7 @@ app.get('/api/home', (_req, res) => res.redirect(HOME_URL));
 
 // --- State ---
 let state = {
-  turtle: {},
+  computers: {},
   world: { blocks: {} },
   lastTransactionId: 0,
   lastReadyTransactionId: 0,
@@ -67,11 +67,11 @@ let stopSignal = {}
 
 const userManagement = new UserManagement();
 const turtleIpManager = new TurtleIpManager();
-const turtleIdManager = new TurtleIdManager();
+const computerIdManager = new ComputerIdManager();
 const operatorManager = new OperatorManager();
 const cmdLineInterface = new CommandLineInterface();
 cmdLineInterface.on('users', () => console.log(userManagement.getUserDataString()));
-cmdLineInterface.on('deleteTurtle', (id) => delete state.turtle[id]);
+cmdLineInterface.on('deleteComputer', (id) => delete state.computers[id]);
 
 try {
   state = deserializeState(fs.readFileSync('./src/server/saved/saved_state.json', 'utf8'));
@@ -151,7 +151,7 @@ async function requireAdmin(req, res, next) {
 }
 
 // Middleware: require approved turtle IP, then (if allowByIp is off) approved turtle ID
-function requireApprovedTurtle(req, res, next) {
+function requireApprovedComputer(req, res, next) {
   const ip = req.ip;
 
   // Stage 1: IP must be approved first
@@ -164,11 +164,11 @@ function requireApprovedTurtle(req, res, next) {
   }
 
   // Stage 2: individual turtle ID (skipped when allowByIp override is on)
-  const id = req.body?.id ?? req.body?.turtleId;
-  if (!turtleIdManager.allowByIp && id !== undefined) {
-    if (!turtleIdManager.isApproved(id)) {
-      if (!turtleIdManager.isPending(id)) {
-        turtleIdManager.addPending(id, ip);
+  const id = req.body?.id ?? req.body?.computerId;
+  if (!computerIdManager.allowByIp && id !== undefined) {
+    if (!computerIdManager.isApproved(id)) {
+      if (!computerIdManager.isPending(id)) {
+        computerIdManager.addPending(id, ip);
         log.info(`New turtle ID pending approval: ${id} from ${ip}`);
       }
       return res.status(403).json({ status: 'pending_id', message: 'Turtle ID is awaiting admin approval.' });
@@ -184,8 +184,8 @@ function applyTransaction(transaction, state, transactionCache) {
     if (block) state.world.blocks[locString] = block;
     else delete state.world.blocks[locString];
   }
-  for (const [id, turtleState] of Object.entries(transaction.turtles)) {
-    state.turtle[id] = turtleState;
+  for (const [id, computerState] of Object.entries(transaction.computers)) {
+    state.computers[id] = computerState;
   }
   transactionCache[transaction.id] = transaction;
   if (transactionCache[transaction.id - TRANSACTION_CACHE_COUNT])
@@ -196,23 +196,27 @@ function Vec3toString(vec) {
   return vec.x + "," + vec.y + "," + vec.z;
 }
 
-function extractState(turtleState, state) {
-  let loc = new Vector3(turtleState.loc.x, turtleState.loc.y, turtleState.loc.z);
-  let transaction = { id: ++state.lastTransactionId, blocks: {}, turtles: {} };
+function extractState(computerState, state) {
+  let loc = new Vector3(computerState.loc.x, computerState.loc.y, computerState.loc.z);
+  let transaction = { id: ++state.lastTransactionId, blocks: {}, computers: {} };
 
-  transaction.blocks[Vec3toString(loc.add(Vector3.up))] = turtleState.view.top || null;
-  transaction.blocks[Vec3toString(loc.add(Vector3.down))] = turtleState.view.bottom || null;
+  // Minecarts have no view or rotation — skip block extraction for them
+  if (computerState.view) {
+    transaction.blocks[Vec3toString(loc.add(Vector3.up))] = computerState.view.top || null;
+    transaction.blocks[Vec3toString(loc.add(Vector3.down))] = computerState.view.bottom || null;
 
-  let locString;
-  switch (turtleState.rot) {
-    case 3: locString = Vec3toString(loc.add(Vector3.forward)); break;
-    case 2: locString = Vec3toString(loc.add(Vector3.right)); break;
-    case 1: locString = Vec3toString(loc.add(Vector3.back)); break;
-    case 0: locString = Vec3toString(loc.add(Vector3.left)); break;
-    default: log.warn(`error in extractBlockState: rot is invalid (${turtleState.rot})`);
+    let locString;
+    switch (computerState.rot) {
+      case 3: locString = Vec3toString(loc.add(Vector3.forward)); break;
+      case 2: locString = Vec3toString(loc.add(Vector3.right)); break;
+      case 1: locString = Vec3toString(loc.add(Vector3.back)); break;
+      case 0: locString = Vec3toString(loc.add(Vector3.left)); break;
+      default: log.warn(`error in extractBlockState: rot is invalid (${computerState.rot})`);
+    }
+    if (locString) transaction.blocks[locString] = computerState.view.front || null;
   }
-  transaction.blocks[locString] = turtleState.view.front || null;
-  transaction.turtles[turtleState.id] = turtleState;
+
+  transaction.computers[computerState.id] = computerState;
   state.lastReadyTransactionId++;
   return transaction;
 }
@@ -221,14 +225,14 @@ function extractState(turtleState, state) {
 const SCAN_MIN_INTERVAL_MS = 1000;
 const scanLastTime = {};
 
-// --- Turtle endpoints (IP allowlist gated) ---
-app.post('/api/state', requireApprovedTurtle, (req, res) => {
+// --- Computer endpoints (IP allowlist gated) ---
+app.post('/api/state', requireApprovedComputer, (req, res) => {
   applyTransaction(extractState(req.body, state), state, transactionCache);
-  if (state.turtle[req.body.id]) state.turtle[req.body.id].lastSeen = Date.now();
+  if (state.computers[req.body.id]) state.computers[req.body.id].lastSeen = Date.now();
   res.sendStatus(200);
 });
 
-app.post('/api/scan', requireApprovedTurtle, (req, res) => {
+app.post('/api/scan', requireApprovedComputer, (req, res) => {
   const { id, blocks } = req.body;
   if (!Array.isArray(blocks)) return res.status(400).json({ error: 'blocks must be an array' });
 
@@ -237,11 +241,13 @@ app.post('/api/scan', requireApprovedTurtle, (req, res) => {
     return res.status(429).json({ error: 'rate limited' });
   scanLastTime[id] = now;
 
-  const turtle = state.turtle[String(id)];
-  if (!turtle?.loc) return res.status(400).json({ error: 'turtle position unknown — send a state update first' });
+  const computer = state.computers[String(id)];
+  if (!computer?.loc) return res.status(400).json({ error: 'computer position unknown — send a state update first' });
 
-  const { x: tx, y: ty, z: tz } = turtle.loc;
-  const transaction = { id: ++state.lastTransactionId, blocks: {}, turtles: {} };
+  // Minecarts send a fresh GPS fix as `origin` — prefer that over stale state loc
+  const origin = req.body.origin ?? computer.loc;
+  const { x: tx, y: ty, z: tz } = origin;
+  const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: {} };
 
   for (const block of blocks) {
     const locString = `${tx + block.x},${ty + block.y},${tz + block.z}`;
@@ -261,24 +267,54 @@ app.post('/api/scan', requireApprovedTurtle, (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/getCommand', requireApprovedTurtle, (req, res) => {
+app.post('/api/sense', requireApprovedComputer, (req, res) => {
+  const { id, entities } = req.body;
+  if (!Array.isArray(entities)) return res.status(400).json({ error: 'entities must be an array' });
+  const computer = state.computers[String(id)];
+  if (!computer) return res.status(400).json({ error: 'computer unknown — send a state update first' });
+  // Full replace: entities are temporary, tied to this computer only
+  state.computers[String(id)].entities = entities;
+  const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: state.computers[String(id)] } };
+  applyTransaction(transaction, state, transactionCache);
+  state.lastReadyTransactionId++;
+  log.info(`/api/sense id=${id} reported ${entities.length} entities`);
+  res.json({ ok: true });
+});
+
+app.post('/api/chat', requireApprovedComputer, (req, res) => {
+  const { id, player, message, uuid } = req.body;
+  if (!player || !message) return res.status(400).json({ error: 'player and message required' });
+  const computer = state.computers[String(id)];
+  if (!computer) return res.status(400).json({ error: 'computer unknown — send a state update first' });
+  if (!state.computers[String(id)].chatLog) state.computers[String(id)].chatLog = [];
+  state.computers[String(id)].chatLog.push({ player, message, uuid: uuid || '', timestamp: Date.now() });
+  // Keep last 100 messages
+  if (state.computers[String(id)].chatLog.length > 100) state.computers[String(id)].chatLog.shift();
+  const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: state.computers[String(id)] } };
+  applyTransaction(transaction, state, transactionCache);
+  state.lastReadyTransactionId++;
+  log.info(`/api/chat id=${id} player=${player} message=${message}`);
+  res.json({ ok: true });
+});
+
+app.post('/api/getCommand', requireApprovedComputer, (req, res) => {
   const s = req.body;
-  console.log(`Turtle ${s.id} requested command (size: ${JSON.stringify(req.body).length} bytes)`);
+  console.log(`Computer ${s.id} requested command (size: ${JSON.stringify(req.body).length} bytes)`);
   if (!cmds[s.id]) { res.send(); return; }
   res.send(cmds[s.id].shift());
 });
 
-app.post('/api/commandResult', requireApprovedTurtle, (req, res) => {
-  const turtleId = req.body.turtleId;
-  console.log(`Turtle ${turtleId} sent command result (size: ${JSON.stringify(req.body).length} bytes):`, req.body.result);
-  if (!commandResultCache[turtleId]) commandResultCache[turtleId] = [];
-  commandResultCache[turtleId].push(req.body.result);
+app.post('/api/commandResult', requireApprovedComputer, (req, res) => {
+  const computerId = req.body.computerId;
+  console.log(`Computer ${computerId} sent command result (size: ${JSON.stringify(req.body).length} bytes):`, req.body.result);
+  if (!commandResultCache[computerId]) commandResultCache[computerId] = [];
+  commandResultCache[computerId].push(req.body.result);
   res.sendStatus(200);
 });
 
-app.post('/api/getStopSignal', requireApprovedTurtle, (req, res) => {
+app.post('/api/getStopSignal', requireApprovedComputer, (req, res) => {
   const json = req.body;
-  console.log(`Turtle ${json.id} checked for stop signal (size: ${JSON.stringify(req.body).length} bytes)`);
+  console.log(`Computer ${json.id} checked for stop signal (size: ${JSON.stringify(req.body).length} bytes)`);
   if (isNaN(json.id)) { res.sendStatus(400); return; }
   res.send(stopSignal[json.id] ? true : false);
   delete stopSignal[json.id];
@@ -290,8 +326,6 @@ app.get('/api/state', requireAuth, compression(), (_req, res) => {
 });
 
 app.post('/api/getStateUpdate', requireAuth, compression(), (req, res) => {
-  const useOldStateUpdateMethod = false;
-  if (useOldStateUpdateMethod) { res.send({ state }); return; }
   if (!req.body.lastTransactionId == -1) {
     res.send({ state });
     log.info(`/api/getStateUpdate : sent full state to ${req.token.sub}`);
@@ -341,17 +375,17 @@ app.post('/api/clearCommandQueue', requireOperator, (req, res) => {
 });
 
 app.post('/api/getCommandResult', requireAuth, compression(), (req, res) => {
-  const turtleId = req.body.turtleId;
-  if (!commandResultCache[turtleId]) { res.send({}); return; }
+  const computerId = req.body.computerId;
+  if (!commandResultCache[computerId]) { res.send({}); return; }
   if (req.body.getOnlyLatest) {
-    res.send({ turtleId, result: commandResultCache[turtleId].at(-1) });
+    res.send({ computerId, result: commandResultCache[computerId].at(-1) });
     return;
   }
   const startIndex = req.body.lastReceivedIndex ? req.body.lastReceivedIndex + 1 : 0;
-  res.send({ turtleId, cmdResults: commandResultCache[turtleId].slice(startIndex) });
+  res.send({ computerId, cmdResults: commandResultCache[computerId].slice(startIndex) });
 });
 
-app.get('/api/turtleFileNames', requireApprovedTurtle, (_req, res) => {
+app.get('/api/turtleFileNames', requireApprovedComputer, (_req, res) => {
   res.send(fs.readdirSync('turtle'));
 });
 
@@ -440,14 +474,14 @@ app.post('/api/admin/revokeOperator', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/admin/turtleIds', requireAdmin, (_req, res) => {
-  res.json(turtleIdManager.getAll());
+app.get('/api/admin/computerIds', requireAdmin, (_req, res) => {
+  res.json(computerIdManager.getAll());
 });
 
 app.post('/api/admin/approveTurtleId', requireAdmin, (req, res) => {
   const { id } = req.body;
   if (!id) return res.status(400).json({ error: 'id required' });
-  turtleIdManager.approve(id);
+  computerIdManager.approve(id);
   log.info(`Turtle ID approved: ${id} by ${req.token.sub}`);
   res.json({ ok: true });
 });
@@ -455,7 +489,7 @@ app.post('/api/admin/approveTurtleId', requireAdmin, (req, res) => {
 app.post('/api/admin/denyTurtleId', requireAdmin, (req, res) => {
   const { id } = req.body;
   if (!id) return res.status(400).json({ error: 'id required' });
-  turtleIdManager.deny(id);
+  computerIdManager.deny(id);
   log.info(`Turtle ID denied: ${id} by ${req.token.sub}`);
   res.json({ ok: true });
 });
@@ -463,7 +497,7 @@ app.post('/api/admin/denyTurtleId', requireAdmin, (req, res) => {
 app.post('/api/admin/revokeTurtleId', requireAdmin, (req, res) => {
   const { id } = req.body;
   if (!id) return res.status(400).json({ error: 'id required' });
-  turtleIdManager.revoke(id);
+  computerIdManager.revoke(id);
   log.info(`Turtle ID revoked: ${id} by ${req.token.sub}`);
   res.json({ ok: true });
 });
@@ -471,7 +505,7 @@ app.post('/api/admin/revokeTurtleId', requireAdmin, (req, res) => {
 app.post('/api/admin/setAllowByIp', requireAdmin, (req, res) => {
   const { enabled } = req.body;
   if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled (boolean) required' });
-  turtleIdManager.setAllowByIp(enabled);
+  computerIdManager.setAllowByIp(enabled);
   log.info(`allowByIp set to ${enabled} by ${req.token.sub}`);
   res.json({ ok: true });
 });
@@ -479,9 +513,9 @@ app.post('/api/admin/setAllowByIp', requireAdmin, (req, res) => {
 app.post('/api/admin/deleteTurtle', requireAdmin, (req, res) => {
   const { id } = req.body;
   if (id === undefined) return res.status(400).json({ error: 'id required' });
-  delete state.turtle[id];
+  delete state.computers[id];
   cmds[id] = [];
-  log.info(`Turtle ${id} deleted by ${req.token.sub}`);
+  log.info(`Computer ${id} deleted by ${req.token.sub}`);
   res.json({ ok: true });
 });
 
@@ -510,7 +544,7 @@ function serializeState(s) {
     }
     blocks[locString] = nameToIdx[name];
   }
-  return JSON.stringify({ turtle: s.turtle, world: { palette, blocks } });
+  return JSON.stringify({ computers: s.computers, world: { palette, blocks } });
 }
 
 function deserializeState(raw) {
@@ -522,6 +556,11 @@ function deserializeState(raw) {
       blocks[locString] = { name: palette[idx] };
     }
     parsed.world = { blocks };
+  }
+  // Migrate old saved files that used `turtle` key
+  if (parsed.turtle && !parsed.computers) {
+    parsed.computers = parsed.turtle;
+    delete parsed.turtle;
   }
   return parsed;
 }

@@ -1,9 +1,9 @@
 <template>
   <meter
     class="fuel-gauge"
-    :value="world.turtles[turtleId].fuelLevel"
+    :value="world.computers[computerId].fuelLevel"
     :min="0"
-    :max="world.turtles[turtleId].fuelLimit"
+    :max="world.computers[computerId].fuelLimit"
   >
     TEST
   </meter>
@@ -35,7 +35,7 @@ export default defineComponent({
     return { world };
   },
   props: {
-    turtleId: {
+    computerId: {
       required: true,
       type: Number,
     },

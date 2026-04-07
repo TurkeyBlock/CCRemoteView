@@ -5,8 +5,8 @@
     v-model="cmd"
     placeholder="write lua code here, e.g. return 42"
   ></textarea>
-  <button id="execute" @click="world.sendCommand(turtleId, cmd)">Execute</button>
-  <div class="command-result">{{ world.commandResult[worldView.selectedTurtleId] }}</div>
+  <button id="execute" @click="world.sendCommand(computerId, cmd)">Execute</button>
+  <div class="command-result">{{ world.commandResult[worldView.selectedComputerId] }}</div>
 </template>
 
 <style scoped>
@@ -45,7 +45,7 @@ export default defineComponent({
     };
   },
   props: {
-    turtleId: {
+    computerId: {
       required: true,
       type: Number,
     },

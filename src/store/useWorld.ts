@@ -9,7 +9,7 @@ const url = ""
 
 export const useWorldStore = defineStore('world', {
   state: () => ({
-    turtles: {} as { [id: string]: TurtleState; },
+    computers: {} as { [id: string]: TurtleState; },
     blocks: {} as { [locString: string]: Block; },
     commandResult: {} as { [id: string]: string; },
     URL: `${url}`,
@@ -20,25 +20,27 @@ export const useWorldStore = defineStore('world', {
     isUnauthorized: false,
   }),
   getters: {
-    getTurtleIds(): number[] {
-      return Object.keys(this.turtles).map(key => Number(key));
+    getComputerIds(): number[] {
+      return Object.keys(this.computers).map(key => Number(key));
     },
   },
   actions: {
-    setTurtleStatus(remoteTurtleState: any) {
+    setComputerStatus(remoteTurtleState: any) {
 
       for (let id in remoteTurtleState) {
         let turtleState = remoteTurtleState[id];
-        if (!this.turtles[id]) {
+        if (!this.computers[id]) {
           const worldView = useWorldViewStore();
-          worldView.selectedTurtleId = parseInt(id);
+          worldView.selectedComputerId = parseInt(id);
         }
-        this.turtles[id] = turtleState;
-        this.turtles[id].modified = Date.now();
+        this.computers[id] = turtleState;
+        this.computers[id].modified = Date.now();
 
-        // replace 0s in inv with null
-        for (let i = 0; i < turtleState.inv.length; i++)
-          if (turtleState.inv[i] === 0) turtleState.inv[i] = undefined;
+        // replace 0s in inv with null (computers only)
+        if (turtleState.inv) {
+          for (let i = 0; i < turtleState.inv.length; i++)
+            if (turtleState.inv[i] === 0) turtleState.inv[i] = undefined;
+        }
       }
     },
     transactionRemoveBlock(locString: string) {
@@ -52,11 +54,14 @@ export const useWorldStore = defineStore('world', {
       this.blocks[locString] = block;
       worldView.addBlock(locString, block);
     },
-    transactionSetTurtleState(turtleState: any) {
-      this.setTurtleStatus(turtleState);
+    transactionSetComputerState(computerState: any) {
+      this.setComputerStatus(computerState);
       const worldView = useWorldViewStore();
-      for (const id of Object.keys(turtleState)) {
-        worldView.updateTurtle(id);
+      for (const id of Object.keys(computerState)) {
+        worldView.updateComputer(id);
+        if (computerState[id].entities !== undefined) {
+          worldView.updateEntities(id);
+        }
       }
     },
     applyTransactions(transactions: any) {
@@ -71,11 +76,11 @@ export const useWorldStore = defineStore('world', {
           }
           else this.transactionRemoveBlock(locString);
         }
-        this.transactionSetTurtleState(t.turtles);
+        this.transactionSetComputerState(t.computers);
         this.lastTransactionId = currTransactionId;
       }
     },
-    sendCommand(turtleId: number, cmd: string) {
+    sendCommand(computerId: number, cmd: string) {
       fetch(this.apiURL + "setCommand", {
         method: 'POST',
         mode: "cors",
@@ -83,14 +88,14 @@ export const useWorldStore = defineStore('world', {
           "Access-Control-Allow-Origin": "*",
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ id: turtleId, cmd: cmd }),
+        body: JSON.stringify({ id: computerId, cmd: cmd }),
       })
         .then((res) => res.json())
         .then((data) => {
           console.log(data);
         });
     },
-    sendStopSignal(turtleId: number) {
+    sendStopSignal(computerId: number) {
       fetch(this.apiURL + "setStopSignal", {
         method: 'POST',
         mode: "cors",
@@ -98,14 +103,14 @@ export const useWorldStore = defineStore('world', {
           "Access-Control-Allow-Origin": "*",
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ id: turtleId }),
+        body: JSON.stringify({ id: computerId }),
       })
         .then((res) => res.json())
         .then((data) => {
           console.log(data);
         });
     },
-    clearCommandQueue(turtleId: number) {
+    clearCommandQueue(computerId: number) {
       fetch(this.apiURL + "clearCommandQueue", {
         method: 'POST',
         mode: "cors",
@@ -113,19 +118,22 @@ export const useWorldStore = defineStore('world', {
           "Access-Control-Allow-Origin": "*",
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ id: turtleId }),
+        body: JSON.stringify({ id: computerId }),
       })
         .then((res) => res.json())
         .then((data) => {
           console.log(data);
         });
     },
-    removeTurtle(id: string | number) {
+    removeComputer(id: string | number) {
       const worldView = useWorldViewStore();
-      delete this.turtles[String(id)];
-      if (worldView.selectedTurtleId === Number(id)) {
-        worldView.selectedTurtleId = -1;
+      const sid = String(id);
+      delete this.computers[sid];
+      if (worldView.selectedComputerId === Number(id)) {
+        worldView.selectedComputerId = -1;
       }
+      worldView.updateEntities(sid);      // wipes entity meshes from scene
+      worldView.removeComputerModel(sid); // removes 3D model from scene
     },
     clearBlocks() {
       const worldView = useWorldViewStore();

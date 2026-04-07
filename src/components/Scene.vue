@@ -21,12 +21,16 @@ var scene: Scene,
   renderer: THREE.WebGLRenderer,
   cameraControls: CameraControls,
   blocks: THREE.Group,
+  entities: THREE.Group,
   raycaster: THREE.Raycaster,
   clock: THREE.Clock,
   mouse = { x: 0, y: 0 },
   turtleModel: THREE.Object3D,
   blockMeshes: BlockRenderStructure,
-  animatedTextures = [] as TextureAnimator[];
+  animatedTextures = [] as TextureAnimator[],
+  entityGeometry: THREE.OctahedronGeometry,
+  entityMaterials: { [name: string]: THREE.MeshPhongMaterial } = {},
+  entityFallbackMaterial: THREE.MeshPhongMaterial;
 
 class TextureAnimator {
   texture: THREE.Texture;
@@ -100,14 +104,14 @@ export default defineComponent({
         (e) => {
           this.raycast(e);
           if (
-            isNaN(this.worldView.selectedTurtleId) ||
-            this.worldView.selectedTurtleId == -1 ||
+            isNaN(this.worldView.selectedComputerId) ||
+            this.worldView.selectedComputerId == -1 ||
             this.worldView.gotoBlockPos == null
           )
             return;
           const hLoc = this.worldView.gotoBlockPos;
           this.world.sendCommand(
-            this.worldView.selectedTurtleId,
+            this.worldView.selectedComputerId,
             "tapi.goTo(" + hLoc.x + "," + hLoc.y + "," + hLoc.z + ")"
           );
         },
@@ -118,7 +122,11 @@ export default defineComponent({
         "click",
         (e) => {
           this.raycast(e);
-          if (
+          if (this.worldView.hoveredEntity) {
+            // entity click — inventory display not applicable
+            this.worldView.selectedInventory = null;
+            this.worldView.selectedInventorySize = 0;
+          } else if (
             this.worldView.hoveredBlock &&
             this.worldView.hoveredBlock.inventory
           ) {
@@ -154,6 +162,10 @@ export default defineComponent({
       scene = new THREE.Scene();
       blocks = new THREE.Group();
       scene.add(blocks);
+      entities = new THREE.Group();
+      scene.add(entities);
+      entityGeometry = new THREE.OctahedronGeometry(0.35);
+      entityFallbackMaterial = new THREE.MeshPhongMaterial({ color: 0xff8800 });
 
       cameraControls = new CameraControls(camera, renderer.domElement);
 
@@ -182,10 +194,10 @@ export default defineComponent({
       const delta = clock.getDelta();
 
       // check if turtle moved
-      const turtleId = this.worldView.followedTurtle.turtleId;
-      if (turtleId != -1) {
-        const currPos = this.world.turtles[turtleId].loc;
-        const lastPos = this.worldView.followedTurtle.lastPos;
+      const computerId = this.worldView.followedComputer.computerId;
+      if (computerId != -1) {
+        const currPos = this.world.computers[computerId].loc;
+        const lastPos = this.worldView.followedComputer.lastPos;
         if (
           currPos.x !== lastPos.x ||
           currPos.y !== lastPos.y ||
@@ -194,7 +206,7 @@ export default defineComponent({
           this.worldView.setCameraFocus(
             new THREE.Vector3(currPos.x, currPos.y, currPos.z)
           );
-          this.worldView.followedTurtle.lastPos = currPos;
+          this.worldView.followedComputer.lastPos = currPos;
         }
       }
 
@@ -209,12 +221,21 @@ export default defineComponent({
       mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
       mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
       raycaster.setFromCamera(mouse, camera);
+
+      // Check entities first — they're smaller and would lose to blocks otherwise
+      const entityHits = raycaster.intersectObjects(entities.children, false);
+      if (entityHits.length > 0) {
+        const mesh = entityHits[0].object as THREE.Mesh;
+        this.worldView.hoveredEntity = (mesh as any).userData.entity;
+        this.worldView.hoveredBlock = null;
+        this.worldView.hoveredBlockPos = null;
+        this.worldView.gotoBlockPos = null;
+        return;
+      }
+      this.worldView.hoveredEntity = null;
+
       const intersects = raycaster.intersectObjects(blocks.children);
-
       for (let i = 0; i < intersects.length; i++) {
-        // console.log(intersects[i].object.position);
-        const instanceId = intersects[i].instanceId;
-
         let instMesh = <DynamicInstancedMesh>intersects[i].object;
         let transform = new THREE.Matrix4();
         instMesh.getMatrixAt(<number>intersects[i].instanceId, transform);
@@ -225,15 +246,6 @@ export default defineComponent({
           intersects[i]
         );
         return;
-        /*
-          An intersection has the following properties :
-          - object : intersected object (THREE.Mesh)
-          - distance : distance from camera to intersection (number)
-          - face : intersected face (THREE.Face3)
-          - faceIndex : intersected face index (number)
-          - point : intersection point (THREE.Vector3)
-          - uv : intersection point in the object's UV coordinates (THREE.Vector2)
-          */
       }
       this.worldView.hoveredBlock = null;
       this.worldView.hoveredBlockPos = null;
@@ -245,6 +257,9 @@ export default defineComponent({
       // delete objects
       scene.remove.apply(scene, scene.children);
       blocks.remove.apply(blocks, blocks.children);
+      entities.remove.apply(entities, entities.children);
+      this.worldView.entityMeshes = {};
+      this.worldView.computerModels = {};
 
       // add lighting
       const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
@@ -264,9 +279,9 @@ export default defineComponent({
         blockMeshes.addBlock(locString, world.blocks[locString]);
       }
       scene.add(blocks);
+      scene.add(entities);
 
-      // add turtles
-      this.addTurtles();
+      this.addComputers();
     },
     addBlock(locString: string, block: Block) {
       if (!this.worldView.isBlockVisible(locString)) return;
@@ -278,40 +293,108 @@ export default defineComponent({
     clearAllBlocks() {
       blockMeshes.clearAll();
     },
-    addTurtles() {
-      for (const turtleId in this.world.turtles) {
-        this.addTurtle(turtleId);
+    addComputers() {
+      for (const computerId in this.world.computers) {
+        this.addComputer(computerId);
+        this.updateEntities(computerId);
       }
     },
-    addTurtle(turtleId: string) {
-      const turtle = turtleModel.clone();
-      scene.add(turtle);
-      this.worldView.turtles[turtleId] = turtle;
-      const turtleData = this.world.turtles[turtleId];
-      turtle.position.set(turtleData.loc.x, turtleData.loc.y, turtleData.loc.z);
-      turtle.rotation.set(Math.PI / 2, 0, ((turtleData.rot + 1) * Math.PI) / 2);
+    addComputer(computerId: string) {
+      const computerData = this.world.computers[computerId];
+      if (!computerData?.loc) return;
+      const model = turtleModel.clone();
+      scene.add(model);
+      this.worldView.computerModels[computerId] = model;
+      model.position.set(computerData.loc.x, computerData.loc.y, computerData.loc.z);
+      if (computerData.type === 'minecart') {
+        model.rotation.set(0, 0, 0);
+      } else {
+        model.rotation.set(Math.PI / 2, 0, ((computerData.rot + 1) * Math.PI) / 2);
+      }
     },
-    updateTurtle(turtleId: string) {
-      let turtle = this.worldView.turtles[turtleId];
-      if (!turtle) {
-        this.addTurtle(turtleId);
+    updateComputer(computerId: string) {
+      let model = this.worldView.computerModels[computerId];
+      if (!model) {
+        this.addComputer(computerId);
         return;
       }
-      const turtleData = this.world.turtles[turtleId];
-      turtle.position.set(turtleData.loc.x, turtleData.loc.y, turtleData.loc.z);
-      turtle.rotation.set(Math.PI / 2, 0, ((turtleData.rot + 1) * Math.PI) / 2);
-      turtle.updateMatrix();
+      const computerData = this.world.computers[computerId];
+      if (!computerData?.loc) return;
+      model.position.set(computerData.loc.x, computerData.loc.y, computerData.loc.z);
+      if (computerData.type === 'minecart') {
+        model.rotation.set(0, 0, 0);
+      } else {
+        model.rotation.set(Math.PI / 2, 0, ((computerData.rot + 1) * Math.PI) / 2);
+      }
+      model.updateMatrix();
+    },
+    getEntityMaterial(name: string): THREE.MeshPhongMaterial {
+      if (!entityMaterials[name]) {
+        const mat = new THREE.MeshPhongMaterial({ color: 0xff8800 });
+        entityMaterials[name] = mat;
+        const loader = new THREE.TextureLoader();
+        const world = useWorldStore();
+        loader.load(
+          world.textureURL + `entities/${name.replace(':', '/')}.png`,
+          (texture) => {
+            texture.minFilter = THREE.NearestFilter;
+            texture.magFilter = THREE.NearestFilter;
+            mat.map = texture;
+            mat.color.setHex(0xffffff);
+            mat.needsUpdate = true;
+          },
+          undefined,
+          () => { /* no texture found — keep fallback orange */ }
+        );
+      }
+      return entityMaterials[name];
+    },
+    updateEntities(computerId: string) {
+      const computer = this.world.computers[computerId];
+      const prefix = `${computerId}:`;
+
+      // Remove old meshes for this computer
+      for (const key of Object.keys(this.worldView.entityMeshes)) {
+        if (key.startsWith(prefix)) {
+          entities.remove(this.worldView.entityMeshes[key]);
+          delete this.worldView.entityMeshes[key];
+        }
+      }
+
+      if (!computer?.entities || !computer.loc) return;
+      const origin = computer.loc;
+
+      for (const entity of computer.entities) {
+        const mat = this.getEntityMaterial(entity.name);
+        const mesh = new THREE.Mesh(entityGeometry, mat);
+        const wx = origin.x + entity.x;
+        const wy = origin.y + entity.y;
+        const wz = origin.z + entity.z;
+        mesh.position.set(wx, wy, wz);
+        (mesh as any).userData.entity = {
+          ...entity,
+          worldPos: new THREE.Vector3(wx, wy, wz),
+        };
+        entities.add(mesh);
+        this.worldView.entityMeshes[`${prefix}${entity.id}`] = mesh;
+      }
+    },
+    removeComputerModel(computerId: string) {
+      const model = this.worldView.computerModels[computerId];
+      if (model) {
+        scene.remove(model);
+        delete this.worldView.computerModels[computerId];
+      }
     },
     setCameraFocus(target: THREE.Vector3) {
       cameraControls.moveTo(target.x, target.y, target.z, true);
     },
-    focusOnTurtle(turtleId: number) {
+    focusOnComputer(computerId: number) {
       const world = useWorldStore();
-      const turtle = world.turtles[turtleId];
-      if (!turtle) return;
-
+      const computer = world.computers[computerId];
+      if (!computer) return;
       this.setCameraFocus(
-        new THREE.Vector3(turtle.loc.x, turtle.loc.y, turtle.loc.z)
+        new THREE.Vector3(computer.loc.x, computer.loc.y, computer.loc.z)
       );
     },
     addAnimatedTexture(texture: THREE.Texture) {
@@ -328,11 +411,13 @@ export default defineComponent({
     worldView.regenerateSceneFromBlocks = this.regenerateSceneFromBlocks;
     worldView.render = this.render;
     worldView.setCameraFocus = this.setCameraFocus;
-    worldView.focusOnTurtle = this.focusOnTurtle;
+    worldView.focusOnComputer = this.focusOnComputer;
     worldView.addBlock = this.addBlock;
     worldView.removeBlock = this.removeBlock;
     worldView.clearAllBlocks = this.clearAllBlocks;
-    worldView.updateTurtle = this.updateTurtle;
+    worldView.updateComputer = this.updateComputer;
+    worldView.updateEntities = this.updateEntities;
+    worldView.removeComputerModel = this.removeComputerModel;
     worldView.addAnimatedTexture = this.addAnimatedTexture;
   },
 });

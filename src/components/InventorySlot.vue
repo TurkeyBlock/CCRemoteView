@@ -81,7 +81,7 @@ export default defineComponent({
     return { world };
   },
   props: {
-    turtleId: {
+    computerId: {
       required: true,
       type: Number,
     },
@@ -99,7 +99,7 @@ export default defineComponent({
       const slotFrom = evt.dataTransfer.getData("slotFrom");
       console.log(`Transfer from slot ${slotFrom} to ${this.slotNum}`);
       this.world.sendCommand(
-        this.turtleId,
+        this.computerId,
         `local oldSelected = turtle.getSelectedSlot();
         tapi.select(${slotFrom});
         turtle.transferTo(${this.slotNum}, ${evt.ctrlKey ? 64 : 1});

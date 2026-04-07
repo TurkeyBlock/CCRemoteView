@@ -1,0 +1,148 @@
+-- Minecart Computer API (capi)
+-- Mirrors tapi but without movement. Location is always queried via GPS
+-- since minecart computers can be moved externally.
+
+-- !MUST END WITH '/api/'
+url = "http://turtles.turkeyblock.org/api/"
+local state_url = url .. "state/"
+local headers = { ["Content-Type"] = "application/json" }
+
+local state = {
+  id      = -1,
+  label   = "",
+  type    = "minecart",
+  loc     = { x = 0, y = 0, z = 0 },
+  sleep_mode = false
+}
+
+-- semaphore (used for stop signal coordination, same as tapi)
+local lmetatable = {
+  __index = {
+    incr = function(self)
+      if self.stopSignal then os.sleep(1) end
+      self.count = self.count + 1
+    end,
+    decr = function(self)
+      self.count = self.count - 1
+    end,
+    tostring = function(self)
+      return "currLocks:" .. tostring(self.count)
+    end,
+    value = function(self)
+      return self.count
+    end
+  },
+  __tostring = function(l) return l:tostring() end,
+}
+locSemaphore = { count = 0, stopSignal = false }
+setmetatable(locSemaphore, lmetatable)
+
+if os.getComputerLabel() == nil or os.getComputerLabel() == "" then
+  os.setComputerLabel("minecart" .. tostring(os.getComputerID()))
+end
+
+-- Query GPS for current position. Returns x, y, z or nil if unavailable.
+function get_gps_location()
+  local x, y, z = gps.locate(3)
+  return x, y, z
+end
+
+-- Populate state with a fresh GPS fix and computer metadata.
+function scan_specs()
+  local x, y, z = get_gps_location()
+  if x then
+    state.loc.x = math.floor(x)
+    state.loc.y = math.floor(y)
+    state.loc.z = math.floor(z)
+  else
+    print("! GPS unavailable")
+  end
+  state.id    = os.getComputerID()
+  state.label = os.getComputerLabel() or ""
+end
+
+-- Post a block map scan to the server, anchored at the current GPS position.
+function scan()
+  local scanner = peripheral.find("plethora:scanner")
+  if not scanner then return false, "no scanner attached" end
+  local raw = scanner.scan(4)
+  print("? block scan")
+  local gx, gy, gz = get_gps_location()
+  -- Floor GPS to block coords: minecart entities can be at fractional positions,
+  -- but scanner offsets are relative to the occupied block (floor of entity pos).
+  local ox = gx and math.floor(gx)
+  local oy = gy and math.floor(gy)
+  local oz = gz and math.floor(gz)
+  local blocks = {}
+  for _, b in ipairs(raw) do
+    if not (b.x == 0 and b.y == 0 and b.z == 0) then
+      table.insert(blocks, { x = b.x, y = b.y, z = b.z, name = b.name })
+    end
+  end
+  local payload = { id = os.getComputerID(), blocks = blocks }
+  if ox then
+    payload.origin = { x = ox, y = oy, z = oz }
+  end
+  local json = textutils.serializeJSON(payload)
+  local res = http.post(url .. "scan", json, headers)
+  if res then res.close() end
+  return true
+end
+
+-- Scan for nearby entities and report to server.
+-- Entities are stored as temporary children of this computer and fully
+-- replaced on every call — positions are fractional offsets from the sensor.
+function sense()
+  local sensor = peripheral.find("plethora:sensor")
+  if not sensor then return false, "no sensor attached" end
+  local raw = sensor.sense()
+  print("? entity scan")
+  local gx, gy, gz = get_gps_location()
+  local entities = {}
+  for _, e in ipairs(raw) do
+    table.insert(entities, {
+      id       = e.id,
+      name     = e.name,
+      x        = e.x,
+      y        = e.y,
+      z        = e.z,
+    })
+  end
+  local payload = { id = os.getComputerID(), entities = entities }
+  if gx then
+    -- Entity offsets are fractional (true entity positions, not block-snapped)
+    payload.origin = { x = gx, y = gy, z = gz }
+  end
+  local json = textutils.serializeJSON(payload)
+  local res = http.post(url .. "sense", json, headers)
+  if res then res.close() end
+  return true
+end
+
+-- Send a chat message as this entity.
+function say(message)
+  local chat = peripheral.find("plethora:chat")
+  if not chat then return false, "no chat recorder attached" end
+  chat.say(message)
+  return true
+end
+
+-- Propel the minecart along the track using the kinetic augment.
+function propel(power)
+  power = power or 1
+  local kinetic = peripheral.find("plethora:kinetic")
+  if not kinetic then return false, "no kinetic augment attached" end
+  kinetic.propel(power)
+  return true
+end
+
+-- Send full state report to the server. Always queries GPS first.
+function send_status_update()
+  scan_specs()
+  local json = textutils.serializeJSON(state)
+  http.request(state_url, json, headers)
+end
+
+function set_sleep_mode(mode)
+  state.sleep_mode = mode
+end

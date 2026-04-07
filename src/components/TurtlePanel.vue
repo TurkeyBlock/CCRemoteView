@@ -1,9 +1,14 @@
 <template>
   <div class="panel">
-    <TurtleInventory :turtleId="turtleId"/>
-    <FuelGauge :turtleId="turtleId"/>
-    <MovementControl :turtleId="turtleId"/>
-    <LuaTerminal :turtleId="turtleId"/>
+    <template v-if="world.computers[computerId]?.type === 'minecart'">
+      <MinecartPanel :computerId="computerId" />
+    </template>
+    <template v-else>
+      <TurtleInventory :computerId="computerId"/>
+      <FuelGauge :computerId="computerId"/>
+      <MovementControl :computerId="computerId"/>
+      <LuaTerminal :computerId="computerId"/>
+    </template>
   </div>
 </template>
 
@@ -20,6 +25,7 @@ import { defineComponent } from "vue";
 import MovementControl from "./MovementControl.vue";
 import TurtleInventory from "./TurtleInventory.vue";
 import LuaTerminal from "./LuaTerminal.vue"
+import MinecartPanel from "./MinecartPanel.vue";
 import { useWorldStore } from "../store/useWorld";
 import FuelGauge from "./FuelGauge.vue";
 import { useWorldViewStore } from "../store/useWorldView";
@@ -30,15 +36,15 @@ export default defineComponent({
     const worldView = useWorldViewStore();
     return { world, worldView }
   },
-  components: { MovementControl, TurtleInventory, LuaTerminal, FuelGauge },
+  components: { MovementControl, TurtleInventory, LuaTerminal, FuelGauge, MinecartPanel },
   props: {
-    turtleId: {
+    computerId: {
       required: true,
       type: Number
     },
   },
   mounted() {
-    this.worldView.followTurtle(this.turtleId);
+    this.worldView.followComputer(this.computerId);
   },
 });
 </script>

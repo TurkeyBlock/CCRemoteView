@@ -87,8 +87,8 @@
     <hr class="divider" />
 
     <h3>Turtles</h3>
-    <div v-if="Object.keys(world.turtles).length">
-      <div v-for="(turtle, id) in world.turtles" :key="id" class="ip-row">
+    <div v-if="Object.keys(world.computers).length">
+      <div v-for="(turtle, id) in world.computers" :key="id" class="ip-row">
         <span :class="{ stale: isStale(turtle) }">
           #{{ id }} {{ turtle.label ?? '' }}
           <span v-if="isStale(turtle)" class="stale-label">(stale)</span>
@@ -142,7 +142,7 @@ export default defineComponent({
       try {
         const [ips, ids, requests, ops] = await Promise.all([
           fetch('/api/admin/turtleIps').then(r => r.ok ? r.json() : null).catch(() => null),
-          fetch('/api/admin/turtleIds').then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch('/api/admin/computerIds').then(r => r.ok ? r.json() : null).catch(() => null),
           fetch('/api/admin/operatorRequests').then(r => r.ok ? r.json() : null).catch(() => null),
           fetch('/api/admin/operators').then(r => r.ok ? r.json() : null).catch(() => null),
         ]);
@@ -210,7 +210,7 @@ export default defineComponent({
     isStale,
     async deleteTurtle(id: string | number) {
       await fetch('/api/admin/deleteTurtle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
-      this.world.removeTurtle(id);
+      this.world.removeComputer(id);
       await this.fetchAll();
     },
     async clearWorld() {

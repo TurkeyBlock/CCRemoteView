@@ -1,6 +1,7 @@
 interface TurtleState {
     id: number,
     label: "",
+    type?: 'turtle' | 'minecart',
     loc: Vec,
     rot: number,
     inv: ItemStack[],
@@ -14,10 +15,27 @@ interface TurtleState {
     fuelLimit: number,
     sleep_mode?: boolean,
     modified?: number,
+    entities?: EntitySighting[],
+    chatLog?: ChatMessage[],
+}
+
+interface EntitySighting {
+    id: string,
+    name: string,
+    x: number,
+    y: number,
+    z: number,
+}
+
+interface ChatMessage {
+    player: string,
+    message: string,
+    uuid: string,
+    timestamp: number,
 }
 
 interface SimState {
-    turtles: { [id: string]: TurtleState },
+    computers: { [id: string]: TurtleState },
     world: { [locString: string]: Block },
 }
 
@@ -49,4 +67,4 @@ type Vec = {
 
 type Inventory = [{ name: string, count: number }]
 
-export { TurtleState, SimState, Block, ItemStack, Item, Vec, Inventory };
+export { TurtleState, SimState, Block, ItemStack, Item, Vec, Inventory, EntitySighting, ChatMessage };

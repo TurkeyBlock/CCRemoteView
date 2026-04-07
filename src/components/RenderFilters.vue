@@ -29,7 +29,7 @@
           <span class="unit-label">blocks</span>
           <button class="reset-btn" @click="clearXZ">Clear</button>
         </div>
-        <p class="hint" v-if="worldView.turtleRangeXZ !== null && worldView.selectedTurtleId === -1">
+        <p class="hint" v-if="worldView.computerRangeXZ !== null && worldView.selectedComputerId === -1">
           Select a turtle to apply XZ range.
         </p>
       </div>
@@ -71,22 +71,22 @@ export default defineComponent({
       if (this.user.savedFileSizeBytes === null) return 'unknown';
       return formatBytes(this.user.savedFileSizeBytes);
     },
-    trackedTurtleLocation(): string | null {
-      const id = this.worldView.selectedTurtleId;
-      if (id === -1 || this.worldView.turtleRangeXZ === null) return null;
-      const turtle = this.world.turtles[id];
-      return turtle ? `${turtle.loc.x},${turtle.loc.z}` : null;
+    trackedComputerLocation(): string | null {
+      const id = this.worldView.selectedComputerId;
+      if (id === -1 || this.worldView.computerRangeXZ === null) return null;
+      const computer = this.world.computers[id];
+      return computer ? `${computer.loc.x},${computer.loc.z}` : null;
     },
   },
   watch: {
-    'worldView.selectedTurtleId'(id: number) {
+    'worldView.selectedComputerId'(id: number) {
       if (id === -1) {
         this.clearXZ();
         this.resetY();
       }
     },
-    trackedTurtleLocation() {
-      if (this.worldView.turtleRangeXZ !== null) {
+    trackedComputerLocation() {
+      if (this.worldView.computerRangeXZ !== null) {
         this.worldView.regenerateSceneFromBlocks();
       }
     },
@@ -112,14 +112,14 @@ export default defineComponent({
       this.worldView.regenerateSceneFromBlocks();
     },
     applyXZ() {
-      this.worldView.turtleRangeXZ = this.xzRangeLocal && this.xzRangeLocal > 0
+      this.worldView.computerRangeXZ = this.xzRangeLocal && this.xzRangeLocal > 0
         ? this.xzRangeLocal
         : null;
       this.worldView.regenerateSceneFromBlocks();
     },
     clearXZ() {
       this.xzRangeLocal = null;
-      this.worldView.turtleRangeXZ = null;
+      this.worldView.computerRangeXZ = null;
       this.worldView.regenerateSceneFromBlocks();
     },
   },

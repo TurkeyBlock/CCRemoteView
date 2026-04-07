@@ -2,15 +2,15 @@
   <div class="inventory-wrapper">
     <div class="inventory-container">
       <InventorySlot
-        v-for="[index, slot] in world.turtles[turtleId].inv.entries()"
+        v-for="[index, slot] in world.computers[computerId].inv.entries()"
         :key="index + 1"
-        :turtleId="turtleId"
+        :computerId="computerId"
         :invSlot="slot"
         :slotNum="index + 1"
-        :isSelected="index === world.turtles[turtleId].selectedSlot - 1"
+        :isSelected="index === world.computers[computerId].selectedSlot - 1"
         @click="
           world.sendCommand(
-            turtleId,
+            computerId,
             'tapi.select(' + (index + 1).toString() + ')'
           )
         "
@@ -52,7 +52,7 @@ export default defineComponent({
   },
   components: { InventorySlot },
   props: {
-    turtleId: {
+    computerId: {
       required: true,
       type: Number,
     },

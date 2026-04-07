@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import * as THREE from "three";
-import { Block, Inventory } from '../types/types';
+import { Block, Inventory, EntitySighting } from '../types/types';
 import { useWorldStore } from './useWorld';
 
 const BIOME_TINT = 0x88C149;
@@ -10,29 +10,33 @@ export const useWorldViewStore = defineStore('worldView', {
     regenerateSceneFromBlocks: () => { },
     render: () => { },
     setCameraFocus: (target: THREE.Vector3) => { },
-    focusOnTurtle: (turtleId: number) => { },
+    focusOnComputer: (computerId: number) => { },
     addBlock: (locString: string, block: Block) => { },
     removeBlock: (locString: string) => { },
     clearAllBlocks: () => { },
-    updateTurtle: (turtleId: string) => { },
+    updateComputer: (computerId: string) => { },
+    updateEntities: (computerId: string) => { },
+    removeComputerModel: (computerId: string) => { },
     addAnimatedTexture: (texture: THREE.Texture) => { },
-    followedTurtle: {
-      turtleId: -1 as number,
+    followedComputer: {
+      computerId: -1 as number,
       lastPos: {} as { x: number, y: number, z: number }
     },
     materials: {} as { [id: string]: THREE.MeshPhongMaterial; },
     hoveredBlock: null as Block | null,
     hoveredBlockPos: null as THREE.Vector3 | null,
+    hoveredEntity: null as (EntitySighting & { worldPos: THREE.Vector3 }) | null,
     gotoBlockPos: null as THREE.Vector3 | null,
-    selectedTurtleId: -1 as number,
-    turtles: {} as { [id: string]: THREE.Object3D; },
+    entityMeshes: {} as { [key: string]: THREE.Mesh },
+    selectedComputerId: -1 as number,
+    computerModels: {} as { [id: string]: THREE.Object3D; },
     selectedInventory: null as Inventory | null,
     selectedInventorySize: 0 as number,
     transparencyList: [] as string[],
     transparencyOpacity: 0.3 as number,
     yMin: 0 as number,
     yMax: 255 as number,
-    turtleRangeXZ: null as number | null,
+    computerRangeXZ: null as number | null,
     blockTint: {
       "minecraft:water": 0x1e97f2,
       "minecraft:grass": BIOME_TINT,
@@ -107,12 +111,12 @@ export const useWorldViewStore = defineStore('worldView', {
     isBlockVisible(locString: string): boolean {
       const [x, y, z] = locString.split(',').map(Number);
       if (y < this.yMin || y > this.yMax) return false;
-      if (this.turtleRangeXZ !== null && this.selectedTurtleId !== -1) {
+      if (this.computerRangeXZ !== null && this.selectedComputerId !== -1) {
         const world = useWorldStore();
-        const turtle = world.turtles[this.selectedTurtleId];
+        const turtle = world.computers[this.selectedComputerId];
         if (turtle) {
-          if (Math.abs(x - turtle.loc.x) > this.turtleRangeXZ) return false;
-          if (Math.abs(z - turtle.loc.z) > this.turtleRangeXZ) return false;
+          if (Math.abs(x - turtle.loc.x) > this.computerRangeXZ) return false;
+          if (Math.abs(z - turtle.loc.z) > this.computerRangeXZ) return false;
         }
       }
       return true;
@@ -191,13 +195,13 @@ export const useWorldViewStore = defineStore('worldView', {
       }
       return this.materials[id];
     },
-    followTurtle(turtleId: number) {
-      if (turtleId === this.followedTurtle.turtleId) turtleId = -1;
-      this.followedTurtle.turtleId = turtleId;
-      if (turtleId === -1) return;
+    followComputer(computerId: number) {
+      if (computerId === this.followedComputer.computerId) computerId = -1;
+      this.followedComputer.computerId = computerId;
+      if (computerId === -1) return;
       const world = useWorldStore();
-      this.followedTurtle.lastPos = world.turtles[turtleId].loc;
-      this.focusOnTurtle(turtleId);
+      this.followedComputer.lastPos = world.computers[computerId].loc;
+      this.focusOnComputer(computerId);
     },
   },
 })

@@ -10,15 +10,15 @@
     <div class="hud-panel">
       <div class="panel-left">
         <a class="home-link" href="/api/home">← turkeyblock.org</a>
-        <select v-model="worldView.selectedTurtleId" @change="worldView.followTurtle(worldView.selectedTurtleId)">
+        <select v-model="worldView.selectedComputerId" @change="worldView.followComputer(worldView.selectedComputerId)">
           <option :value="-1">[None]</option>
-          <option v-for="id in world.getTurtleIds" :key="id" :value="id">
-            {{ isStale(world.turtles[id]) ? '⚠ ' : '' }}Turtle {{ id }}{{ world.turtles[id].sleep_mode ? ' (Sleeping)' : '' }} : {{ world.turtles[id].label }}
+          <option v-for="id in world.getComputerIds" :key="id" :value="id">
+            {{ isStale(world.computers[id]) ? '⚠ ' : '' }}{{ world.computers[id].type === 'minecart' ? 'Minecart' : 'Turtle' }} {{ id }}{{ world.computers[id].sleep_mode ? ' (Sleeping)' : '' }} : {{ world.computers[id].label }}
           </option>
         </select>
         <TurtlePanel
-          v-if="Number(worldView.selectedTurtleId) != -1"
-          :turtleId="Number(worldView.selectedTurtleId)"
+          v-if="Number(worldView.selectedComputerId) != -1"
+          :computerId="Number(worldView.selectedComputerId)"
         />
       </div>
       <div class="panel-right">
@@ -127,7 +127,7 @@ export default defineComponent({
   },
   data() {
     return {
-      turtleId: -1 as Number,
+      computerId: -1 as Number,
     };
   },
   components: {
@@ -171,7 +171,7 @@ export default defineComponent({
           if (!data) return;
           // console.log(data);
           if (data.state) {
-            world.setTurtleStatus(data.state.turtle);
+            world.setComputerStatus(data.state.computers);
             world.blocks = data.state.world.blocks;
             worldView.regenerateSceneFromBlocks();
             world.lastTransactionId = data.state.lastTransactionId;
@@ -185,7 +185,7 @@ export default defineComponent({
           if (!world.isUnauthorized) setTimeout(() => this.pollStatus(), 400);
         });
 
-      if (worldView.selectedTurtleId !== -1) {
+      if (worldView.selectedComputerId !== -1) {
         fetch(world.apiURL + "getCommandResult", {
           method: "POST",
           mode: "cors",
@@ -194,14 +194,14 @@ export default defineComponent({
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            turtleId: worldView.selectedTurtleId,
+            computerId: worldView.selectedComputerId,
             getOnlyLatest: true,
           }),
         })
           .then((res) => res.json())
           .then((data) => {
             if (data.result) {
-              world.commandResult[data.turtleId] = data.result.ret;
+              world.commandResult[data.computerId] = data.result.ret;
             }
           });
       }

@@ -30,12 +30,12 @@ export default defineComponent({
       }
     },
     sendTurtleCmd(cmd: string) {
-      if (this.worldView.selectedTurtleId < 0) return;
-      this.world.sendCommand(this.worldView.selectedTurtleId, cmd);
+      if (this.worldView.selectedComputerId < 0) return;
+      this.world.sendCommand(this.worldView.selectedComputerId, cmd);
     },
     clearCmdQueue() {
-      if (this.worldView.selectedTurtleId < 0) return;
-      this.world.clearCommandQueue(this.worldView.selectedTurtleId);
+      if (this.worldView.selectedComputerId < 0) return;
+      this.world.clearCommandQueue(this.worldView.selectedComputerId);
     },
   },
   mounted() {
