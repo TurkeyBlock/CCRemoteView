@@ -13,7 +13,7 @@
         <select v-model="worldView.selectedTurtleId" @change="worldView.followTurtle(worldView.selectedTurtleId)">
           <option :value="-1">[None]</option>
           <option v-for="id in world.getTurtleIds" :key="id" :value="id">
-            {{ isStale(world.turtles[id]) ? '⚠ ' : '' }}Turtle {{ id }} : {{ world.turtles[id].label }}
+            {{ isStale(world.turtles[id]) ? '⚠ ' : '' }}Turtle {{ id }}{{ world.turtles[id].sleep_mode ? ' (Sleeping)' : '' }} : {{ world.turtles[id].label }}
           </option>
         </select>
         <TurtlePanel

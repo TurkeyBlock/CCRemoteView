@@ -263,12 +263,14 @@ app.post('/api/scan', requireApprovedTurtle, (req, res) => {
 
 app.post('/api/getCommand', requireApprovedTurtle, (req, res) => {
   const s = req.body;
+  console.log(`Turtle ${s.id} requested command (size: ${JSON.stringify(req.body).length} bytes)`);
   if (!cmds[s.id]) { res.send(); return; }
   res.send(cmds[s.id].shift());
 });
 
 app.post('/api/commandResult', requireApprovedTurtle, (req, res) => {
   const turtleId = req.body.turtleId;
+  console.log(`Turtle ${turtleId} sent command result (size: ${JSON.stringify(req.body).length} bytes):`, req.body.result);
   if (!commandResultCache[turtleId]) commandResultCache[turtleId] = [];
   commandResultCache[turtleId].push(req.body.result);
   res.sendStatus(200);
@@ -276,6 +278,7 @@ app.post('/api/commandResult', requireApprovedTurtle, (req, res) => {
 
 app.post('/api/getStopSignal', requireApprovedTurtle, (req, res) => {
   const json = req.body;
+  console.log(`Turtle ${json.id} checked for stop signal (size: ${JSON.stringify(req.body).length} bytes)`);
   if (isNaN(json.id)) { res.sendStatus(400); return; }
   res.send(stopSignal[json.id] ? true : false);
   delete stopSignal[json.id];

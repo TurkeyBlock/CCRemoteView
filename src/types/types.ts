@@ -12,6 +12,7 @@ interface TurtleState {
     },
     fuelLevel: number,
     fuelLimit: number,
+    sleep_mode?: boolean,
     modified?: number,
 }
 

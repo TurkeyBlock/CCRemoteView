@@ -27,7 +27,8 @@ local state = {
     bottom = 0
   },
   fuelLevel = -1,
-  fuelLimit = -1
+  fuelLimit = -1,
+  sleep_mode = false
 }
 -- semaphore implementation
 local lmetatable = {
@@ -149,6 +150,10 @@ end
 
 function setLoc(loc_in)
   loc_internal = loc_in
+end
+
+function set_sleep_mode(mode)
+  state.sleep_mode = mode
 end
 
 function save_loc_to_file()
