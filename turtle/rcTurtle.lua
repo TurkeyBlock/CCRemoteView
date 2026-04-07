@@ -57,31 +57,35 @@ end
 
 function main()
     local idle_seconds = 0
-    local sleep_mode = false
-    local prev_sleep_mode = false
+    local sleep_level = 0  -- 0: active (1s), 1: light sleep (5s), 2: deep sleep (30s)
+    local prev_sleep_level = 0
     tapi.send_status_update()  -- Initial status update
     while true do
-        local wait_seconds = sleep_mode and 30 or 1
+        local wait_seconds = sleep_level == 2 and 30 or sleep_level == 1 and 5 or 1
         os.sleep(wait_seconds)
         parallel.waitForAny(poll_stop_signal, get_command)
         if command_received then
             idle_seconds = 0
-            sleep_mode = false
+            sleep_level = 0
             command_received = false
         else
             idle_seconds = idle_seconds + wait_seconds
-            if idle_seconds > 60 then
-                sleep_mode = true
+            if idle_seconds >= 300 then
+                sleep_level = 2
+            elseif idle_seconds >= 60 then
+                sleep_level = 1
             end
         end
-        if sleep_mode ~= prev_sleep_mode then
-            if sleep_mode then
-                print("Entering sleep mode - polling every 30 seconds")
+        if sleep_level ~= prev_sleep_level then
+            if sleep_level == 2 then
+                print("Entering deep sleep - polling every 30 seconds")
+            elseif sleep_level == 1 then
+                print("Entering light sleep - polling every 5 seconds")
             else
                 print("Exiting sleep mode - resuming normal polling")
             end
-            prev_sleep_mode = sleep_mode
-            tapi.set_sleep_mode(sleep_mode)
+            prev_sleep_level = sleep_level
+            tapi.set_sleep_mode(sleep_level > 0)
             tapi.send_status_update()
         end
         tapi.locSemaphore.stopSignal = false
