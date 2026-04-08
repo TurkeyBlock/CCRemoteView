@@ -133,7 +133,6 @@ function modem_main()
 
         elseif event == "modem_message" then
             local channel, message = p2, p4
-            print("modem rx ch=" .. tostring(channel) .. " MY_ID=" .. tostring(MY_ID) .. " type=" .. tostring(type(message) == "table" and message.type or "?"))
             if channel == MY_ID and type(message) == "table" then
                 heartbeat_timer = os.startTimer(HEARTBEAT_WINDOW)  -- reset on any valid modem contact
                 missed_heartbeats = 0
