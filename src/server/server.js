@@ -65,6 +65,7 @@ let transactionCache = {}
 let commandResultCache = {}
 let cmds = {}
 let stopSignal = {}
+let modemServerId = null;
 
 const userManagement = new UserManagement();
 const turtleIpManager = new TurtleIpManager();
@@ -319,6 +320,54 @@ app.post('/api/getStopSignal', requireApprovedComputer, (req, res) => {
   if (isNaN(json.id)) { res.sendStatus(400); return; }
   res.send(stopSignal[json.id] ? true : false);
   delete stopSignal[json.id];
+});
+
+// Modem server registration — modem server calls this on startup so clients can discover it.
+// When a new modem ID registers, queues os.reboot() for all known computers so they
+// reload, discover the modem, and switch to modem mode automatically.
+app.post('/api/modem/register', requireApprovedComputer, (req, res) => {
+  const { id } = req.body;
+  if (id === undefined) return res.status(400).json({ error: 'id required' });
+  if (modemServerId !== id) {
+    modemServerId = id;
+    log.info(`Modem server registered: ID ${id} — queuing reboot for all computers`);
+    for (const computerId of Object.keys(state.computers)) {
+      if (!cmds[computerId]) cmds[computerId] = [];
+      cmds[computerId].push('os.reboot()');
+    }
+  }
+  res.json({ ok: true });
+});
+
+// Open endpoint — computers query this on boot to discover the modem server ID
+app.get('/api/modem/id', (_req, res) => {
+  res.json({ id: modemServerId });
+});
+
+// Batch endpoints used by the modem proxy server
+app.post('/api/getCommands', requireApprovedComputer, (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids must be an array' });
+  const result = {};
+  for (const id of ids) {
+    if (cmds[id] && cmds[id].length > 0) {
+      result[String(id)] = cmds[id].shift();
+    }
+  }
+  res.json(result);
+});
+
+app.post('/api/getStopSignals', requireApprovedComputer, (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids must be an array' });
+  const result = {};
+  for (const id of ids) {
+    if (stopSignal[id]) {
+      result[String(id)] = true;
+      delete stopSignal[id];
+    }
+  }
+  res.json(result);
 });
 
 // --- Browser endpoints (session gated) ---

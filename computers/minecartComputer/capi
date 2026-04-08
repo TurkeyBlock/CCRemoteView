@@ -7,6 +7,31 @@ url = "http://turtles.turkeyblock.org/api/"
 local state_url = url .. "state/"
 local headers = { ["Content-Type"] = "application/json" }
 
+-- Auto-discover the modem server ID from the HTTP server.
+-- If a wireless modem is attached and a modem server is registered, modem mode is enabled.
+local function discover_modem_id()
+  local res = http.get(url .. "modem/id")
+  if res then
+    local data = textutils.unserializeJSON(res.readAll())
+    res.close()
+    if data and data.id then return data.id end
+  end
+  return nil
+end
+
+local modem_device = peripheral.find("modem") or nil
+local MODEM_SERVER_ID = nil
+use_modem = false
+
+if modem_device then
+  MODEM_SERVER_ID = discover_modem_id()
+  if MODEM_SERVER_ID then
+    modem_device.open(os.getComputerID())
+    use_modem = true
+    print("Modem mode: server ID " .. MODEM_SERVER_ID)
+  end
+end
+
 local state = {
   id      = -1,
   label   = "",
@@ -83,9 +108,13 @@ function scan()
   if ox then
     payload.origin = { x = ox, y = oy, z = oz }
   end
-  local json = textutils.serializeJSON(payload)
-  local res = http.post(url .. "scan", json, headers)
-  if res then res.close() end
+  if use_modem then
+    modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(), { type = "scan", data = payload })
+  else
+    local json = textutils.serializeJSON(payload)
+    local res = http.post(url .. "scan", json, headers)
+    if res then res.close() end
+  end
   return true
 end
 
@@ -113,9 +142,13 @@ function sense()
     -- Entity offsets are fractional (true entity positions, not block-snapped)
     payload.origin = { x = gx, y = gy, z = gz }
   end
-  local json = textutils.serializeJSON(payload)
-  local res = http.post(url .. "sense", json, headers)
-  if res then res.close() end
+  if use_modem then
+    modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(), { type = "sense", data = payload })
+  else
+    local json = textutils.serializeJSON(payload)
+    local res = http.post(url .. "sense", json, headers)
+    if res then res.close() end
+  end
   return true
 end
 
@@ -139,8 +172,43 @@ end
 -- Send full state report to the server. Always queries GPS first.
 function send_status_update()
   scan_specs()
-  local json = textutils.serializeJSON(state)
-  http.request(state_url, json, headers)
+  if use_modem then
+    modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(), { type = "state", data = state })
+  else
+    local json = textutils.serializeJSON(state)
+    http.request(state_url, json, headers)
+  end
+end
+
+-- Send a command result to the server.
+function send_command_result(succ, ret)
+  local data
+  local ok = pcall(function()
+    textutils.serializeJSON({ result = { succ = succ, ret = ret } })  -- test serializability
+    data = { computerId = os.getComputerID(), result = { succ = succ, ret = ret } }
+  end)
+  if not ok then
+    data = { computerId = os.getComputerID(), result = { succ = false, ret = "error: result not serializable" } }
+  end
+  if use_modem then
+    modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(), { type = "commandResult", data = data })
+  else
+    local json = textutils.serializeJSON(data)
+    local res = http.post(url .. "commandResult", json, headers)
+    if res then res.close() end
+  end
+end
+
+-- Send a chat event to the server.
+function send_chat(player, message, uuid)
+  local data = { id = os.getComputerID(), player = player, message = message, uuid = uuid or "" }
+  if use_modem then
+    modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(), { type = "chat", data = data })
+  else
+    local json = textutils.serializeJSON(data)
+    local res = http.post(url .. "chat", json, headers)
+    if res then res.close() end
+  end
 end
 
 function set_sleep_mode(mode)

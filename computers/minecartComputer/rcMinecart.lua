@@ -2,26 +2,10 @@ os.loadAPI("capi")
 
 local get_command_url    = capi.url .. "getCommand/"
 local get_stop_url       = capi.url .. "getStopSignal/"
-local command_result_url = capi.url .. "commandResult/"
-local chat_url           = capi.url .. "chat/"
 
 local command_received = false
 
-function send_command_result(succ, ret)
-  local valid, payload = pcall(textutils.serializeJSON, {
-    computerId = os.getComputerID(),
-    result   = { succ = succ, ret = ret }
-  })
-  if not valid then
-    payload = textutils.serializeJSON({
-      computerId = os.getComputerID(),
-      result   = { succ = false, ret = "error: result contains function which cannot be serialized" }
-    })
-  end
-  local res = http.post(command_result_url, payload, { ["Content-Type"] = "application/json" })
-  if res then res.close() end
-end
-
+-- HTTP mode: fetch and execute the next queued command from the server.
 function get_command()
   local json = textutils.serializeJSON({ id = os.getComputerID() })
   local res = http.post(get_command_url, json, { ["Content-Type"] = "application/json" })
@@ -32,30 +16,25 @@ function get_command()
     local cmd, err = loadstring(cmd_string)
     if cmd then
       setfenv(cmd, getfenv())
-      send_command_result(pcall(cmd))
+      capi.send_command_result(pcall(cmd))
     else
       print("error in loadstring(" .. cmd_string .. ")")
-      send_command_result(false, err)
+      capi.send_command_result(false, err)
     end
     res.close()
     capi.send_status_update()
   end
 end
 
+-- Forward chat events to the server (works in both HTTP and modem modes).
 function monitor_chat()
   while true do
     local _, player, message, uuid = os.pullEvent("chat_message")
-    local json = textutils.serializeJSON({
-      id      = os.getComputerID(),
-      player  = player,
-      message = message,
-      uuid    = uuid
-    })
-    local res = http.post(chat_url, json, { ["Content-Type"] = "application/json" })
-    if res then res.close() end
+    capi.send_chat(player, message, uuid)
   end
 end
 
+-- HTTP mode: poll for a stop signal; sets the semaphore and returns when received.
 function poll_stop_signal()
   while true do
     local json = textutils.serializeJSON({ id = os.getComputerID() })
@@ -74,6 +53,7 @@ function poll_stop_signal()
   end
 end
 
+-- HTTP-based main loop with idle/sleep backoff.
 function main()
   local idle_seconds  = 0
   local sleep_level   = 0  -- 0: active (5s), 1: light sleep (15s), 2: deep sleep (30s)
@@ -111,4 +91,55 @@ function main()
   end
 end
 
-parallel.waitForAny(main, monitor_chat)
+-- Modem-based main loop: waits for commands and stop signals pushed by the modem server.
+-- Runs the command while simultaneously watching for stop signals in parallel.
+function modem_main()
+  local MY_ID = os.getComputerID()
+  capi.send_status_update()
+  while true do
+    local event, side, channel, reply_channel, message = os.pullEvent("modem_message")
+    if channel == MY_ID and type(message) == "table" then
+
+      if message.type == "stopSignal" then
+        capi.locSemaphore.stopSignal = true
+        while capi.locSemaphore.count > 0 do os.sleep(0.001) end
+        capi.locSemaphore.stopSignal = false
+
+      elseif message.type == "command" and message.command and message.command ~= "" then
+        local cmd_string = message.command
+
+        local function run_cmd()
+          local cmd, err = loadstring(cmd_string)
+          if cmd then
+            setfenv(cmd, getfenv())
+            capi.send_command_result(pcall(cmd))
+          else
+            capi.send_command_result(false, err)
+          end
+          capi.send_status_update()
+        end
+
+        -- Watch for a stop signal while the command executes (command yields during movement).
+        local function watch_stop()
+          while true do
+            local ev, s, ch, rch, msg = os.pullEvent("modem_message")
+            if ch == MY_ID and type(msg) == "table" and msg.type == "stopSignal" then
+              capi.locSemaphore.stopSignal = true
+              while capi.locSemaphore.count > 0 do os.sleep(0.001) end
+              return
+            end
+          end
+        end
+
+        parallel.waitForAny(run_cmd, watch_stop)
+        capi.locSemaphore.stopSignal = false
+      end
+    end
+  end
+end
+
+if capi.use_modem then
+  parallel.waitForAny(modem_main, monitor_chat)
+else
+  parallel.waitForAny(main, monitor_chat)
+end

@@ -3,12 +3,37 @@
 
 os.loadAPI("location")
 
--- !MUST END WITH '/api/' 
+-- !MUST END WITH '/api/'
 url = "http://turtles.turkeyblock.org/api/"
 state_url = url .. "state/"
 local headers = {
   ["Content-Type"] = "application/json"
 }
+
+-- Auto-discover the modem server ID from the HTTP server.
+-- If a wireless modem is attached and a modem server is registered, modem mode is enabled.
+local function discover_modem_id()
+  local res = http.get(url .. "modem/id")
+  if res then
+    local data = textutils.unserializeJSON(res.readAll())
+    res.close()
+    if data and data.id then return data.id end
+  end
+  return nil
+end
+
+local modem_device = peripheral.find("modem") or nil
+local MODEM_SERVER_ID = nil
+use_modem = false
+
+if modem_device then
+  MODEM_SERVER_ID = discover_modem_id()
+  if MODEM_SERVER_ID then
+    modem_device.open(os.getComputerID())
+    use_modem = true
+    print("Modem mode: server ID " .. MODEM_SERVER_ID)
+  end
+end
 local state = {
   id = -1,
   label = "",
@@ -88,8 +113,31 @@ function send_status_update()
   scan_inventory()
   scan_turtle_specs()
 
-  local state = textutils.serializeJSON(state)
-  http.request(state_url, state, headers)
+  if use_modem then
+    modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(), { type = "state", data = state })
+  else
+    local json = textutils.serializeJSON(state)
+    http.request(state_url, json, headers)
+  end
+end
+
+-- Send a command result to the server.
+function send_command_result(succ, ret)
+  local data
+  local ok = pcall(function()
+    textutils.serializeJSON({ result = { succ = succ, ret = ret } })  -- test serializability
+    data = { computerId = os.getComputerID(), result = { succ = succ, ret = ret } }
+  end)
+  if not ok then
+    data = { computerId = os.getComputerID(), result = { succ = false, ret = "error: result not serializable" } }
+  end
+  if use_modem then
+    modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(), { type = "commandResult", data = data })
+  else
+    local json = textutils.serializeJSON(data)
+    local res = http.post(url .. "commandResult", json, headers)
+    if res then res.close() end
+  end
 end
 
 local function does_side_have_inventory(side)
@@ -765,8 +813,13 @@ function scan()
         table.insert(blocks, { x = b.x, y = b.y, z = b.z, name = b.name })
       end
     end
-    local json = textutils.serializeJSON({ id = os.getComputerID(), blocks = blocks })
-    local res = http.post(tapi.url .. "scan", json, { ["Content-Type"] = "application/json" })
-    if res then res.close() end
+    local payload = { id = os.getComputerID(), blocks = blocks }
+    if use_modem then
+      modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(), { type = "scan", data = payload })
+    else
+      local json = textutils.serializeJSON(payload)
+      local res = http.post(url .. "scan", json, { ["Content-Type"] = "application/json" })
+      if res then res.close() end
+    end
     return true
 end

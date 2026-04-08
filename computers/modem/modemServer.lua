@@ -1,105 +1,107 @@
 -- Modem Server
--- Acts as a proxy between computers and the HTTP server, batching requests to reduce load.
--- Configuration: Edit SERVED_COMPUTER_IDS below to specify which computers this modem serves.
+-- Proactively polls the HTTP server for commands/stop signals and distributes them to
+-- client computers via wireless modem. Client computers send state/scan/sense/chat/
+-- commandResult to this server, which forwards them to the HTTP server.
+--
+-- Configuration: edit SERVED_COMPUTER_IDS and POLL_INTERVAL below, then copy to the
+-- modem computer and run. Client computers must have MODEM_SERVER_ID set to this
+-- computer's ID in their capi/tapi files.
 
 -- !MUST END WITH '/api/'
 local BASE_URL = "http://turtles.turkeyblock.org/api/"
 local SERVED_COMPUTER_IDS = { 3, 4, 5, 10, 11, 12 }  -- Edit this list to add/remove served computers
+local POLL_INTERVAL = 1  -- Seconds between polls for commands and stop signals
 
 local modem = peripheral.find("modem") or error("No modem attached", 0)
 local MODEM_ID = os.getComputerID()
+local headers = { ["Content-Type"] = "application/json" }
 
 print("Modem Server starting (ID: " .. MODEM_ID .. ")")
-print("Serving computer IDs: " .. table.concat(SERVED_COMPUTER_IDS, ", "))
+print("Serving: " .. table.concat(SERVED_COMPUTER_IDS, ", "))
+print("Poll interval: " .. POLL_INTERVAL .. "s")
+print("Listening on channel " .. MODEM_ID)
 
--- Open channels for all served computers
-for _, computer_id in ipairs(SERVED_COMPUTER_IDS) do
-  modem.open(computer_id)
+-- Open own channel so client computers can transmit to us
+modem.open(MODEM_ID)
+
+-- Pre-serialized payloads (don't change after startup)
+local ids_json = textutils.serializeJSON({ ids = SERVED_COMPUTER_IDS })
+local register_json = textutils.serializeJSON({ id = MODEM_ID })
+
+-- Register this modem server's ID with the HTTP server so clients can discover it.
+local function register()
+  local res = http.post(BASE_URL .. "modem/register", register_json, headers)
+  if res then res.close() end
 end
 
--- Batch of pending requests from computers
-local pending_get_command = {}
-local pending_get_stop_signal = {}
+-- Poll the HTTP server for pending commands and stop signals for all served computers,
+-- then transmit any results directly to the appropriate computer's channel.
+-- Re-registers each poll so clients can re-discover after a server restart.
+local function poll_all()
+  register()
 
--- Make batched HTTP requests to the server
-local function make_batched_requests()
-  local get_command_ids = {}
-  local get_stop_signal_ids = {}
-  
-  for computer_id in pairs(pending_get_command) do
-    table.insert(get_command_ids, computer_id)
-  end
-  for computer_id in pairs(pending_get_stop_signal) do
-    table.insert(get_stop_signal_ids, computer_id)
-  end
-  
-  -- Make getCommand request if any computers waiting
-  if #get_command_ids > 0 then
-    local cmd_payload = textutils.serializeJSON({ ids = get_command_ids })
-    local res = http.post(BASE_URL .. "getCommands", cmd_payload, { ["Content-Type"] = "application/json" })
-    if res then
-      local commands = textutils.unserializeJSON(res.readAll()) or {}
-      res.close()
-      -- Send responses back to each computer
-      for computer_id, cmd in pairs(commands) do
-        modem.transmit(tonumber(computer_id), MODEM_ID, { type = "command", command = cmd })
+  -- Batch getCommands
+  local res = http.post(BASE_URL .. "getCommands", ids_json, headers)
+  if res then
+    local commands = textutils.unserializeJSON(res.readAll()) or {}
+    res.close()
+    for id_str, cmd in pairs(commands) do
+      if cmd and cmd ~= "" then
+        modem.transmit(tonumber(id_str), MODEM_ID, { type = "command", command = cmd })
+        print("> cmd -> " .. id_str)
       end
     end
-    pending_get_command = {}
   end
-  
-  -- Make getStopSignal request if any computers waiting
-  if #get_stop_signal_ids > 0 then
-    local stop_payload = textutils.serializeJSON({ ids = get_stop_signal_ids })
-    local res = http.post(BASE_URL .. "getStopSignals", stop_payload, { ["Content-Type"] = "application/json" })
-    if res then
-      local stop_signals = textutils.unserializeJSON(res.readAll()) or {}
-      res.close()
-      -- Send responses back to each computer
-      for computer_id, stop in pairs(stop_signals) do
-        modem.transmit(tonumber(computer_id), MODEM_ID, { type = "stopSignal", signal = stop })
+
+  -- Batch getStopSignals
+  res = http.post(BASE_URL .. "getStopSignals", ids_json, headers)
+  if res then
+    local signals = textutils.unserializeJSON(res.readAll()) or {}
+    res.close()
+    for id_str, signal in pairs(signals) do
+      if signal then
+        modem.transmit(tonumber(id_str), MODEM_ID, { type = "stopSignal" })
+        print("> stop -> " .. id_str)
       end
     end
-    pending_get_stop_signal = {}
   end
 end
 
--- Main request handler
-local function handle_request(request, sender_channel)
-  if request.type == "getCommand" then
-    pending_get_command[request.id] = true
-  elseif request.type == "getStopSignal" then
-    pending_get_stop_signal[request.id] = true
-  elseif request.type == "state" then
-    -- State updates are sent directly to server immediately
-    local payload = textutils.serializeJSON(request.data)
-    local res = http.post(BASE_URL .. "state", payload, { ["Content-Type"] = "application/json" })
-    if res then res.close() end
-  elseif request.type == "scan" then
-    local payload = textutils.serializeJSON(request.data)
-    local res = http.post(BASE_URL .. "scan", payload, { ["Content-Type"] = "application/json" })
-    if res then res.close() end
-  elseif request.type == "sense" then
-    local payload = textutils.serializeJSON(request.data)
-    local res = http.post(BASE_URL .. "sense", payload, { ["Content-Type"] = "application/json" })
-    if res then res.close() end
-  elseif request.type == "chat" then
-    local payload = textutils.serializeJSON(request.data)
-    local res = http.post(BASE_URL .. "chat", payload, { ["Content-Type"] = "application/json" })
-    if res then res.close() end
-  end
+-- Forward a message received from a client computer to the appropriate HTTP endpoint.
+local endpoint_map = {
+  state         = "state",
+  scan          = "scan",
+  sense         = "sense",
+  chat          = "chat",
+  commandResult = "commandResult",
+}
+
+local function forward_to_server(message)
+  local endpoint = endpoint_map[message.type]
+  if not endpoint or not message.data then return end
+  local json = textutils.serializeJSON(message.data)
+  local res = http.post(BASE_URL .. endpoint, json, headers)
+  if res then res.close() end
 end
 
--- Main loop
+-- Register immediately so clients that boot before the first timed poll can discover us.
+register()
+
+-- Main loop: fire an immediate poll, then alternate between timed polls and
+-- handling forwarded data (state/scan/sense/chat/commandResult) from client computers.
+local timer_id = os.startTimer(0)  -- poll immediately on start
 while true do
-  local event, side, channel, reply_channel, message, distance = os.pullEvent("modem_message")
-  
-  if type(message) == "table" then
-    handle_request(message, reply_channel)
+  local event, p1, p2, p3, p4 = os.pullEvent()
+
+  if event == "timer" and p1 == timer_id then
+    poll_all()
+    timer_id = os.startTimer(POLL_INTERVAL)
+
+  elseif event == "modem_message" then
+    -- p1=side, p2=channel, p3=replyChannel, p4=message
+    local message = p4
+    if type(message) == "table" then
+      forward_to_server(message)
+    end
   end
-  
-  -- Every 5 requests or idle timeout, process batched command/stop signal requests
-  -- (This can be adjusted - currently debounces rapidly)
-  os.sleep(0.5)
-  make_batched_requests()
 end

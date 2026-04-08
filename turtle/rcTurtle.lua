@@ -3,20 +3,10 @@ os.loadAPI("tapi")
 
 local get_command_url = tapi.url .. "getCommand/"
 local get_stop_signal_url = tapi.url .. "getStopSignal/"
-local command_result_url = tapi.url .. "commandResult/"
 
 local command_received = false
 
-function send_command_result(succ, ret)
-    local valid, cmd_result = pcall(textutils.serializeJSON, { computerId = os.getComputerID(), result = { succ = succ, ret = ret } })
-    if not valid then
-        cmd_result = textutils.serializeJSON({ computerId = os.getComputerID(), result = { succ = false, ret = "error: result contains function which cannot be serialized" } })
-    end
-    -- print("sending cmd_result: " .. tostring(succ) .. ", " .. tostring(ret))
-    local res = http.post(command_result_url, cmd_result, { ["Content-Type"] = "application/json" })
-    if res then res.close() end
-end
-
+-- HTTP mode: fetch and execute the next queued command from the server.
 function get_command()
     local json = textutils.serializeJSON({ id = os.getComputerID() })
     local res = http.post(get_command_url, json, { ["Content-Type"] = "application/json" })
@@ -27,16 +17,17 @@ function get_command()
         local cmd, err = loadstring(cmd_string)
         if cmd then
             setfenv(cmd, getfenv())
-            send_command_result(pcall(cmd))
+            tapi.send_command_result(pcall(cmd))
         else
             print("error in loadstring(" .. cmd_string .. ")");
-            send_command_result(false, err)
+            tapi.send_command_result(false, err)
         end
         res.close()
         tapi.send_status_update()
     end
 end
 
+-- HTTP mode: poll for a stop signal; sets the semaphore and returns when received.
 function poll_stop_signal()
     while true do
         local json = textutils.serializeJSON({ id = os.getComputerID() })
@@ -55,6 +46,7 @@ function poll_stop_signal()
     end
 end
 
+-- HTTP-based main loop with idle/sleep backoff.
 function main()
     local idle_seconds = 0
     local sleep_level = 0  -- 0: active (1s), 1: light sleep (5s), 2: deep sleep (30s)
@@ -92,4 +84,55 @@ function main()
     end
 end
 
-main()
+-- Modem-based main loop: waits for commands and stop signals pushed by the modem server.
+-- Runs the command while simultaneously watching for stop signals in parallel.
+function modem_main()
+    local MY_ID = os.getComputerID()
+    tapi.send_status_update()
+    while true do
+        local event, side, channel, reply_channel, message = os.pullEvent("modem_message")
+        if channel == MY_ID and type(message) == "table" then
+
+            if message.type == "stopSignal" then
+                tapi.locSemaphore.stopSignal = true
+                while tapi.locSemaphore.count > 0 do os.sleep(0.001) end
+                tapi.locSemaphore.stopSignal = false
+
+            elseif message.type == "command" and message.command and message.command ~= "" then
+                local cmd_string = message.command
+
+                local function run_cmd()
+                    local cmd, err = loadstring(cmd_string)
+                    if cmd then
+                        setfenv(cmd, getfenv())
+                        tapi.send_command_result(pcall(cmd))
+                    else
+                        tapi.send_command_result(false, err)
+                    end
+                    tapi.send_status_update()
+                end
+
+                -- Watch for a stop signal while the command executes (command yields during movement).
+                local function watch_stop()
+                    while true do
+                        local ev, s, ch, rch, msg = os.pullEvent("modem_message")
+                        if ch == MY_ID and type(msg) == "table" and msg.type == "stopSignal" then
+                            tapi.locSemaphore.stopSignal = true
+                            while tapi.locSemaphore.count > 0 do os.sleep(0.001) end
+                            return
+                        end
+                    end
+                end
+
+                parallel.waitForAny(run_cmd, watch_stop)
+                tapi.locSemaphore.stopSignal = false
+            end
+        end
+    end
+end
+
+if tapi.use_modem then
+    modem_main()
+else
+    main()
+end
