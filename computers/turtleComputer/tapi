@@ -174,8 +174,16 @@ end
 -- Equip a specific item by name to the given side ("left" or "right").
 -- Returns true on success, or false + error string on failure.
 local function equipItem(itemName, side)
+  -- Check if already equipped as a peripheral (e.g. plethora modules)
   local equipped = peripheral.getType(side)
-  if equipped == itemName then return true end -- already equipped, skip
+  if equipped == itemName then return true end
+
+  -- Check if already equipped as a non-peripheral tool (e.g. pickaxe)
+  local getEquipped = side == "left" and turtle.getEquippedLeft or turtle.getEquippedRight
+  if getEquipped then
+    local equippedItem = getEquipped()
+    if equippedItem and equippedItem.name == itemName then return true end
+  end
 
   for slot = 1, 16 do
     local item = turtle.getItemDetail(slot)
