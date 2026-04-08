@@ -196,12 +196,13 @@ export default defineComponent({
       // check if turtle moved
       const computerId = this.worldView.followedComputer.computerId;
       if (computerId != -1) {
-        const currPos = this.world.computers[computerId].loc;
+        const currPos = this.world.computers[computerId]?.loc;
         const lastPos = this.worldView.followedComputer.lastPos;
         if (
-          currPos.x !== lastPos.x ||
+          currPos && lastPos &&
+          (currPos.x !== lastPos.x ||
           currPos.y !== lastPos.y ||
-          currPos.z !== lastPos.z
+          currPos.z !== lastPos.z)
         ) {
           this.worldView.setCameraFocus(
             new THREE.Vector3(currPos.x, currPos.y, currPos.z)
@@ -394,7 +395,7 @@ export default defineComponent({
     focusOnComputer(computerId: number) {
       const world = useWorldStore();
       const computer = world.computers[computerId];
-      if (!computer) return;
+      if (!computer?.loc) return;
       this.setCameraFocus(
         new THREE.Vector3(computer.loc.x, computer.loc.y, computer.loc.z)
       );
