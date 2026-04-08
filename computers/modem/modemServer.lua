@@ -9,7 +9,6 @@
 
 -- !MUST END WITH '/api/'
 local BASE_URL = "http://turtles.turkeyblock.org/api/"
-local POLL_INTERVAL      = 1   -- seconds between command/stop-signal polls
 local HEARTBEAT_INTERVAL = 60  -- seconds between heartbeat broadcasts
 
 local modem = peripheral.find("modem") or error("No modem attached", 0)
@@ -17,25 +16,20 @@ local MODEM_ID = os.getComputerID()
 local headers = { ["Content-Type"] = "application/json" }
 
 print("Modem Server starting (ID: " .. MODEM_ID .. ")")
-print("Poll: " .. POLL_INTERVAL .. "s  Heartbeat: " .. HEARTBEAT_INTERVAL .. "s")
+print("Heartbeat: " .. HEARTBEAT_INTERVAL .. "s")
 print("Listening on channel " .. MODEM_ID)
 
--- Open own channel so client computers can transmit to us
 modem.open(MODEM_ID)
 
--- Served computer IDs — seeded from server on startup, updated as computers check in
-local served_ids = {}  -- { [id] = true }
+local served_ids = {}
 
 local register_json = textutils.serializeJSON({ id = MODEM_ID })
 
--- Register this modem server's ID with the HTTP server so clients can discover it.
 local function register()
   local res = http.post(BASE_URL .. "modem/register", register_json, headers)
   if res then res.close() end
 end
 
--- Seed served_ids from the HTTP server so we can poll for computers that were known
--- before this modem started (handles modem server restarts cleanly).
 local function seed_served_ids()
   local res = http.get(BASE_URL .. "modem/computers")
   if res then
@@ -52,18 +46,17 @@ local function seed_served_ids()
   end
 end
 
--- Poll the HTTP server for pending commands and stop signals, distribute via modem.
--- Re-registers on each poll so clients can re-discover after a server restart.
+-- Returns true if any command or stop signal was forwarded (used to track activity).
 local function poll_all()
   register()
 
   local ids = {}
   for id in pairs(served_ids) do table.insert(ids, id) end
-  if #ids == 0 then return end
+  if #ids == 0 then return false end
 
   local ids_json = textutils.serializeJSON({ ids = ids })
+  local activity = false
 
-  -- Batch getCommands
   local res = http.post(BASE_URL .. "getCommands", ids_json, headers)
   if res then
     local commands = textutils.unserializeJSON(res.readAll()) or {}
@@ -72,11 +65,11 @@ local function poll_all()
       if cmd and cmd ~= "" then
         modem.transmit(tonumber(id_str), MODEM_ID, { type = "command", command = cmd })
         print("> cmd -> " .. id_str)
+        activity = true
       end
     end
   end
 
-  -- Batch getStopSignals
   res = http.post(BASE_URL .. "getStopSignals", ids_json, headers)
   if res then
     local signals = textutils.unserializeJSON(res.readAll()) or {}
@@ -85,19 +78,20 @@ local function poll_all()
       if signal then
         modem.transmit(tonumber(id_str), MODEM_ID, { type = "stopSignal" })
         print("> stop -> " .. id_str)
+        activity = true
       end
     end
   end
+
+  return activity
 end
 
--- Broadcast a heartbeat to all served computers so they can detect modem loss.
 local function send_heartbeat()
   for id in pairs(served_ids) do
     modem.transmit(id, MODEM_ID, { type = "heartbeat" })
   end
 end
 
--- Forward a message from a client computer to the HTTP server, and register its ID.
 local endpoint_map = {
   state         = "state",
   scan          = "scan",
@@ -120,12 +114,21 @@ local function forward_to_server(message)
   if res then res.close() end
 end
 
--- Startup: register with HTTP server and seed known computers before first poll.
 register()
 seed_served_ids()
 
--- Main loop
-local poll_timer      = os.startTimer(0)               -- poll immediately
+-- Idle/sleep state (mirrors rcMinecart main())
+local idle_seconds    = 0
+local sleep_level     = 0  -- 0: active (1s), 1: light sleep (15s), 2: deep sleep (30s)
+local prev_sleep_level = 0
+
+local function get_poll_interval()
+  if sleep_level == 2 then return 30
+  elseif sleep_level == 1 then return 15
+  else return 1 end
+end
+
+local poll_timer      = os.startTimer(0)
 local heartbeat_timer = os.startTimer(HEARTBEAT_INTERVAL)
 
 while true do
@@ -133,15 +136,40 @@ while true do
 
   if event == "timer" then
     if p1 == poll_timer then
-      poll_all()
-      poll_timer = os.startTimer(POLL_INTERVAL)
+      local wait = get_poll_interval()
+      local activity = poll_all()
+
+      if activity then
+        idle_seconds = 0
+        sleep_level  = 0
+      else
+        idle_seconds = idle_seconds + wait
+        if idle_seconds >= 300 then
+          sleep_level = 2
+        elseif idle_seconds >= 60 then
+          sleep_level = 1
+        end
+      end
+
+      if sleep_level ~= prev_sleep_level then
+        if sleep_level == 2 then
+          print("Entering deep sleep - polling every 30 seconds")
+        elseif sleep_level == 1 then
+          print("Entering light sleep - polling every 15 seconds")
+        else
+          print("Exiting sleep mode - resuming normal polling every 1 second")
+        end
+        prev_sleep_level = sleep_level
+      end
+
+      poll_timer = os.startTimer(get_poll_interval())
+
     elseif p1 == heartbeat_timer then
       send_heartbeat()
       heartbeat_timer = os.startTimer(HEARTBEAT_INTERVAL)
     end
 
   elseif event == "modem_message" then
-    -- p1=side, p2=channel, p3=replyChannel, p4=message
     local message = p4
     if type(message) == "table" then
       forward_to_server(message)

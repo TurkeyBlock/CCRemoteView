@@ -96,8 +96,24 @@ end
 function modem_main()
   local MY_ID  = os.getComputerID()
   local TIMEOUT = 150  -- reboot after 2.5 missed heartbeat intervals (60s each)
+  local SLEEP_CHECK = 60  -- idle check interval in seconds
   capi.send_status_update()
   local timer_id = os.startTimer(TIMEOUT)
+
+  local idle_seconds = 0
+  local sleep_level = 0
+  local sleep_check_id = os.startTimer(SLEEP_CHECK)
+
+  local function reset_idle()
+    idle_seconds = 0
+    sleep_check_id = os.startTimer(SLEEP_CHECK)
+    if sleep_level > 0 then
+      sleep_level = 0
+      print("Exiting sleep mode")
+      capi.set_sleep_mode(false)
+      capi.send_status_update()
+    end
+  end
 
   while true do
     local event, p1, p2, p3, p4 = os.pullEvent()
@@ -105,6 +121,21 @@ function modem_main()
     if event == "timer" and p1 == timer_id then
       print("Modem timeout — rebooting to recover")
       os.reboot()
+
+    elseif event == "timer" and p1 == sleep_check_id then
+      idle_seconds = idle_seconds + SLEEP_CHECK
+      sleep_check_id = os.startTimer(SLEEP_CHECK)
+      local new_level = idle_seconds >= 300 and 2 or idle_seconds >= 60 and 1 or 0
+      if new_level ~= sleep_level then
+        sleep_level = new_level
+        if sleep_level == 2 then
+          print("Entering deep sleep")
+        elseif sleep_level == 1 then
+          print("Entering light sleep")
+        end
+        capi.set_sleep_mode(sleep_level > 0)
+        capi.send_status_update()
+      end
 
     elseif event == "modem_message" then
       local channel, message = p2, p4
@@ -115,11 +146,13 @@ function modem_main()
           -- keep-alive, nothing more needed
 
         elseif message.type == "stopSignal" then
+          reset_idle()
           capi.locSemaphore.stopSignal = true
           while capi.locSemaphore.count > 0 do os.sleep(0.001) end
           capi.locSemaphore.stopSignal = false
 
         elseif message.type == "command" and message.command and message.command ~= "" then
+          reset_idle()
           local cmd_string = message.command
 
           local function run_cmd()
