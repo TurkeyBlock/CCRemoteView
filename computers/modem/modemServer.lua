@@ -81,9 +81,13 @@ local function poll_all()
 end
 
 local function send_heartbeat()
+  local count = 0
   for id in pairs(served_ids) do
     modem.transmit(id, MODEM_ID, { type = "heartbeat" })
+    print("hb -> " .. tostring(id) .. " (type=" .. type(id) .. ")")
+    count = count + 1
   end
+  if count == 0 then print("hb: served_ids empty") end
 end
 
 local endpoint_map = {
