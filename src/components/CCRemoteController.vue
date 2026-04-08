@@ -16,6 +16,11 @@
             {{ world.computers[id].type !== 'modem' && isStale(world.computers[id]) ? '⚠ ' : '' }}{{ world.computers[id].type === 'minecart' ? 'Minecart' : world.computers[id].type === 'modem' ? 'Modem' : 'Turtle' }} {{ id }}{{ world.computers[id].via_modem ? ' 📡' : '' }}{{ world.computers[id].sleep_mode ? ' (Sleeping)' : '' }} : {{ world.computers[id].label }}
           </option>
         </select>
+        <div v-if="worldView.selectedComputerId === -1" class="manual-center">
+          <span class="manual-center-label">Center</span>
+          <input type="number" v-model.number="manualX" placeholder="X" class="coord-input" @change="applyManualCenter" />
+          <input type="number" v-model.number="manualZ" placeholder="Z" class="coord-input" @change="applyManualCenter" />
+        </div>
         <TurtlePanel
           v-if="Number(worldView.selectedComputerId) != -1"
           :computerId="Number(worldView.selectedComputerId)"
@@ -92,6 +97,36 @@
   text-transform: uppercase;
 }
 
+.manual-center {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.manual-center-label {
+  font-size: 0.75em;
+  color: gray;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.coord-input {
+  width: 64px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  border: 1px solid rgb(70, 70, 70);
+  background: rgb(40, 40, 40);
+  color: darkgray;
+  font-size: 0.85em;
+  text-align: center;
+}
+
+.coord-input:focus {
+  outline: none;
+  border-color: rgb(100, 100, 100);
+}
+
 select {
   padding: 4px;
   border-radius: 4px;
@@ -128,7 +163,17 @@ export default defineComponent({
   data() {
     return {
       computerId: -1 as Number,
+      manualX: null as number | null,
+      manualZ: null as number | null,
     };
+  },
+  watch: {
+    'worldView.selectedComputerId'(id: number) {
+      if (id !== -1) {
+        this.worldView.manualCenter = null;
+        this.worldView.regenerateSceneFromBlocks();
+      }
+    },
   },
   components: {
     TurtlePanel,
@@ -142,6 +187,14 @@ export default defineComponent({
     RenderFilters,
   },
   methods: {
+    applyManualCenter() {
+      if (this.manualX !== null && this.manualZ !== null) {
+        this.worldView.manualCenter = { x: this.manualX, z: this.manualZ };
+      } else {
+        this.worldView.manualCenter = null;
+      }
+      this.worldView.regenerateSceneFromBlocks();
+    },
     closeOtherPanels(except: string) {
       (['renderFilters', 'blockTransparency', 'adminPanel'] as const).forEach(name => {
         if (name !== except) {

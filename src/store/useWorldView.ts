@@ -18,6 +18,7 @@ export const useWorldViewStore = defineStore('worldView', {
     updateEntities: (computerId: string) => { },
     removeComputerModel: (computerId: string) => { },
     addAnimatedTexture: (texture: THREE.Texture) => { },
+    manualCenter: null as { x: number, z: number } | null,
     followedComputer: {
       computerId: -1 as number,
       lastPos: {} as { x: number, y: number, z: number }
@@ -111,12 +112,19 @@ export const useWorldViewStore = defineStore('worldView', {
     isBlockVisible(locString: string): boolean {
       const [x, y, z] = locString.split(',').map(Number);
       if (y < this.yMin || y > this.yMax) return false;
-      if (this.computerRangeXZ !== null && this.selectedComputerId !== -1) {
-        const world = useWorldStore();
-        const turtle = world.computers[this.selectedComputerId];
-        if (turtle) {
-          if (Math.abs(x - turtle.loc.x) > this.computerRangeXZ) return false;
-          if (Math.abs(z - turtle.loc.z) > this.computerRangeXZ) return false;
+      if (this.computerRangeXZ !== null) {
+        let cx: number | null = null, cz: number | null = null;
+        if (this.selectedComputerId !== -1) {
+          const world = useWorldStore();
+          const turtle = world.computers[this.selectedComputerId];
+          if (turtle?.loc) { cx = turtle.loc.x; cz = turtle.loc.z; }
+        } else if (this.manualCenter) {
+          cx = this.manualCenter.x;
+          cz = this.manualCenter.z;
+        }
+        if (cx !== null && cz !== null) {
+          if (Math.abs(x - cx) > this.computerRangeXZ) return false;
+          if (Math.abs(z - cz) > this.computerRangeXZ) return false;
         }
       }
       return true;

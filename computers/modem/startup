@@ -1,22 +1,14 @@
--- Turtle Computer startup
--- Downloads the latest turtle computer files and launches the remote control loop.
+-- Modem Server startup
+-- Downloads the latest modem server files and launches the modem proxy.
 
 -- !MUST END WITH '/'
 base_url = "%%APP_URL%%/"
 
-function Split(s, delimiter)
-  result = {}
-  for match in (s..delimiter):gmatch("(.-)"..delimiter) do
-    table.insert(result, match)
-  end
-  return result
-end
-
 local function get_files_from_server()
-  local files = { "tapi", "location", "setLocRot", "rcTurtle.lua", "startup" }
+  local files = { "modemServer.lua", "startup" }
   term.write("autoupdate...")
   for _, name in ipairs(files) do
-    local url = base_url .. "computers/turtleComputer/" .. name
+    local url = base_url .. "computers/modem/" .. name
     local res = http.get(url, nil)
     while not res do
       print("Error on GET " .. url .. " - retrying in 5 seconds")
@@ -59,10 +51,10 @@ function check_approved()
         term.setCursorPos(1,1)
         if body.status == "pending_ip" then
           print("Waiting for IP approval...")
-          print("Approve this turtle's IP in the admin panel.")
+          print("Approve this modem's IP in the admin panel.")
         elseif body.status == "pending_id" then
-          print("Waiting for turtle ID approval...")
-          print("IP is approved. Approve turtle ID " .. tostring(os.getComputerID()) .. " in the admin panel.")
+          print("Waiting for modem ID approval...")
+          print("IP is approved. Approve modem ID " .. tostring(os.getComputerID()) .. " in the admin panel.")
         else
           print("Waiting for admin approval...")
         end
@@ -85,14 +77,4 @@ check_approved()
 -- autoupdate
 get_files_from_server()
 
--- equip advanced modem to right slot if available
-for slot = 1, 16 do
-  local item = turtle.getItemDetail(slot)
-  if item and item.name == "computercraft:advanced_modem" then
-    turtle.select(slot)
-    turtle.equipRight()
-    break
-  end
-end
-
-shell.run("rcTurtle.lua")
+shell.run("modemServer.lua")

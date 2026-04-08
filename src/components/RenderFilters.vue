@@ -29,8 +29,8 @@
           <span class="unit-label">blocks</span>
           <button class="reset-btn" @click="clearXZ">Clear</button>
         </div>
-        <p class="hint" v-if="worldView.computerRangeXZ !== null && worldView.selectedComputerId === -1">
-          Select a turtle to apply XZ range.
+        <p class="hint" v-if="worldView.computerRangeXZ !== null && worldView.selectedComputerId === -1 && !worldView.manualCenter">
+          Set a center coordinate in the selector to apply XZ range.
         </p>
       </div>
 
@@ -79,12 +79,6 @@ export default defineComponent({
     },
   },
   watch: {
-    'worldView.selectedComputerId'(id: number) {
-      if (id === -1) {
-        this.clearXZ();
-        this.resetY();
-      }
-    },
     trackedComputerLocation() {
       if (this.worldView.computerRangeXZ !== null) {
         this.worldView.regenerateSceneFromBlocks();

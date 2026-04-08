@@ -8,7 +8,7 @@
 -- detect modem loss and reboot to recover.
 
 -- !MUST END WITH '/api/'
-local BASE_URL = "http://turtles.turkeyblock.org/api/"
+local BASE_URL = "%%APP_URL%%/api/"
 local HEARTBEAT_INTERVAL = 60  -- seconds between heartbeat broadcasts
 
 local modem = peripheral.find("modem") or error("No modem attached", 0)

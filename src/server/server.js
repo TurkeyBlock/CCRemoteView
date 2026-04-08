@@ -4,6 +4,8 @@ const cors = require('cors');
 const compression = require('compression')
 const { Vector3 } = require('math3d');
 const fs = require('fs');
+const path = require('path');
+const zlib = require('zlib');
 const app = express();
 const httpTerminator = require('http-terminator');
 const simpleNodeLogger = require('simple-node-logger');
@@ -32,9 +34,7 @@ const log = simpleNodeLogger.createSimpleLogger({
 });
 
 app.use(cors({
-  origin: IS_PROD
-    ? /turkeyblock\.org$/
-    : 'http://localhost:3000'
+  origin: IS_PROD ? process.env.APP_URL : 'http://localhost:3000'
 }));
 app.use(express.json({ limit: '10mb' }));
 // Gate the SPA entry point — browser navigations redirect to sign-in if no session
@@ -46,7 +46,15 @@ app.get('/', async (req, res, next) => {
 
 app.use(express.static('dist'));
 app.use('/textures', express.static('textures'));
-app.use('/computers', express.static('computers'));
+app.use('/computers', (req, res, next) => {
+  const safe = path.normalize(req.path).replace(/^(\.\.[/\\])+/, '');
+  const filePath = path.resolve('computers', safe.slice(1));
+  if (!filePath.startsWith(path.resolve('computers'))) return res.sendStatus(403);
+  fs.readFile(filePath, 'utf8', (err, data) => {
+    if (err) return next();
+    res.type('text/plain').send(data.replaceAll('%%APP_URL%%', process.env.APP_URL));
+  });
+});
 
 const HOME_URL = IS_PROD ? process.env.NEXTAUTH_URL : 'http://localhost:3000';
 
@@ -77,7 +85,13 @@ cmdLineInterface.on('users', () => console.log(userManagement.getUserDataString(
 cmdLineInterface.on('deleteComputer', (id) => delete state.computers[id]);
 
 try {
-  state = deserializeState(fs.readFileSync('./src/server/saved/saved_state.json', 'utf8'));
+  let raw;
+  try {
+    raw = zlib.gunzipSync(fs.readFileSync('./src/server/saved/saved_state.json.gz')).toString('utf8');
+  } catch {
+    raw = fs.readFileSync('./src/server/saved/saved_state.json', 'utf8');
+  }
+  state = deserializeState(raw);
   state.lastTransactionId = 0;
   state.lastReadyTransactionId = 0;
 } catch { }
@@ -467,7 +481,7 @@ app.post('/api/saveState', requireAuth, (_req, res) => {
 
 app.get('/api/me', requireAuth, (req, res) => {
   let savedFileSizeBytes = null;
-  try { savedFileSizeBytes = fs.statSync('./src/server/saved/saved_state.json').size; } catch {}
+  try { savedFileSizeBytes = fs.statSync('./src/server/saved/saved_state.json.gz').size; } catch {}
   res.json({
     username: req.token.username ?? req.token.name ?? null,
     email: req.token.email ?? null,
@@ -606,25 +620,40 @@ function clearCommandQueue(id, sub) {
 function serializeState(s) {
   const palette = [];
   const nameToIdx = {};
-  const blocks = {};
+  const blockData = [];
   for (const [locString, block] of Object.entries(s.world.blocks)) {
     const name = block.name;
     if (nameToIdx[name] === undefined) {
       nameToIdx[name] = palette.length;
       palette.push(name);
     }
-    blocks[locString] = nameToIdx[name];
+    const [x, y, z] = locString.split(',').map(Number);
+    blockData.push(x, y, z, nameToIdx[name]);
   }
-  return JSON.stringify({ computers: s.computers, world: { palette, blocks } });
+  const computers = {};
+  for (const [id, c] of Object.entries(s.computers)) {
+    const { entities: _e, lastSeen: _ls, ...rest } = c;
+    computers[id] = rest;
+  }
+  return JSON.stringify({ computers, world: { palette, blockData } });
 }
 
 function deserializeState(raw) {
   const parsed = JSON.parse(raw);
   if (parsed.world && Array.isArray(parsed.world.palette)) {
-    const { palette, blocks: indexed } = parsed.world;
+    const { palette, blockData, blocks: indexed } = parsed.world;
     const blocks = {};
-    for (const [locString, idx] of Object.entries(indexed)) {
-      blocks[locString] = { name: palette[idx] };
+    if (blockData) {
+      // New compact format: flat array [x,y,z,idx, ...]
+      for (let i = 0; i < blockData.length; i += 4) {
+        const locString = `${blockData[i]},${blockData[i + 1]},${blockData[i + 2]}`;
+        blocks[locString] = { name: palette[blockData[i + 3]] };
+      }
+    } else if (indexed) {
+      // Legacy format: {"x,y,z": idx}
+      for (const [locString, idx] of Object.entries(indexed)) {
+        blocks[locString] = { name: palette[idx] };
+      }
     }
     parsed.world = { blocks };
   }
@@ -638,9 +667,9 @@ function deserializeState(raw) {
 
 function saveStateToDisk() {
   fs.mkdirSync('./src/server/saved', { recursive: true });
-  const target = './src/server/saved/saved_state.json';
-  const tmp    = './src/server/saved/saved_state.tmp.json';
-  fs.writeFileSync(tmp, serializeState(state));
+  const target = './src/server/saved/saved_state.json.gz';
+  const tmp    = './src/server/saved/saved_state.tmp.json.gz';
+  fs.writeFileSync(tmp, zlib.gzipSync(serializeState(state)));
   fs.renameSync(tmp, target);
 }
 
@@ -650,7 +679,8 @@ function autoSave() {
   setTimeout(autoSave, AUTOSAVE_INTERVAL_MIN * 60 * 1000);
 }
 
-const server = app.listen(8081, () => log.info('Turtle remote controller server listening on port 8081.'));
+const PORT = parseInt(process.env.APP_PORT || '8081', 10);
+const server = app.listen(PORT, () => log.info(`Turtle remote controller server listening on port ${PORT}.`));
 autoSave();
 
 const terminator = httpTerminator.createHttpTerminator({ gracefulTerminationTimeout: 200, server });

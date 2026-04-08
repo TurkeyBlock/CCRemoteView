@@ -4,7 +4,7 @@
 os.loadAPI("location")
 
 -- !MUST END WITH '/api/'
-url = "http://turtles.turkeyblock.org/api/"
+url = "%%APP_URL%%/api/"
 state_url = url .. "state/"
 local headers = {
   ["Content-Type"] = "application/json"

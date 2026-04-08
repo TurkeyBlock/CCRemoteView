@@ -3,7 +3,7 @@
 -- GPS must be available before starting — location is required for all reporting.
 
 -- !MUST END WITH '/computers/minecartComputer/'
-base_url = "http://turtles.turkeyblock.org/"
+base_url = "%%APP_URL%%/"
 
 function Split(s, delimiter)
   result = {}
@@ -41,6 +41,47 @@ local function get_files_from_server()
   end
   term.write("complete\n")
 end
+
+function check_approved()
+  while true do
+    local res = http.post(
+      base_url .. "api/getCommand",
+      textutils.serialiseJSON({ id = os.getComputerID() }),
+      {["Content-Type"] = "application/json"}
+    )
+    if res then
+      local code = res.getResponseCode()
+      local body = textutils.unserialiseJSON(res.readAll()) or {}
+      res.close()
+      if code == 200 then
+        return true
+      elseif code == 403 then
+        term.clear()
+        term.setCursorPos(1,1)
+        if body.status == "pending_ip" then
+          print("Waiting for IP approval...")
+          print("Approve this minecart's IP in the admin panel.")
+        elseif body.status == "pending_id" then
+          print("Waiting for minecart ID approval...")
+          print("IP is approved. Approve minecart ID " .. tostring(os.getComputerID()) .. " in the admin panel.")
+        else
+          print("Waiting for admin approval...")
+        end
+        print("Retrying in 10 seconds.")
+        sleep(10)
+      else
+        print("Unexpected response: " .. code)
+        sleep(10)
+      end
+    else
+      print("Could not reach server, retrying...")
+      sleep(5)
+    end
+  end
+end
+
+-- wait for approval before downloading updates
+check_approved()
 
 get_files_from_server()
 
