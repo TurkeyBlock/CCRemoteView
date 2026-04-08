@@ -352,8 +352,10 @@ app.post('/api/getCommands', requireApprovedComputer, (req, res) => {
   for (const id of ids) {
     if (cmds[id] && cmds[id].length > 0) {
       result[String(id)] = cmds[id].shift();
+      console.log(`Modem: delivering cmd to computer ${id}`);
     }
   }
+  console.log(`Modem: getCommands poll (${ids.length} computers, ${Object.keys(result).length} commands dispatched)`);
   res.json(result);
 });
 
@@ -365,6 +367,7 @@ app.post('/api/getStopSignals', requireApprovedComputer, (req, res) => {
     if (stopSignal[id]) {
       result[String(id)] = true;
       delete stopSignal[id];
+      console.log(`Modem: delivering stop signal to computer ${id}`);
     }
   }
   res.json(result);
