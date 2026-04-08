@@ -143,6 +143,7 @@ select {
 
 <script lang="ts">
 import { defineComponent } from "vue";
+import * as THREE from "three";
 
 import { useWorldStore } from "../store/useWorld";
 import { isStale } from "../utils/stale";
@@ -195,6 +196,7 @@ export default defineComponent({
     applyManualCenter() {
       if (this.manualX !== null && this.manualZ !== null) {
         this.worldView.manualCenter = { x: this.manualX, z: this.manualZ };
+        this.worldView.setCameraFocus(new THREE.Vector3(this.manualX, 64, this.manualZ));
       } else {
         this.worldView.manualCenter = null;
       }
