@@ -353,12 +353,14 @@ export default defineComponent({
       const computer = this.world.computers[computerId];
       const prefix = `${computerId}:`;
 
-      // Remove old meshes for this computer
-      for (const key of Object.keys(this.worldView.entityMeshes)) {
-        if (key.startsWith(prefix)) {
-          entities.remove(this.worldView.entityMeshes[key]);
-          delete this.worldView.entityMeshes[key];
+      // Remove old meshes for this computer before adding new ones
+      const oldKeys = Object.keys(this.worldView.entityMeshes).filter(key => key.startsWith(prefix));
+      for (const key of oldKeys) {
+        const mesh = this.worldView.entityMeshes[key];
+        if (mesh && mesh.parent === entities) {
+          entities.remove(mesh);
         }
+        delete this.worldView.entityMeshes[key];
       }
 
       if (!computer?.entities || !computer.loc) return;

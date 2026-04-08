@@ -76,11 +76,11 @@ end
 
 function main()
   local idle_seconds  = 0
-  local sleep_level   = 0  -- 0: active (1s), 1: light sleep (5s), 2: deep sleep (30s)
+  local sleep_level   = 0  -- 0: active (5s), 1: light sleep (15s), 2: deep sleep (30s)
   local prev_sleep_level = 0
   capi.send_status_update()
   while true do
-    local wait_seconds = sleep_level == 2 and 30 or sleep_level == 1 and 5 or 1
+    local wait_seconds = sleep_level == 2 and 30 or sleep_level == 1 and 15 or 5
     os.sleep(wait_seconds)
     parallel.waitForAny(poll_stop_signal, get_command)
     if command_received then
@@ -99,9 +99,9 @@ function main()
       if sleep_level == 2 then
         print("Entering deep sleep - polling every 30 seconds")
       elseif sleep_level == 1 then
-        print("Entering light sleep - polling every 5 seconds")
+        print("Entering light sleep - polling every 15 seconds")
       else
-        print("Exiting sleep mode - resuming normal polling")
+        print("Exiting sleep mode - resuming normal polling every 5 seconds")
       end
       prev_sleep_level = sleep_level
       capi.set_sleep_mode(sleep_level > 0)

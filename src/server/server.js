@@ -47,6 +47,7 @@ app.get('/', async (req, res, next) => {
 app.use(express.static('dist'));
 app.use('/textures', express.static('textures'));
 app.use('/turtle', express.static('turtle'));
+app.use('/computers', express.static('computers'));
 
 const HOME_URL = IS_PROD ? process.env.NEXTAUTH_URL : 'http://localhost:3000';
 

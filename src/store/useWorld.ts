@@ -33,7 +33,7 @@ export const useWorldStore = defineStore('world', {
           const worldView = useWorldViewStore();
           worldView.selectedComputerId = parseInt(id);
         }
-        this.computers[id] = turtleState;
+        this.computers[id] = { ...turtleState, entities: turtleState.entities ? [...turtleState.entities] : undefined };
         this.computers[id].modified = Date.now();
 
         // replace 0s in inv with null (computers only)
