@@ -178,13 +178,6 @@ local function equipItem(itemName, side)
   local equipped = peripheral.getType(side)
   if equipped == itemName then return true end
 
-  -- Check if already equipped as a non-peripheral tool (e.g. pickaxe)
-  local getEquipped = side == "left" and turtle.getEquippedLeft or turtle.getEquippedRight
-  if getEquipped then
-    local equippedItem = getEquipped()
-    if equippedItem and equippedItem.name == itemName then return true end
-  end
-
   for slot = 1, 16 do
     local item = turtle.getItemDetail(slot)
     if item and item.name == itemName then
@@ -590,6 +583,8 @@ pu = placeUp
 -- dig
 
 local function ensurePickaxe()
+  -- Pickaxes are not peripherals; if nothing peripheral is on the left, a tool is already there
+  if not peripheral.isPresent("left") then return true end
   return equipItem("minecraft:diamond_pickaxe", "left")
 end
 
@@ -906,8 +901,11 @@ function placeIntermediateChest(chestId)
 end
 
 function scan()
-  local ok, err = equipItem("plethora:module", "left")
-  if not ok then return false, err end
+  -- peripheral.find tells us if the scanner is already active regardless of item name vs type mismatch
+  if not peripheral.find("plethora:scanner") then
+    local ok, err = equipItem("plethora:module", "left")
+    if not ok then return false, err end
+  end
 
   local scanner = peripheral.find("plethora:scanner")
   if not scanner then return false, "no scanner attached" end
