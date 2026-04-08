@@ -63,11 +63,31 @@ function main()
   local idle_seconds  = 0
   local sleep_level   = 0  -- 0: active (5s), 1: light sleep (15s), 2: deep sleep (30s)
   local prev_sleep_level = 0
+  local modem_check_elapsed = 0
+  local MODEM_CHECK_INTERVAL = 60
   capi.send_status_update()
   while true do
     local wait_seconds = sleep_level == 2 and 30 or sleep_level == 1 and 15 or 5
     os.sleep(wait_seconds)
     get_command()
+
+    -- Reboot to connect via modem if a modem server came online since startup
+    if peripheral.find("modem") then
+      modem_check_elapsed = modem_check_elapsed + wait_seconds
+      if modem_check_elapsed >= MODEM_CHECK_INTERVAL then
+        modem_check_elapsed = 0
+        local res = http.get(capi.url .. "modem/id")
+        if res then
+          local data = textutils.unserializeJSON(res.readAll())
+          res.close()
+          if data and data.id then
+            print("Modem server online — rebooting to connect")
+            os.reboot()
+          end
+        end
+      end
+    end
+
     if command_received then
       idle_seconds  = 0
       sleep_level   = 0
@@ -97,24 +117,32 @@ function main()
 end
 
 -- Modem-based main loop: waits for commands/stop signals pushed by the modem server.
--- Reboots if no modem contact for TIMEOUT seconds (handles modem server loss).
+-- Reboots after MAX_MISSES consecutive missed heartbeats.
 function modem_main()
   local MY_ID  = os.getComputerID()
-  local TIMEOUT = 150  -- reboot after 2.5 missed heartbeat intervals (60s each)
+  local HEARTBEAT_WINDOW = 65  -- seconds to wait per heartbeat (60s interval + 5s grace)
+  local MAX_MISSES = 3
+  local missed_heartbeats = 0
   capi.send_status_update()
-  local timer_id = os.startTimer(TIMEOUT)
+  local heartbeat_timer = os.startTimer(HEARTBEAT_WINDOW)
 
   while true do
     local event, p1, p2, p3, p4 = os.pullEvent()
 
-    if event == "timer" and p1 == timer_id then
-      print("Modem timeout — rebooting to recover")
-      os.reboot()
+    if event == "timer" and p1 == heartbeat_timer then
+      missed_heartbeats = missed_heartbeats + 1
+      print("Missed heartbeat #" .. missed_heartbeats)
+      if missed_heartbeats >= MAX_MISSES then
+        print("Modem timeout — rebooting to recover")
+        os.reboot()
+      end
+      heartbeat_timer = os.startTimer(HEARTBEAT_WINDOW)
 
     elseif event == "modem_message" then
       local channel, message = p2, p4
       if channel == MY_ID and type(message) == "table" then
-        timer_id = os.startTimer(TIMEOUT)  -- reset timeout on any valid modem contact
+        heartbeat_timer = os.startTimer(HEARTBEAT_WINDOW)  -- reset on any valid modem contact
+        missed_heartbeats = 0
 
         if message.type == "heartbeat" then
           -- keep-alive, nothing more needed
@@ -149,7 +177,8 @@ function modem_main()
                   while capi.locSemaphore.count > 0 do os.sleep(0.001) end
                   return
                 elseif msg.type == "heartbeat" then
-                  timer_id = os.startTimer(TIMEOUT)
+                  heartbeat_timer = os.startTimer(HEARTBEAT_WINDOW)
+                  missed_heartbeats = 0
                 end
               end
             end
