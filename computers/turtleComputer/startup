@@ -85,4 +85,14 @@ check_approved()
 -- autoupdate
 get_files_from_server()
 
+-- equip advanced modem to right slot if available
+for slot = 1, 16 do
+  local item = turtle.getItemDetail(slot)
+  if item and item.name == "computercraft:advanced_modem" then
+    turtle.select(slot)
+    turtle.equipRight()
+    break
+  end
+end
+
 shell.run("rcTurtle.lua")

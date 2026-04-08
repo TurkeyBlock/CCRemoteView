@@ -171,6 +171,28 @@ function scan_surrounding_blocks()
   end
 end
 
+-- Equip a specific item by name to the given side ("left" or "right").
+-- Returns true on success, or false + error string on failure.
+local function equipItem(itemName, side)
+  local equipped = peripheral.getType(side)
+  if equipped == itemName then return true end -- already equipped, skip
+
+  for slot = 1, 16 do
+    local item = turtle.getItemDetail(slot)
+    if item and item.name == itemName then
+      turtle.select(slot)
+      if side == "left" then
+        turtle.equipLeft()
+      else
+        turtle.equipRight()
+      end
+      return true
+    end
+  end
+
+  return false, "item not found in inventory: " .. itemName
+end
+
 function scan_inventory()
   for i = 1, 16 do
     local stack = turtle.getItemDetail(i)
@@ -502,7 +524,13 @@ pu = placeUp
 
 -- dig
 
+local function ensurePickaxe()
+  return equipItem("minecraft:diamond_pickaxe", "left")
+end
+
 function dig()
+  local ok, err = ensurePickaxe()
+  if not ok then return false, err end
   local succ = native.turtle.dig()
   send_status_update()
   return succ
@@ -512,6 +540,8 @@ e = dig
 turtle.dig = dig
 
 function digUp()
+  local ok, err = ensurePickaxe()
+  if not ok then return false, err end
   local succ = native.turtle.digUp()
   send_status_update()
   return succ
@@ -521,6 +551,8 @@ eu = digUp
 turtle.digUp = digUp
 
 function digDown()
+  local ok, err = ensurePickaxe()
+  if not ok then return false, err end
   local succ = native.turtle.digDown()
   send_status_update()
   return succ
@@ -530,6 +562,8 @@ ed = digDown
 turtle.digDown = digDown
 
 function digRepeat()
+  local ok, err = ensurePickaxe()
+  if not ok then return false, err end
   local succ
   repeat
     succ = turtle.dig()
@@ -541,6 +575,8 @@ end
 e = dig
 
 function digUpRepeat()
+  local ok, err = ensurePickaxe()
+  if not ok then return false, err end
   local succ
   repeat
     succ = turtle.digUp()
@@ -552,6 +588,8 @@ end
 eu = digUp
 
 function digDownRepeat()
+  local ok, err = ensurePickaxe()
+  if not ok then return false, err end
   local succ
   repeat
     succ = turtle.digDown()
@@ -803,23 +841,26 @@ function placeIntermediateChest(chestId)
 end
 
 function scan()
+  local ok, err = equipItem("plethora:scanner", "left")
+  if not ok then return false, err end
+
   local scanner = peripheral.find("plethora:scanner")
   if not scanner then return false, "no scanner attached" end
-    local raw = scanner.scan(4)
-    print("? block scan");
-    local blocks = {}
-    for _, b in ipairs(raw) do
-      if not (b.x == 0 and b.y == 0 and b.z == 0) then
-        table.insert(blocks, { x = b.x, y = b.y, z = b.z, name = b.name })
-      end
+  local raw = scanner.scan(4)
+  print("? block scan");
+  local blocks = {}
+  for _, b in ipairs(raw) do
+    if not (b.x == 0 and b.y == 0 and b.z == 0) then
+      table.insert(blocks, { x = b.x, y = b.y, z = b.z, name = b.name })
     end
-    local payload = { id = os.getComputerID(), blocks = blocks }
-    if use_modem then
-      modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(), { type = "scan", data = payload })
-    else
-      local json = textutils.serializeJSON(payload)
-      local res = http.post(url .. "scan", json, { ["Content-Type"] = "application/json" })
-      if res then res.close() end
-    end
-    return true
+  end
+  local payload = { id = os.getComputerID(), blocks = blocks }
+  if use_modem then
+    modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(), { type = "scan", data = payload })
+  else
+    local json = textutils.serializeJSON(payload)
+    local res = http.post(url .. "scan", json, { ["Content-Type"] = "application/json" })
+    if res then res.close() end
+  end
+  return true
 end
