@@ -37,8 +37,24 @@ local state = {
   label   = "",
   type    = "minecart",
   loc     = { x = 0, y = 0, z = 0 },
-  sleep_mode = false
+  sleep_mode = false,
+  peripherals = {}
 }
+
+-- Scan attached peripherals once at startup and store their types in state.
+local function scan_peripherals()
+  local found = {}
+  local seen = {}
+  for _, side in ipairs(peripheral.getNames()) do
+    local ptype = peripheral.getType(side)
+    if ptype and not seen[ptype] then
+      seen[ptype] = true
+      table.insert(found, ptype)
+    end
+  end
+  state.peripherals = found
+end
+scan_peripherals()
 
 -- semaphore (used for stop signal coordination, same as tapi)
 local lmetatable = {
@@ -161,8 +177,10 @@ function say(message)
 end
 
 -- Propel the minecart along the track using the kinetic augment.
+-- power is clamped to [-1000, 1000].
 function propel(power)
   power = power or 1
+  power = math.max(-1000, math.min(1000, power))
   local kinetic = peripheral.find("plethora:kinetic")
   if not kinetic then return false, "no kinetic augment attached" end
   kinetic.propel(power)

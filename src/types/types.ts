@@ -19,6 +19,7 @@ interface TurtleState {
     via_modem?: boolean,
     entities?: EntitySighting[],
     chatLog?: ChatMessage[],
+    peripherals?: string[],
 }
 
 interface EntitySighting {

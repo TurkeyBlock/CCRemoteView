@@ -309,6 +309,8 @@ export default defineComponent({
       model.position.set(computerData.loc.x, computerData.loc.y, computerData.loc.z);
       if (computerData.type === 'minecart') {
         model.rotation.set(0, 0, 0);
+        const locString = `${computerData.loc.x},${computerData.loc.y},${computerData.loc.z}`;
+        blockMeshes.removeBlock(locString);
       } else {
         model.rotation.set(Math.PI / 2, 0, ((computerData.rot + 1) * Math.PI) / 2);
       }
@@ -321,12 +323,26 @@ export default defineComponent({
       }
       const computerData = this.world.computers[computerId];
       if (!computerData?.loc) return;
-      model.position.set(computerData.loc.x, computerData.loc.y, computerData.loc.z);
       if (computerData.type === 'minecart') {
+        const oldX = Math.round(model.position.x);
+        const oldY = Math.round(model.position.y);
+        const oldZ = Math.round(model.position.z);
+        const newX = computerData.loc.x;
+        const newY = computerData.loc.y;
+        const newZ = computerData.loc.z;
+        if (oldX !== newX || oldY !== newY || oldZ !== newZ) {
+          const oldLocString = `${oldX},${oldY},${oldZ}`;
+          const oldBlock = this.world.blocks[oldLocString];
+          if (oldBlock && this.worldView.isBlockVisible(oldLocString)) {
+            blockMeshes.addBlock(oldLocString, oldBlock);
+          }
+          blockMeshes.removeBlock(`${newX},${newY},${newZ}`);
+        }
         model.rotation.set(0, 0, 0);
       } else {
         model.rotation.set(Math.PI / 2, 0, ((computerData.rot + 1) * Math.PI) / 2);
       }
+      model.position.set(computerData.loc.x, computerData.loc.y, computerData.loc.z);
       model.updateMatrix();
     },
     getEntityMaterial(name: string): THREE.MeshPhongMaterial {

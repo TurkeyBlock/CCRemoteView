@@ -127,6 +127,11 @@ export const useWorldViewStore = defineStore('worldView', {
           if (Math.abs(z - cz) > this.computerRangeXZ) return false;
         }
       }
+      const world = useWorldStore();
+      for (const id in world.computers) {
+        const c = world.computers[id];
+        if (c.type === 'minecart' && c.loc?.x === x && c.loc?.y === y && c.loc?.z === z) return false;
+      }
       return true;
     },
     addToTransparencyList(blockName: string) {

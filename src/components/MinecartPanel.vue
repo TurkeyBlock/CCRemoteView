@@ -4,9 +4,27 @@
       📍 {{ computer.loc.x }}, {{ computer.loc.y }}, {{ computer.loc.z }}
     </div>
     <div class="actions">
-      <button @click="world.sendCommand(computerId, 'return capi.propel(1)')">Propel</button>
-      <button @click="world.sendCommand(computerId, 'return capi.scan()')">Block Scan</button>
-      <button @click="world.sendCommand(computerId, 'return capi.sense()')">Entity Scan</button>
+      <div class="propel-row">
+        <input
+          v-model.number="propelPower"
+          type="number"
+          min="-1000"
+          max="1000"
+          class="propel-input"
+        />
+        <button
+          :class="{ missing: computer.peripherals && !computer.peripherals.includes('plethora:kinetic') }"
+          @click="world.sendCommand(computerId, `return capi.propel(${propelPower})`)"
+        >Propel</button>
+      </div>
+      <button
+        :class="{ missing: computer.peripherals && !computer.peripherals.includes('plethora:scanner') }"
+        @click="world.sendCommand(computerId, 'return capi.scan()')"
+      >Block Scan</button>
+      <button
+        :class="{ missing: computer.peripherals && !computer.peripherals.includes('plethora:sensor') }"
+        @click="world.sendCommand(computerId, 'return capi.sense()')"
+      >Entity Scan</button>
       <button @click="worldView.focusOnComputer(computerId)">Focus Camera</button>
       <button
         :class="{ active: worldView.followedComputer.computerId === computerId }"
@@ -61,9 +79,25 @@ button {
   background-color: #383e42;
   color: darkgray;
 }
+.propel-row {
+  display: contents;
+}
+.propel-input {
+  padding: 8px 4px;
+  border-radius: 4px;
+  background-color: #2a2e32;
+  color: lightgray;
+  border: 1px solid #555;
+  text-align: center;
+  width: 100%;
+}
 button.active {
   background-color: rgb(50, 100, 50);
   color: rgb(150, 220, 150);
+}
+button.missing {
+  background-color: rgba(140, 30, 30, 0.6);
+  color: rgb(255, 110, 110);
 }
 .section {
   display: flex;
@@ -105,7 +139,7 @@ button.active {
 </style>
 
 <script lang="ts">
-import { defineComponent, computed } from "vue";
+import { defineComponent, computed, ref } from "vue";
 import { useWorldStore } from "../store/useWorld";
 import { useWorldViewStore } from "../store/useWorldView";
 import LuaTerminal from "./LuaTerminal.vue";
@@ -122,7 +156,8 @@ export default defineComponent({
     const world = useWorldStore();
     const worldView = useWorldViewStore();
     const computer = computed(() => world.computers[props.computerId]);
-    return { world, worldView, computer };
+    const propelPower = ref(1);
+    return { world, worldView, computer, propelPower };
   },
 });
 </script>
