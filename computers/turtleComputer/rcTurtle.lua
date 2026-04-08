@@ -49,11 +49,11 @@ end
 -- HTTP-based main loop with idle/sleep backoff.
 function main()
     local idle_seconds = 0
-    local sleep_level = 0  -- 0: active (5s), 1: light sleep (15s), 2: deep sleep (30s)
+    local sleep_level = 0  -- 0: active (1s), 1: light sleep (15s), 2: deep sleep (30s)
     local prev_sleep_level = 0
     tapi.send_status_update()
     while true do
-        local wait_seconds = sleep_level == 2 and 30 or sleep_level == 1 and 15 or 5
+        local wait_seconds = sleep_level == 2 and 30 or sleep_level == 1 and 15 or 1
         os.sleep(wait_seconds)
         parallel.waitForAny(poll_stop_signal, get_command)
         if command_received then
