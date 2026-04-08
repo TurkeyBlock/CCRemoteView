@@ -450,6 +450,7 @@ app.post('/api/setCommand', requireOperator, (req, res) => {
 app.post('/api/setStopSignal', requireOperator, (req, res) => {
   const json = req.body;
   if (isNaN(json.id)) { res.sendStatus(400); return; }
+  stopSignal[json.id] = true;
   clearCommandQueue(json.id, req.token.sub);
   log.info(`/api/setStopSignal id=${json.id} user=${req.token.sub}`);
   userManagement.incrementActionCount(req.token.sub);

@@ -7,22 +7,27 @@ local get_stop_signal_url = tapi.url .. "getStopSignal/"
 local command_received = false
 
 -- HTTP mode: fetch and execute the next queued command from the server.
+-- Stop signal polling runs in parallel only during command execution.
 function get_command()
     local json = textutils.serializeJSON({ id = os.getComputerID() })
     local res = http.post(get_command_url, json, { ["Content-Type"] = "application/json" })
     if res then
         local cmd_string = res.readAll()
-        if cmd_string == "" then res.close(); return end
+        res.close()
+        if cmd_string == "" then return end
         command_received = true
         local cmd, err = loadstring(cmd_string)
         if cmd then
             setfenv(cmd, getfenv())
-            tapi.send_command_result(pcall(cmd))
+            parallel.waitForAny(
+                function() tapi.send_command_result(pcall(cmd)) end,
+                poll_stop_signal
+            )
+            tapi.locSemaphore.stopSignal = false
         else
-            print("error in loadstring(" .. cmd_string .. ")");
+            print("error in loadstring(" .. cmd_string .. ")")
             tapi.send_command_result(false, err)
         end
-        res.close()
         tapi.send_status_update()
     end
 end
@@ -55,7 +60,7 @@ function main()
     while true do
         local wait_seconds = sleep_level == 2 and 30 or sleep_level == 1 and 15 or 1
         os.sleep(wait_seconds)
-        parallel.waitForAny(poll_stop_signal, get_command)
+        get_command()
         if command_received then
             idle_seconds = 0
             sleep_level = 0
@@ -74,7 +79,7 @@ function main()
             elseif sleep_level == 1 then
                 print("Entering light sleep - polling every 15 seconds")
             else
-                print("Exiting sleep mode - resuming normal polling every 5 seconds")
+                print("Exiting sleep mode - resuming normal polling every 1 second")
             end
             prev_sleep_level = sleep_level
             tapi.set_sleep_mode(sleep_level > 0)
