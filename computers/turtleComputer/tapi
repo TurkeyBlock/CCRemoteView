@@ -259,8 +259,65 @@ function parse_user_location_input()
   return locAndHeading
 end
 
+-- Derive heading by stepping forward, taking a second GPS fix, then stepping back.
+-- Returns a heading (1-4) on success, or nil if the turtle is blocked or GPS fails.
+local function detect_heading_via_gps(ix, iy, iz)
+  if not native.turtle.forward() then return nil end
+  local nx, ny, nz = gps.locate(3)
+  native.turtle.back()
+  if not nx then return nil end
+  local dx = math.floor(nx) - ix
+  local dz = math.floor(nz) - iz
+  if     dx ==  1 then return 3  -- east
+  elseif dx == -1 then return 1  -- west
+  elseif dz ==  1 then return 4  -- south
+  elseif dz == -1 then return 2  -- north
+  end
+  return nil
+end
+
 function load_loc_from_file()
-  -- load from file if exists, else create new one
+  -- Try GPS on every startup to affirm position
+  local gx, gy, gz = gps.locate(3)
+  if gx then
+    local ix, iy, iz = math.floor(gx), math.floor(gy), math.floor(gz)
+    print("GPS fix: " .. ix .. ", " .. iy .. ", " .. iz)
+
+    -- Derive heading automatically via a forward step + second GPS fix
+    local h = detect_heading_via_gps(ix, iy, iz)
+    if h then
+      print("Heading detected automatically")
+    else
+      -- Fall back to saved heading
+      local f = fs.open("loc.sav", "r")
+      if f then
+        f.readLine(); f.readLine(); f.readLine()  -- skip saved x, y, z
+        h = tonumber(f.readLine())
+        f.close()
+      end
+    end
+
+    -- Still no heading: ask user for facing direction only
+    if not h then
+      print("Could not detect heading (blocked). Please provide facing direction (west/north/east/south):")
+      while true do
+        local input = string.lower(io.read())
+        if     input == "west"  then h = 1
+        elseif input == "north" then h = 2
+        elseif input == "east"  then h = 3
+        elseif input == "south" then h = 4
+        else print(input .. " is not a valid heading") end
+        if h then break end
+      end
+    end
+
+    loc_internal = location.new(ix, iy, iz, h)
+    save_loc_to_file()
+    return
+  end
+
+  -- GPS unavailable: fall back to saved file, then manual input
+  print("! GPS unavailable")
   local f = fs.open("loc.sav", "r")
   if f then
     loc_internal = location.new(tonumber(f.readLine()), tonumber(f.readLine()), tonumber(f.readLine()),
