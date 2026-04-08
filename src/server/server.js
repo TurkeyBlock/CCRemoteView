@@ -344,6 +344,12 @@ app.get('/api/modem/id', (_req, res) => {
   res.json({ id: modemServerId });
 });
 
+// Returns all known computer IDs — modem server queries this on startup to seed its served list
+app.get('/api/modem/computers', requireApprovedComputer, (_req, res) => {
+  const ids = Object.keys(state.computers).map(Number).filter(n => !isNaN(n));
+  res.json({ ids });
+});
+
 // Batch endpoints used by the modem proxy server
 app.post('/api/getCommands', requireApprovedComputer, (req, res) => {
   const { ids } = req.body;
