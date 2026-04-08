@@ -1,33 +1,41 @@
--- github: https://github.com/exa-byte/CCTurtleRemoteController
--- !MUST END WITH A '/' 
+-- Turtle Computer startup
+-- Downloads the latest turtle computer files and launches the remote control loop.
+
+-- !MUST END WITH '/'
 base_url = "http://turtles.turkeyblock.org/"
 
--- lib
 function Split(s, delimiter)
-  result = {};
+  result = {}
   for match in (s..delimiter):gmatch("(.-)"..delimiter) do
-      table.insert(result, match);
+    table.insert(result, match)
   end
-  return result;
+  return result
 end
 
-function get_files_from_server()
-  repeat res = http.get( base_url .. "api/turtleFileNames", {["Content-Type"] = "application/json"} )
-  until res
-  dl_files = res.readAll()
-  dl_files = dl_files:sub(2, #dl_files-1):gsub("\"", "")
-
+local function get_files_from_server()
+  local files = { "tapi", "location", "setLocRot", "rcTurtle.lua", "startup" }
   term.write("autoupdate...")
-  for _, name in pairs(Split(dl_files, ",")) do
-    local res = http.get( base_url .. "turtle/" .. name )
-    if not res then print("Error on GET " .. base_url .. "turtle/" .. name) end
+  for _, name in ipairs(files) do
+    local url = base_url .. "computers/turtleComputer/" .. name
+    local res = http.get(url, nil)
+    while not res do
+      print("Error on GET " .. url .. " - retrying in 5 seconds")
+      sleep(5)
+      res = http.get(url, nil)
+    end
     local f = fs.open(name, "w")
     f.write(res.readAll())
     f.close()
+    res.close()
     if name == "startup" then
-      fs.makeDir("backup")
-      fs.delete("backup/startup")
-      fs.copy("startup", "backup/startup")
+      if fs.exists("backup") then
+        fs.delete("backup/startup")
+      else
+        fs.makeDir("backup")
+      end
+      if fs.exists("startup") then
+        fs.copy("startup", "backup/startup")
+      end
     end
   end
   term.write("complete\n")

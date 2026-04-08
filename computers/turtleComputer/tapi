@@ -166,7 +166,7 @@ function scan_surrounding_blocks()
   succ, block = turtle.inspectDown();
   state.view.bottom = succ and block or 0
   if succ and does_side_have_inventory("bottom") then
-    state.view.bottom.inventory = peripheral.call("bottom", "list")    
+    state.view.bottom.inventory = peripheral.call("bottom", "list")
     state.view.bottom.inventorySize = peripheral.call("bottom", "size")
   end
 end
@@ -249,7 +249,7 @@ function load_loc_from_file()
       print("Could not load location, please stand on the turtle in forward direction and open F3 screen")
       print("Please provide block coordinate and facing of the turtle: ")
       print("e.g. -263 68 79 south")
-      
+
       local status, res = pcall(parse_user_location_input)
       if status then
         loc_internal = location.new(unpack(res))
@@ -709,9 +709,9 @@ end
 function moveItemsBetweenInventories(sourceInvSide, destInvSide, itemName, count)
   src = peripheral.wrap(sourceInvSide)
   if not src then print("src inventory (" .. tostring(sourceInvSide) .. ") is not available"); return false end
-  
-  for slot, item in pairs(src.list()) do 
-    print(("%d x %s in slot %d"):format(item.count, item.name, slot)) 
+
+  for slot, item in pairs(src.list()) do
+    print(("%d x %s in slot %d"):format(item.count, item.name, slot))
   end
 
   dst = peripheral.wrap(destInvSide)

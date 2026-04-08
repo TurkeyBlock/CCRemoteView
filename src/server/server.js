@@ -46,7 +46,6 @@ app.get('/', async (req, res, next) => {
 
 app.use(express.static('dist'));
 app.use('/textures', express.static('textures'));
-app.use('/turtle', express.static('turtle'));
 app.use('/computers', express.static('computers'));
 
 const HOME_URL = IS_PROD ? process.env.NEXTAUTH_URL : 'http://localhost:3000';
@@ -66,6 +65,8 @@ let commandResultCache = {}
 let cmds = {}
 let stopSignal = {}
 let modemServerId = null;
+let modemServerIp = null;
+let lastModemStateUpdate = 0;
 
 const userManagement = new UserManagement();
 const turtleIpManager = new TurtleIpManager();
@@ -229,6 +230,8 @@ const scanLastTime = {};
 
 // --- Computer endpoints (IP allowlist gated) ---
 app.post('/api/state', requireApprovedComputer, (req, res) => {
+  // Tag the state with how it arrived so the frontend can show modem vs HTTP
+  req.body.via_modem = modemServerIp !== null && req.ip === modemServerIp;
   applyTransaction(extractState(req.body, state), state, transactionCache);
   if (state.computers[req.body.id]) state.computers[req.body.id].lastSeen = Date.now();
   res.sendStatus(200);
@@ -328,13 +331,25 @@ app.post('/api/getStopSignal', requireApprovedComputer, (req, res) => {
 app.post('/api/modem/register', requireApprovedComputer, (req, res) => {
   const { id } = req.body;
   if (id === undefined) return res.status(400).json({ error: 'id required' });
-  if (modemServerId !== id) {
-    modemServerId = id;
+  const isNew = modemServerId !== id;
+  const now = Date.now();
+  if (isNew) {
     log.info(`Modem server registered: ID ${id} — queuing reboot for all computers`);
     for (const computerId of Object.keys(state.computers)) {
+      if (String(computerId) === String(id)) continue; // don't reboot the modem itself
       if (!cmds[computerId]) cmds[computerId] = [];
       cmds[computerId].push('os.reboot()');
     }
+  }
+  modemServerId = id;
+  modemServerIp = req.ip;
+  // Push modem state to the frontend at most every 20s to avoid flooding transactions
+  if (isNew || now - lastModemStateUpdate > 20_000) {
+    lastModemStateUpdate = now;
+    const modemState = { id: Number(id), type: 'modem', label: `Modem ${id}`, lastSeen: now };
+    const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: modemState } };
+    applyTransaction(transaction, state, transactionCache);
+    state.lastReadyTransactionId++;
   }
   res.json({ ok: true });
 });
@@ -444,9 +459,6 @@ app.post('/api/getCommandResult', requireAuth, compression(), (req, res) => {
   res.send({ computerId, cmdResults: commandResultCache[computerId].slice(startIndex) });
 });
 
-app.get('/api/turtleFileNames', requireApprovedComputer, (_req, res) => {
-  res.send(fs.readdirSync('turtle'));
-});
 
 app.post('/api/saveState', requireAuth, (_req, res) => {
   saveStateToDisk();

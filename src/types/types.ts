@@ -1,7 +1,7 @@
 interface TurtleState {
     id: number,
     label: "",
-    type?: 'turtle' | 'minecart',
+    type?: 'turtle' | 'minecart' | 'modem',
     loc: Vec,
     rot: number,
     inv: ItemStack[],
@@ -15,6 +15,8 @@ interface TurtleState {
     fuelLimit: number,
     sleep_mode?: boolean,
     modified?: number,
+    lastSeen?: number,
+    via_modem?: boolean,
     entities?: EntitySighting[],
     chatLog?: ChatMessage[],
 }

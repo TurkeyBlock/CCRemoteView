@@ -13,7 +13,7 @@
         <select v-model="worldView.selectedComputerId" @change="worldView.followComputer(worldView.selectedComputerId)">
           <option :value="-1">[None]</option>
           <option v-for="id in world.getComputerIds" :key="id" :value="id">
-            {{ isStale(world.computers[id]) ? '⚠ ' : '' }}{{ world.computers[id].type === 'minecart' ? 'Minecart' : 'Turtle' }} {{ id }}{{ world.computers[id].sleep_mode ? ' (Sleeping)' : '' }} : {{ world.computers[id].label }}
+            {{ world.computers[id].type !== 'modem' && isStale(world.computers[id]) ? '⚠ ' : '' }}{{ world.computers[id].type === 'minecart' ? 'Minecart' : world.computers[id].type === 'modem' ? 'Modem' : 'Turtle' }} {{ id }}{{ world.computers[id].via_modem ? ' 📡' : '' }}{{ world.computers[id].sleep_mode ? ' (Sleeping)' : '' }} : {{ world.computers[id].label }}
           </option>
         </select>
         <TurtlePanel
