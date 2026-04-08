@@ -841,7 +841,7 @@ function placeIntermediateChest(chestId)
 end
 
 function scan()
-  local ok, err = equipItem("plethora:scanner", "left")
+  local ok, err = equipItem("plethora:module", "left")
   if not ok then return false, err end
 
   local scanner = peripheral.find("plethora:scanner")
