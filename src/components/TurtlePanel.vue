@@ -11,6 +11,9 @@
         <MinecartPanel :computerId="computerId" />
       </template>
       <template v-else>
+        <div v-if="world.computers[computerId]?.loc" class="location">
+          📍 {{ world.computers[computerId].loc.x }}, {{ world.computers[computerId].loc.y }}, {{ world.computers[computerId].loc.z }}
+        </div>
         <TurtleInventory :computerId="computerId"/>
         <FuelGauge :computerId="computerId"/>
         <MovementControl :computerId="computerId"/>
@@ -25,6 +28,11 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.location {
+  font-size: 0.85em;
+  color: darkgray;
+  padding: 2px 4px;
 }
 .connection-badge {
   font-size: 0.75em;
