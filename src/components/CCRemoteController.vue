@@ -13,7 +13,7 @@
         <select v-model="worldView.selectedComputerId" @change="worldView.followComputer(worldView.selectedComputerId)">
           <option :value="-1">[None]</option>
           <option v-for="id in world.getComputerIds" :key="id" :value="id">
-            {{ world.computers[id].type !== 'modem' && isStale(world.computers[id]) ? '⚠ ' : '' }}{{ world.computers[id].type === 'minecart' ? 'Minecart' : world.computers[id].type === 'modem' ? 'Modem' : 'Turtle' }} {{ id }}{{ world.computers[id].via_modem ? ' 📡' : '' }}{{ world.computers[id].sleep_mode ? ' (Sleeping)' : '' }} : {{ world.computers[id].label }}
+            {{ world.computers[id].type !== 'modem' && isStale(world.computers[id]) ? '⚠ ' : '' }}{{ world.computers[id].type === 'minecart' ? 'Minecart' : world.computers[id].type === 'modem' ? 'Modem' : 'Turtle' }} {{ id }}{{ world.computers[id].via_modem ? ' 📡' : world.computers[id].sleep_mode ? ' 💤' : '' }} : {{ world.computers[id].label }}
           </option>
         </select>
         <div v-if="worldView.selectedComputerId === -1" class="manual-center">
@@ -50,6 +50,7 @@
 .hud {
   position: absolute;
   display: grid;
+  user-select: none;
 }
 .centered {
   position: fixed;
@@ -71,6 +72,10 @@
   flex-direction: column;
   gap: 6px;
   min-width: 240px;
+  background: rgb(30, 30, 30);
+  border: 1px solid rgb(70, 70, 70);
+  border-radius: 6px;
+  padding: 8px 12px;
 }
 
 .panel-right {

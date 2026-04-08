@@ -33,6 +33,10 @@
   position: fixed;
   top: 10px;
   right: 10px;
+  background: rgb(30, 30, 30);
+  border: 1px solid rgb(70, 70, 70);
+  border-radius: 6px;
+  padding: 8px 12px;
 }
 </style>
 
