@@ -93,7 +93,7 @@
           #{{ id }} {{ turtle.label ?? '' }}
           <span v-if="isStale(turtle)" class="stale-label">(stale)</span>
         </span>
-        <button class="revoke" @click="deleteTurtle(id)">Delete</button>
+        <button class="revoke" @click="deleteComputer(id)">Delete</button>
       </div>
     </div>
     <p v-else class="empty">No tracked turtles.</p>
@@ -208,8 +208,8 @@ export default defineComponent({
       await Promise.all([this.fetchAll(), useUserStore().fetchMe()]);
     },
     isStale,
-    async deleteTurtle(id: string | number) {
-      await fetch('/api/admin/deleteTurtle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+    async deleteComputer(id: string | number) {
+      await fetch('/api/admin/deleteComputer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
       this.world.removeComputer(id);
       await this.fetchAll();
     },

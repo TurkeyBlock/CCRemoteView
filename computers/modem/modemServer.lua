@@ -57,24 +57,18 @@ local function poll_all()
   local ids_json = textutils.serializeJSON({ ids = ids })
   local activity = false
 
-  local res = http.post(BASE_URL .. "getCommands", ids_json, headers)
+  local res = http.post(BASE_URL .. "poll", ids_json, headers)
   if res then
-    local commands = textutils.unserializeJSON(res.readAll()) or {}
+    local data = textutils.unserializeJSON(res.readAll()) or {}
     res.close()
-    for id_str, cmd in pairs(commands) do
+    for id_str, cmd in pairs(data.commands or {}) do
       if cmd and cmd ~= "" then
         modem.transmit(tonumber(id_str), MODEM_ID, { type = "command", command = cmd })
         print("> cmd -> " .. id_str)
         activity = true
       end
     end
-  end
-
-  res = http.post(BASE_URL .. "getStopSignals", ids_json, headers)
-  if res then
-    local signals = textutils.unserializeJSON(res.readAll()) or {}
-    res.close()
-    for id_str, signal in pairs(signals) do
+    for id_str, signal in pairs(data.stops or {}) do
       if signal then
         modem.transmit(tonumber(id_str), MODEM_ID, { type = "stopSignal" })
         print("> stop -> " .. id_str)
@@ -119,12 +113,12 @@ seed_served_ids()
 
 -- Idle/sleep state (mirrors rcMinecart main())
 local idle_seconds    = 0
-local sleep_level     = 0  -- 0: active (1s), 1: light sleep (15s), 2: deep sleep (30s)
+local sleep_level     = 0  -- 0: active (1s), 1: light sleep (5s), 2: deep sleep (30s)
 local prev_sleep_level = 0
 
 local function get_poll_interval()
   if sleep_level == 2 then return 30
-  elseif sleep_level == 1 then return 15
+  elseif sleep_level == 1 then return 5
   else return 1 end
 end
 
@@ -155,7 +149,7 @@ while true do
         if sleep_level == 2 then
           print("Entering deep sleep - polling every 30 seconds")
         elseif sleep_level == 1 then
-          print("Entering light sleep - polling every 15 seconds")
+          print("Entering light sleep - polling every 5 seconds")
         else
           print("Exiting sleep mode - resuming normal polling every 1 second")
         end

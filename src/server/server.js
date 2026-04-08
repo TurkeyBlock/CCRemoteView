@@ -368,8 +368,18 @@ app.post('/api/modem/register', requireApprovedComputer, (req, res) => {
   res.json({ ok: true });
 });
 
-// Open endpoint — computers query this on boot to discover the modem server ID
+// Open endpoint — computers query this on boot to discover the modem server ID.
+// Returns null if the modem hasn't checked in within the last 2 minutes so that
+// rebooted computers don't route through a dead modem.
+const MODEM_STALE_MS = 120_000;
 app.get('/api/modem/id', (_req, res) => {
+  if (modemServerId !== null) {
+    const modem = state.computers[modemServerId];
+    if (!modem || Date.now() - (modem.lastSeen ?? 0) > MODEM_STALE_MS) {
+      modemServerId = null;
+      modemServerIp = null;
+    }
+  }
   res.json({ id: modemServerId });
 });
 
@@ -379,33 +389,28 @@ app.get('/api/modem/computers', requireApprovedComputer, (_req, res) => {
   res.json({ ids });
 });
 
-// Batch endpoints used by the modem proxy server
-app.post('/api/getCommands', requireApprovedComputer, (req, res) => {
+// Batch endpoint used by the modem proxy server.
+// Returns commands and stop signals atomically so a stop signal for computer X
+// is never delivered in a different poll cycle from the command it was meant to cancel.
+// If a stop signal and a command are both pending for the same computer, the stop signal
+// takes priority and the command is left in the queue for the next cycle.
+app.post('/api/poll', requireApprovedComputer, (req, res) => {
   const { ids } = req.body;
   if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids must be an array' });
-  const result = {};
-  for (const id of ids) {
-    if (cmds[id] && cmds[id].length > 0) {
-      result[String(id)] = cmds[id].shift();
-      console.log(`Modem: delivering cmd to computer ${id}`);
-    }
-  }
-  console.log(`Modem: getCommands poll (${ids.length} computers, ${Object.keys(result).length} commands dispatched)`);
-  res.json(result);
-});
-
-app.post('/api/getStopSignals', requireApprovedComputer, (req, res) => {
-  const { ids } = req.body;
-  if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids must be an array' });
-  const result = {};
+  const commands = {};
+  const stops = {};
   for (const id of ids) {
     if (stopSignal[id]) {
-      result[String(id)] = true;
+      stops[String(id)] = true;
       delete stopSignal[id];
-      console.log(`Modem: delivering stop signal to computer ${id}`);
+      log.info(`Modem: delivering stop signal to computer ${id}`);
+    } else if (cmds[id] && cmds[id].length > 0) {
+      commands[String(id)] = cmds[id].shift();
+      log.info(`Modem: delivering cmd to computer ${id}`);
     }
   }
-  res.json(result);
+  log.info(`Modem: poll (${ids.length} computers, ${Object.keys(commands).length} cmds, ${Object.keys(stops).length} stops)`);
+  res.json({ commands, stops });
 });
 
 // --- Browser endpoints (session gated) ---
@@ -596,11 +601,22 @@ app.post('/api/admin/setAllowByIp', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/admin/deleteTurtle', requireAdmin, (req, res) => {
+app.post('/api/admin/deleteComputer', requireAdmin, (req, res) => {
   const { id } = req.body;
   if (id === undefined) return res.status(400).json({ error: 'id required' });
   delete state.computers[id];
   cmds[id] = [];
+  // If the deleted computer was the modem server, clear modem state and reboot
+  // all remaining computers so they stop routing through the now-dead modem.
+  if (String(id) === String(modemServerId)) {
+    modemServerId = null;
+    modemServerIp = null;
+    log.info(`Modem server ${id} deleted — clearing modem state and queuing reboot for all computers`);
+    for (const computerId of Object.keys(state.computers)) {
+      if (!cmds[computerId]) cmds[computerId] = [];
+      cmds[computerId].push('os.reboot()');
+    }
+  }
   log.info(`Computer ${id} deleted by ${req.token.sub}`);
   res.json({ ok: true });
 });
