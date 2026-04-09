@@ -154,5 +154,20 @@ MOD_DIR = process.argv[3] ? process.argv[3].replaceAll('\\\\', '/').replaceAll('
 
   process.stdout.write("DONE\nSelecting appropriate side image to display for multi side blocks...");
   pickMultiFaceBlockDisplaySide();
+  process.stdout.write("DONE\nBuilding texture index...");
+  const index = [];
+  function buildIndex(dir, base) {
+    for (const entry of fs.readdirSync(dir)) {
+      const full = path.join(dir, entry);
+      if (fs.lstatSync(full).isDirectory()) {
+        buildIndex(full, base ? `${base}/${entry}` : entry);
+      } else if (entry.endsWith('.png')) {
+        index.push(base ? `${base}/${entry}` : entry);
+      }
+    }
+  }
+  buildIndex('textures/blocks', '');
+  fs.writeFileSync('textures/texture-index.json', JSON.stringify(index));
+  process.stdout.write("DONE\n");
   console.log("DONE\n\u001b[33mIF YOU GET ANY ERRORS, JUST RERUN THE COMMAND UNTIL NO ERRORS POP UP. Also please make sure to run this command at least twice to also get some basic support for multi side blocks like the furnace!\u001b[0m");
 })();

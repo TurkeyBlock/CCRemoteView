@@ -38,6 +38,9 @@ export const useWorldViewStore = defineStore('worldView', {
     yMin: 0 as number,
     yMax: 255 as number,
     computerRangeXZ: null as number | null,
+    textureIndex: [] as string[],
+    textureIndexLoading: false as boolean,
+    textureIndexPending: [] as string[],
     blockTint: {
       "minecraft:water": 0x1e97f2,
       "minecraft:grass": BIOME_TINT,
@@ -61,8 +64,15 @@ export const useWorldViewStore = defineStore('worldView', {
       "biomesoplenty:mahogany_leaves": BIOME_TINT,
       "biomesoplenty:willow_leaves": BIOME_TINT,
       "biomesoplenty:willow_vine": BIOME_TINT,
+      "minecraft:leaves2": BIOME_TINT
     } as { [id: string]: number; },
     geometryMap: {
+      "minecraft:crops_wheat": "cross",
+      "minecraft:fire": "cross",
+      "minecraft:torch": "cross",
+      "minecraft:tallgrass": "cross",
+      "minecraft:reeds": "cross",
+      "minecraft:red_flower": "cross",
       "biomesoplenty:bush": "cross",
       "biomesoplenty:toadstool": "cross",
       "biomesoplenty:reed": "cross",
@@ -168,43 +178,98 @@ export const useWorldViewStore = defineStore('worldView', {
         this.materials[id] = new THREE.MeshPhongMaterial({
           color: Math.floor(Math.random() * 0xff00ff),
         });
-        const loader = new THREE.TextureLoader();
+
         const world = useWorldStore();
-        const textureUrl = world.textureURL + `blocks/${id.replace(':', '/')}.png`;
-        console.log('Loading texture:', textureUrl);
-        loader.load(
-          // resource URL
-          textureUrl,
 
-          // onLoad callback
-          (texture) => {
-            texture.minFilter = THREE.NearestFilter;
-            texture.magFilter = THREE.NearestFilter;
-            this.materials[id].map = texture;
-            this.materials[id].color.setHex(0xffffff);
-            const tint = this.blockTint[id];
-            if (tint) this.materials[id].color.setHex(tint);
-            if (this.geometryMap[id] === "cross" || id.includes("leaves") || id.includes("sapling") || id.includes("kelp") || id.includes("seagrass"))
-              this.materials[id].alphaTest = 1;
-            if (this.geometryMap[id] === "cross" || id.includes("sapling") || id.includes("kelp") || id.includes("seagrass"))
-              this.materials[id].side = THREE.DoubleSide;
-            if (texture.image.width !== texture.image.height)
-              this.addAnimatedTexture(texture);
-            if (this.transparencyList.includes(id)) {
-              this.materials[id].transparent = true;
-              this.materials[id].opacity = this.transparencyOpacity;
-            }
-            this.materials[id].needsUpdate = true;
-          },
+        const blockTextureAliases: { [id: string]: string } = {
+          "minecraft:rail": "minecraft/rail_normal",
+          "minecraft:golden_rail": "minecraft/rail_golden",
+          "minecraft:red_flower": "minecraft/flower_rose",
+          "minecraft:leaves2": "minecraft/leaves_acacia",
+          "minecraft:leaves": "minecraft/leaves_oak",
+          "minecraft:torch": "minecraft/torch_on",
+          "minecraft:bed": "minecraft/bed_head_top",
+          "minecraft:wooden_slab": "minecraft/planks_oak",
+          "minecraft:log2": "minecraft/log_acacia",
+          "minecraft:log": "minecraft/log_oak",
+          "minecraft:wheat": "minecraft/crops_wheat",
 
-          // onProgress callback currently not supported
-          undefined,
+          "minecraft:double_stone_slab": "minecraft/stone_slab",
+        };
 
-          // onError callback
-          (err) => {
-            console.log(`No block texture found for ${id}`);
+        const applyTexture = (texture: THREE.Texture) => {
+          texture.minFilter = THREE.NearestFilter;
+          texture.magFilter = THREE.NearestFilter;
+          this.materials[id].map = texture;
+          this.materials[id].color.setHex(0xffffff);
+          const tint = this.blockTint[id];
+          if (tint) this.materials[id].color.setHex(tint);
+          else if (id.includes('leaves')) this.materials[id].color.setHex(BIOME_TINT);
+          if (this.geometryMap[id] === "cross" || id.includes("leaves") || id.includes("sapling") || id.includes("kelp") || id.includes("seagrass"))
+            this.materials[id].alphaTest = 1;
+          if (this.geometryMap[id] === "cross" || id.includes("sapling") || id.includes("kelp") || id.includes("seagrass"))
+            this.materials[id].side = THREE.DoubleSide;
+          if (texture.image.width !== texture.image.height)
+            this.addAnimatedTexture(texture);
+          if (this.transparencyList.includes(id)) {
+            this.materials[id].transparent = true;
+            this.materials[id].opacity = this.transparencyOpacity;
           }
-        );
+          this.materials[id].needsUpdate = true;
+        };
+
+        const tryFuzzyMatch = (blockId: string) => {
+          const mod = blockId.split(':')[0];
+          const blockName = blockId.split(':')[1];
+          const fuzzy = this.textureIndex.find(f =>
+            f.startsWith(mod + '/') && f.includes(blockName)
+          );
+          if (fuzzy) {
+            console.log(`Fuzzy match for ${blockId}: ${fuzzy}`);
+            loadTexture(fuzzy.replace('.png', ''));
+          } else {
+            console.log(`No block texture found for ${blockId}`);
+          }
+        };
+
+        const loadTexture = (texturePath: string) => {
+          const loader = new THREE.TextureLoader();
+          const textureUrl = world.textureURL + `blocks/${texturePath}.png`;
+          console.log('Loading texture:', textureUrl);
+          loader.load(
+            textureUrl,
+            applyTexture,
+            undefined,
+            (_err) => {
+              if (this.textureIndex.length === 0) {
+                // Index not ready yet, queue for retry
+                if (!this.textureIndexPending.includes(id))
+                  this.textureIndexPending.push(id);
+              } else {
+                tryFuzzyMatch(id);
+              }
+            }
+          );
+        };
+
+        // Load texture index once
+        if (this.textureIndex.length === 0 && !this.textureIndexLoading) {
+          this.textureIndexLoading = true;
+          fetch(world.textureURL + 'texture-index.json')
+            .then(r => r.json())
+            .then((index: string[]) => {
+              this.textureIndex = index;
+              // Retry any blocks that failed before index was ready
+              for (const failedId of this.textureIndexPending) {
+                delete this.materials[failedId];
+                this.getBlockMaterial(failedId);
+              }
+              this.textureIndexPending = [];
+            });
+        }
+
+        const texturePath = blockTextureAliases[id] ?? id.replace(':', '/');
+        loadTexture(texturePath);
       }
       return this.materials[id];
     },
