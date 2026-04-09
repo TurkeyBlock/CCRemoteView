@@ -4,6 +4,7 @@ export const useUserStore = defineStore('user', {
   state: () => ({
     username: null as string | null,
     email: null as string | null,
+    isLoggedIn: false,
     isAdmin: false,
     isOperator: false,
     loaded: false,
@@ -15,8 +16,9 @@ export const useUserStore = defineStore('user', {
       const res = await fetch('/api/me').catch(() => null);
       if (!res || !res.ok) return;
       const data = await res.json();
-      this.username = data.username;
-      this.email = data.email;
+      this.isLoggedIn = data.isLoggedIn ?? false;
+      this.username = data.username ?? null;
+      this.email = data.email ?? null;
       this.isAdmin = data.isAdmin;
       this.isOperator = data.isOperator;
       this.savedFileSizeBytes = data.savedFileSizeBytes ?? null;

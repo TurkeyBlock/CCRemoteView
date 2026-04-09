@@ -37,12 +37,6 @@ app.use(cors({
   origin: IS_PROD ? process.env.APP_URL : 'http://localhost:3000'
 }));
 app.use(express.json({ limit: '10mb' }));
-// Gate the SPA entry point — browser navigations redirect to sign-in if no session
-app.get('/', async (req, res, next) => {
-  const token = await getSession(req);
-  if (!token) return res.redirect(SIGNIN_URL);
-  next();
-});
 
 app.use(express.static('dist'));
 app.use('/textures', express.static('textures'));
@@ -413,20 +407,18 @@ app.post('/api/poll', requireApprovedComputer, (req, res) => {
   res.json({ commands, stops });
 });
 
-// --- Browser endpoints (session gated) ---
-app.get('/api/state', requireAuth, compression(), (_req, res) => {
+// --- Browser endpoints ---
+app.get('/api/state', compression(), (_req, res) => {
   res.send(state);
 });
 
-app.post('/api/getStateUpdate', requireAuth, compression(), (req, res) => {
+app.post('/api/getStateUpdate', compression(), (req, res) => {
   if (!req.body.lastTransactionId == -1) {
     res.send({ state });
-    log.info(`/api/getStateUpdate : sent full state to ${req.token.sub}`);
     return;
   }
   if (req.body.lastTransactionId > state.lastReadyTransactionId) {
     res.send({ state });
-    log.info(`/api/getStateUpdate : sent full state to ${req.token.sub} (server restarted)`);
     return;
   }
   let newTransactionId = req.body.lastTransactionId + 1;
@@ -434,7 +426,6 @@ app.post('/api/getStateUpdate', requireAuth, compression(), (req, res) => {
   if (newTransactionId > state.lastTransactionId) { res.send(resJson); return; }
   if (!transactionCache[newTransactionId]) {
     res.send({ state });
-    log.info(`/api/getStateUpdate : sent full state to ${req.token.sub} (transactions not cached)`);
     return;
   }
   for (let i = newTransactionId; i <= state.lastReadyTransactionId; i++) {
@@ -485,14 +476,18 @@ app.post('/api/saveState', requireAuth, (_req, res) => {
   res.sendStatus(200);
 });
 
-app.get('/api/me', requireAuth, (req, res) => {
+app.get('/api/me', async (req, res) => {
+  const token = await getSession(req);
+  if (!token) return res.json({ isLoggedIn: false, isAdmin: false, isOperator: false });
   let savedFileSizeBytes = null;
   try { savedFileSizeBytes = fs.statSync('./src/server/saved/saved_state.json.gz').size; } catch {}
+  userManagement.updateLastActive(token.sub, token.username);
   res.json({
-    username: req.token.username ?? req.token.name ?? null,
-    email: req.token.email ?? null,
-    isAdmin: isAdmin(req.token.sub),
-    isOperator: isOperator(req.token.sub),
+    isLoggedIn: true,
+    username: token.username ?? token.name ?? null,
+    email: token.email ?? null,
+    isAdmin: isAdmin(token.sub),
+    isOperator: isOperator(token.sub),
     savedFileSizeBytes,
   });
 });

@@ -2,8 +2,11 @@
   <div class="operator-request">
     <button class="toggle" @click="open = !open">{{ open ? '▾' : '▸' }} Operator access</button>
     <div v-if="open">
-      <p v-if="message" class="message">{{ message }}</p>
-      <button v-else class="action" @click="request" :disabled="loading">Request access</button>
+      <a v-if="!user.isLoggedIn" class="action" href="/api/signin">Sign in</a>
+      <template v-else>
+        <p v-if="message" class="message">{{ message }}</p>
+        <button v-else class="action" @click="request" :disabled="loading">Request access</button>
+      </template>
     </div>
   </div>
 </template>
@@ -13,6 +16,9 @@ import { defineComponent } from 'vue';
 import { useUserStore } from '../store/useUser';
 
 export default defineComponent({
+  setup() {
+    return { user: useUserStore() };
+  },
   data() {
     return {
       open: false,
