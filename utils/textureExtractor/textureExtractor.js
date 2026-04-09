@@ -13,11 +13,11 @@ function extractTexturesFromJar(fileName) {
         const fileName = entry.path;
         let regex = /assets\/(?<modname>.*)\/textures\/(?<textureType>.*)\/.*\.png$/m;
         let match = regex.exec(fileName);
-        if (match && match.groups.textureType == "block") {
+        if (match && match.groups.textureType == "blocks") {
           const blockPath = `textures/blocks/${match.groups.modname}`;
           fs.mkdirSync(blockPath, { recursive: true });
           entry.pipe(fs.createWriteStream(`${blockPath}/${path.parse(fileName).base}`));
-        } else if (match && match.groups.textureType == "item") {
+        } else if (match && match.groups.textureType == "items") {
           const itemPath = `textures/items/${match.groups.modname}`;
           fs.mkdirSync(itemPath, { recursive: true });
           entry.pipe(fs.createWriteStream(`${itemPath}/${path.parse(fileName).base}`));

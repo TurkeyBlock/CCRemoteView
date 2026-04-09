@@ -42,6 +42,7 @@ local state = {
 }
 
 -- Scan attached peripherals once at startup and store their types in state.
+-- I'm not supporting dynamic peripheral changes for minecart computers without reboots.
 local function scan_peripherals()
   local found = {}
   local seen = {}
