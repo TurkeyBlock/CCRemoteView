@@ -900,8 +900,15 @@ function placeIntermediateChest(chestId)
   return side
 end
 
+
+-- ============================================================
+-- Scan config
+-- ============================================================
+local INCLUDE_METADATA = true   -- include raw 1.12 integer metadata
+local INCLUDE_STATE    = false   -- include blockstate property table
+-- ============================================================
+
 function scan()
-  -- peripheral.find tells us if the scanner is already active regardless of item name vs type mismatch
   if not peripheral.find("plethora:scanner") then
     local ok, err = equipItem("plethora:module", "left")
     if not ok then return false, err end
@@ -910,11 +917,14 @@ function scan()
   local scanner = peripheral.find("plethora:scanner")
   if not scanner then return false, "no scanner attached" end
   local raw = scanner.scan(4)
-  print("? block scan");
+  print("? block scan")
   local blocks = {}
   for _, b in ipairs(raw) do
     if not (b.x == 0 and b.y == 0 and b.z == 0) then
-      table.insert(blocks, { x = b.x, y = b.y, z = b.z, name = b.name })
+      local entry = { x = b.x, y = b.y, z = b.z, name = b.name }
+      if INCLUDE_METADATA then entry.metadata = b.metadata end
+      if INCLUDE_STATE and b.state and next(b.state) then entry.state = b.state end
+      table.insert(blocks, entry)
     end
   end
   local payload = { id = os.getComputerID(), blocks = blocks }

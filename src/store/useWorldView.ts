@@ -181,7 +181,7 @@ export const useWorldViewStore = defineStore('worldView', {
 
         const world = useWorldStore();
 
-        const blockTextureAliases: { [id: string]: string } = {
+        /*const blockTextureAliases: { [id: string]: string } = {
           "minecraft:rail": "minecraft/rail_normal",
           "minecraft:golden_rail": "minecraft/rail_golden",
           "minecraft:red_flower": "minecraft/flower_rose",
@@ -195,7 +195,7 @@ export const useWorldViewStore = defineStore('worldView', {
           "minecraft:wheat": "minecraft/crops_wheat",
 
           "minecraft:double_stone_slab": "minecraft/stone_slab",
-        };
+        };*/
 
         const applyTexture = (texture: THREE.Texture) => {
           texture.minFilter = THREE.NearestFilter;

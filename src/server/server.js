@@ -246,6 +246,9 @@ app.post('/api/state', requireApprovedComputer, (req, res) => {
   res.sendStatus(200);
 });
 
+const SCAN_INCLUDE_METADATA = true;  // store raw 1.12 integer metadata if provided
+const SCAN_INCLUDE_STATE    = false;  // store blockstate property table if provided
+
 app.post('/api/scan', requireApprovedComputer, (req, res) => {
   const { id, blocks } = req.body;
   if (!Array.isArray(blocks)) return res.status(400).json({ error: 'blocks must be an array' });
@@ -258,7 +261,6 @@ app.post('/api/scan', requireApprovedComputer, (req, res) => {
   const computer = state.computers[String(id)];
   if (!computer?.loc) return res.status(400).json({ error: 'computer position unknown — send a state update first' });
 
-  // Minecarts send a fresh GPS fix as `origin` — prefer that over stale state loc
   const origin = req.body.origin ?? computer.loc;
   const { x: tx, y: ty, z: tz } = origin;
   const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: {} };
@@ -268,7 +270,10 @@ app.post('/api/scan', requireApprovedComputer, (req, res) => {
     if (!block.name || block.name === 'minecraft:air') {
       if (state.world.blocks[locString]) transaction.blocks[locString] = null;
     } else {
-      transaction.blocks[locString] = { name: block.name };
+      const entry = { name: block.name };
+      if (SCAN_INCLUDE_METADATA && block.metadata != null) entry.metadata = block.metadata;
+      if (SCAN_INCLUDE_STATE && block.state != null && Object.keys(block.state).length > 0) entry.state = block.state;
+      transaction.blocks[locString] = entry;
     }
   }
 
