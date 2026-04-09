@@ -168,7 +168,7 @@ export default defineComponent({
         world.sendStopSignal(props.computerId);
         loopPropelActive.value = false;
       } else {
-        world.sendCommand(props.computerId, `while not capi.locSemaphore.stopSignal do capi.propel(${propelPower.value}) end`);
+        world.sendCommand(props.computerId, `return capi.propel_loop(${propelPower.value})`);
         loopPropelActive.value = true;
       }
     }

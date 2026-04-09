@@ -189,6 +189,13 @@ function propel(power)
   return true
 end
 
+-- Repeatedly propel until a stop signal is received.
+function propel_loop(power)
+  while not locSemaphore.stopSignal do
+    propel(power)
+  end
+end
+
 -- Send full state report to the server. Always queries GPS first.
 function send_status_update()
   scan_specs()
