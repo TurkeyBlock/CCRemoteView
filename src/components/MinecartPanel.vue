@@ -23,11 +23,11 @@
       </div>
       <button
         :class="{ missing: computer.peripherals && !computer.peripherals.includes('plethora:scanner') }"
-        @click="world.sendCommand(computerId, 'return capi.scan()')"
+        @click="loopPropelActive ? world.sendSideCommand(computerId, 'return capi.scan()') : world.sendCommand(computerId, 'return capi.scan()')"
       >Block Scan</button>
       <button
         :class="{ missing: computer.peripherals && !computer.peripherals.includes('plethora:sensor') }"
-        @click="world.sendCommand(computerId, 'return capi.sense()')"
+        @click="loopPropelActive ? world.sendSideCommand(computerId, 'return capi.sense()') : world.sendCommand(computerId, 'return capi.sense()')"
       >Entity Scan</button>
       <button @click="worldView.focusOnComputer(computerId)">Focus Camera</button>
       <button

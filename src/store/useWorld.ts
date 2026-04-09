@@ -95,6 +95,21 @@ export const useWorldStore = defineStore('world', {
           console.log(data);
         });
     },
+    sendSideCommand(computerId: number, cmd: string) {
+      fetch(this.apiURL + "setSideCommand", {
+        method: 'POST',
+        mode: "cors",
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id: computerId, cmd: cmd }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          console.log(data);
+        });
+    },
     sendStopSignal(computerId: number) {
       fetch(this.apiURL + "setStopSignal", {
         method: 'POST',

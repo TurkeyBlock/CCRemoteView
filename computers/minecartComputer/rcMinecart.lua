@@ -20,7 +20,8 @@ function get_command()
       setfenv(cmd, getfenv())
       parallel.waitForAny(
         function() capi.send_command_result(pcall(cmd)) end,
-        poll_stop_signal
+        poll_stop_signal,
+        poll_side_commands
       )
       capi.locSemaphore.stopSignal = false
     else
@@ -53,6 +54,30 @@ function poll_stop_signal()
         return
       end
       res.close()
+    end
+    os.sleep(1)
+  end
+end
+
+-- HTTP mode: poll for side commands (e.g. scan) while a long command like propel_loop is running.
+-- Runs a command immediately without interrupting the main command, then loops.
+function poll_side_commands()
+  local get_side_url = capi.url .. "getSideCommand/"
+  while true do
+    local json = textutils.serializeJSON({ id = os.getComputerID() })
+    local res = http.post(get_side_url, json, { ["Content-Type"] = "application/json" })
+    if res then
+      local cmd_string = res.readAll()
+      res.close()
+      if cmd_string ~= "" then
+        local cmd, err = loadstring(cmd_string)
+        if cmd then
+          setfenv(cmd, getfenv())
+          capi.send_command_result(pcall(cmd))
+        else
+          capi.send_command_result(false, err)
+        end
+      end
     end
     os.sleep(1)
   end
@@ -166,7 +191,7 @@ function modem_main()
             capi.send_status_update()
           end
 
-          -- Watches for stop signals during command execution.
+          -- Watches for stop signals and side commands during command execution.
           -- Also resets the modem timeout on heartbeat so long commands don't false-trigger.
           local function watch_stop()
             while true do
@@ -179,6 +204,14 @@ function modem_main()
                 elseif msg.type == "heartbeat" then
                   heartbeat_timer = os.startTimer(HEARTBEAT_WINDOW)
                   missed_heartbeats = 0
+                elseif msg.type == "sideCommand" and msg.command and msg.command ~= "" then
+                  local side_cmd, err = loadstring(msg.command)
+                  if side_cmd then
+                    setfenv(side_cmd, getfenv())
+                    capi.send_command_result(pcall(side_cmd))
+                  else
+                    capi.send_command_result(false, err)
+                  end
                 end
               end
             end

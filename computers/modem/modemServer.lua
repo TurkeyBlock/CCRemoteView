@@ -145,6 +145,13 @@ while true do
           activity = true
         end
       end
+      for id_str, cmd in pairs(data.sides or {}) do
+        if cmd and cmd ~= "" then
+          modem.transmit(tonumber(id_str), MODEM_ID, { type = "sideCommand", command = cmd })
+          print("> side -> " .. id_str)
+          activity = true
+        end
+      end
       polling_in_flight = false
       if activity then
         idle_seconds = 0

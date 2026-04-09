@@ -66,6 +66,7 @@ let transactionCache = {}
 let commandResultCache = {}
 let cmds = {}
 let stopSignal = {}
+let sideCommands = {}
 let modemServerId = null;
 let modemServerIp = null;
 let lastModemStateUpdate = 0;
@@ -333,6 +334,12 @@ app.post('/api/getStopSignal', requireApprovedComputer, (req, res) => {
   delete stopSignal[json.id];
 });
 
+app.post('/api/getSideCommand', requireApprovedComputer, (req, res) => {
+  const s = req.body;
+  if (!sideCommands[s.id] || sideCommands[s.id].length === 0) { res.send(''); return; }
+  res.send(sideCommands[s.id].shift());
+});
+
 // Modem server registration — modem server calls this on startup so clients can discover it.
 // When a new modem ID registers, queues os.reboot() for all known computers so they
 // reload, discover the modem, and switch to modem mode automatically.
@@ -393,6 +400,7 @@ app.post('/api/poll', requireApprovedComputer, (req, res) => {
   if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids must be an array' });
   const commands = {};
   const stops = {};
+  const sides = {};
   for (const id of ids) {
     if (stopSignal[id]) {
       stops[String(id)] = true;
@@ -402,9 +410,13 @@ app.post('/api/poll', requireApprovedComputer, (req, res) => {
       commands[String(id)] = cmds[id].shift();
       log.info(`Modem: delivering cmd to computer ${id}`);
     }
+    if (sideCommands[id] && sideCommands[id].length > 0) {
+      sides[String(id)] = sideCommands[id].shift();
+      log.info(`Modem: delivering side command to computer ${id}`);
+    }
   }
-  log.info(`Modem: poll (${ids.length} computers, ${Object.keys(commands).length} cmds, ${Object.keys(stops).length} stops)`);
-  res.json({ commands, stops });
+  log.info(`Modem: poll (${ids.length} computers, ${Object.keys(commands).length} cmds, ${Object.keys(stops).length} stops, ${Object.keys(sides).length} sides)`);
+  res.json({ commands, stops, sides });
 });
 
 // --- Browser endpoints ---
@@ -441,6 +453,15 @@ app.post('/api/setCommand', requireOperator, (req, res) => {
   log.info(`/api/setCommand id=${s.id} user=${req.token.sub} <${s.cmd}>`);
   userManagement.incrementActionCount(req.token.sub);
   res.send({ response: 'command set' });
+});
+
+app.post('/api/setSideCommand', requireOperator, (req, res) => {
+  const s = req.body;
+  if (!sideCommands[s.id]) sideCommands[s.id] = [];
+  sideCommands[s.id].push(s.cmd);
+  log.info(`/api/setSideCommand id=${s.id} user=${req.token.sub} <${s.cmd}>`);
+  userManagement.incrementActionCount(req.token.sub);
+  res.send({ response: 'side command set' });
 });
 
 app.post('/api/setStopSignal', requireOperator, (req, res) => {
