@@ -177,13 +177,15 @@ function say(message)
 end
 
 -- Propel the minecart along the track using the kinetic augment.
--- power is clamped to [-1000, 1000].
+-- power is clamped to [-2, 2].
 function propel(power)
   power = power or 1
-  power = math.max(-1000, math.min(1000, power))
+  power = math.max(-2, math.min(2, power))
   local kinetic = peripheral.find("plethora:kinetic")
   if not kinetic then return false, "no kinetic augment attached" end
   kinetic.propel(power)
+  os.sleep(0.3)
+  send_status_update()
   return true
 end
 

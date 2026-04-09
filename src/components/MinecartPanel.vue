@@ -8,14 +8,18 @@
         <input
           v-model.number="propelPower"
           type="number"
-          min="-1000"
-          max="1000"
+          min="-2"
+          max="2"
           class="propel-input"
         />
         <button
           :class="{ missing: computer.peripherals && !computer.peripherals.includes('plethora:kinetic') }"
           @click="world.sendCommand(computerId, `return capi.propel(${propelPower})`)"
         >Propel</button>
+        <button
+          :class="{ active: loopPropelActive, missing: computer.peripherals && !computer.peripherals.includes('plethora:kinetic') }"
+          @click="toggleLoopPropel"
+        >Loop Propel: {{ loopPropelActive ? 'ON' : 'OFF' }}</button>
       </div>
       <button
         :class="{ missing: computer.peripherals && !computer.peripherals.includes('plethora:scanner') }"
@@ -157,7 +161,19 @@ export default defineComponent({
     const worldView = useWorldViewStore();
     const computer = computed(() => world.computers[props.computerId]);
     const propelPower = ref(1);
-    return { world, worldView, computer, propelPower };
+    const loopPropelActive = ref(false);
+
+    function toggleLoopPropel() {
+      if (loopPropelActive.value) {
+        world.sendStopSignal(props.computerId);
+        loopPropelActive.value = false;
+      } else {
+        world.sendCommand(props.computerId, `while not capi.locSemaphore.stopSignal do capi.propel(${propelPower.value}) end`);
+        loopPropelActive.value = true;
+      }
+    }
+
+    return { world, worldView, computer, propelPower, loopPropelActive, toggleLoopPropel };
   },
 });
 </script>
