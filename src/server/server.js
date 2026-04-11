@@ -666,26 +666,29 @@ function serializeState(s) {
       palette.push(name);
     }
     const [x, y, z] = locString.split(',').map(Number);
-    blockData.push(x, y, z, nameToIdx[name]);
+    blockData.push(x, y, z, nameToIdx[name], block.metadata ?? 0);
   }
   const computers = {};
   for (const [id, c] of Object.entries(s.computers)) {
     const { entities: _e, lastSeen: _ls, ...rest } = c;
     computers[id] = rest;
   }
-  return JSON.stringify({ computers, world: { palette, blockData } });
+  return JSON.stringify({ computers, world: { palette, blockData, blockDataStride: 5 } });
 }
 
 function deserializeState(raw) {
   const parsed = JSON.parse(raw);
   if (parsed.world && Array.isArray(parsed.world.palette)) {
-    const { palette, blockData, blocks: indexed } = parsed.world;
+    const { palette, blockData, blockDataStride, blocks: indexed } = parsed.world;
+    const stride = blockDataStride ?? 4;
     const blocks = {};
     if (blockData) {
-      // New compact format: flat array [x,y,z,idx, ...]
-      for (let i = 0; i < blockData.length; i += 4) {
+      // Compact format: flat array [x,y,z,nameIdx] (stride=4) or [x,y,z,nameIdx,metadata] (stride=5)
+      for (let i = 0; i < blockData.length; i += stride) {
         const locString = `${blockData[i]},${blockData[i + 1]},${blockData[i + 2]}`;
-        blocks[locString] = { name: palette[blockData[i + 3]] };
+        const block = { name: palette[blockData[i + 3]] };
+        if (stride >= 5 && blockData[i + 4]) block.metadata = blockData[i + 4];
+        blocks[locString] = block;
       }
     } else if (indexed) {
       // Legacy format: {"x,y,z": idx}

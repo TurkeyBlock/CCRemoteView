@@ -190,7 +190,9 @@ export const useWorldViewStore = defineStore('worldView', {
         }
       }
     },
-    getBlockMaterial(id: string) {
+    getBlockMaterial(name: string, metadata: number = 0) {
+      // Cache key includes metadata when non-zero: "minecraft:wool:1"
+      const id = metadata ? `${name}:${metadata}` : name;
       if (!this.materials[id]) {
         this.materials[id] = new THREE.MeshPhongMaterial({
           color: Math.floor(Math.random() * 0xff00ff),
@@ -213,7 +215,7 @@ export const useWorldViewStore = defineStore('worldView', {
           "minecraft:snow_layer": "minecraft/snow",
           "minecraft:brick_block": "minecraft/brick",
           "minecraft:carpet": "minecraft/wool_colored_white",
-          
+
           "minecraft:double_stone_slab": "minecraft/stone_slab",
           "buildcrafttransport:pipe_holder": "buildcraftcore/item_hatch",
           "quark:polished_stone": "minecraft/stone_slab",
@@ -224,33 +226,37 @@ export const useWorldViewStore = defineStore('worldView', {
           texture.magFilter = THREE.NearestFilter;
           this.materials[id].map = texture;
           this.materials[id].color.setHex(0xffffff);
-          const tint = this.blockTint[id];
+          // Check tint by full key first, then by name
+          const tint = this.blockTint[id] ?? this.blockTint[name];
           if (tint) this.materials[id].color.setHex(tint);
-          else if (id.includes('leaves')) this.materials[id].color.setHex(BIOME_TINT);
-          if (this.geometryMap[id] === "cross" || this.geometryMap[id] === "flat" || id.includes("leaves") || id.includes("sapling") || id.includes("kelp") || id.includes("seagrass"))
+          else if (name.includes('leaves')) this.materials[id].color.setHex(BIOME_TINT);
+          // Check geometry type by full key first, then by name
+          const geomId = this.geometryMap[id] ?? this.geometryMap[name];
+          if (geomId === "cross" || geomId === "flat" || name.includes("leaves") || name.includes("sapling") || name.includes("kelp") || name.includes("seagrass"))
             this.materials[id].alphaTest = 1;
-          if (this.geometryMap[id] === "cross" || this.geometryMap[id] === "flat" || id.includes("sapling") || id.includes("kelp") || id.includes("seagrass"))
+          if (geomId === "cross" || geomId === "flat" || name.includes("sapling") || name.includes("kelp") || name.includes("seagrass"))
             this.materials[id].side = THREE.DoubleSide;
           if (texture.image.width !== texture.image.height)
             this.addAnimatedTexture(texture);
-          if (this.transparencyList.includes(id)) {
+          if (this.transparencyList.includes(id) || this.transparencyList.includes(name)) {
             this.materials[id].transparent = true;
             this.materials[id].opacity = this.transparencyOpacity;
           }
           this.materials[id].needsUpdate = true;
         };
 
-        const tryFuzzyMatch = (blockId: string) => {
-          const mod = blockId.split(':')[0];
-          const blockName = blockId.split(':')[1];
+        const tryFuzzyMatch = () => {
+          // Always fuzzy-match on the block name, not the metadata key
+          const mod = name.split(':')[0];
+          const blockName = name.split(':')[1];
           const fuzzy = this.textureIndex.find(f =>
             f.startsWith(mod + '/') && f.includes(blockName)
           );
           if (fuzzy) {
-            console.log(`Fuzzy match for ${blockId}: ${fuzzy}`);
+            console.log(`Fuzzy match for ${id}: ${fuzzy}`);
             loadTexture(fuzzy.replace('.png', ''));
           } else {
-            console.log(`No block texture found for ${blockId}`);
+            console.log(`No block texture found for ${id}`);
           }
         };
 
@@ -268,7 +274,7 @@ export const useWorldViewStore = defineStore('worldView', {
                 if (!this.textureIndexPending.includes(id))
                   this.textureIndexPending.push(id);
               } else {
-                tryFuzzyMatch(id);
+                tryFuzzyMatch();
               }
             }
           );
@@ -284,13 +290,21 @@ export const useWorldViewStore = defineStore('worldView', {
               // Retry any blocks that failed before index was ready
               for (const failedId of this.textureIndexPending) {
                 delete this.materials[failedId];
-                this.getBlockMaterial(failedId);
+                // Parse "name:metadata" key back into separate args
+                const lastColon = failedId.lastIndexOf(':');
+                const afterColon = failedId.slice(lastColon + 1);
+                if (lastColon !== -1 && !isNaN(Number(afterColon))) {
+                  this.getBlockMaterial(failedId.slice(0, lastColon), Number(afterColon));
+                } else {
+                  this.getBlockMaterial(failedId);
+                }
               }
               this.textureIndexPending = [];
             });
         }
 
-        const texturePath = blockTextureAliases[id] ?? id.replace(':', '/');
+        // Try alias by full key (e.g. "minecraft:wool:1") then by name, then derive from name
+        const texturePath = blockTextureAliases[id] ?? blockTextureAliases[name] ?? name.replace(':', '/');
         loadTexture(texturePath);
       }
       return this.materials[id];

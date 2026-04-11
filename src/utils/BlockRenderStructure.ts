@@ -27,22 +27,27 @@ class BlockRenderStructure {
     this.topSlabGeometry.translate(0, 0.25, 0); // Occupies the upper half of the block space
   }
 
+  blockKey(block: Block): string {
+    return block.metadata ? `${block.name}:${block.metadata}` : block.name;
+  }
+
   addBlock(locString: string, block: Block) {
     if (!block || !locString) throw new Error(`Given block is ${block}`);
     const worldView = useWorldViewStore();
+    const key = this.blockKey(block);
 
-    let instMeshIdx = this.blockToMeshIdxMap[block.name];
+    let instMeshIdx = this.blockToMeshIdxMap[key];
     if (instMeshIdx === undefined) {
-      let newMesh = new DynamicInstancedMesh(this.getBlockGeometry(block), worldView.getBlockMaterial(block.name));
+      let newMesh = new DynamicInstancedMesh(this.getBlockGeometry(block), worldView.getBlockMaterial(block.name, block.metadata));
       instMeshIdx = this.meshArray.push(newMesh) - 1;
-      this.blockToMeshIdxMap[block.name] = instMeshIdx;
+      this.blockToMeshIdxMap[key] = instMeshIdx;
     }
-    instMeshIdx = this.blockToMeshIdxMap[block.name];
+    instMeshIdx = this.blockToMeshIdxMap[key];
     let mesh = this.meshArray[instMeshIdx];
 
     if (mesh.count == mesh.maxInstanceCount) {
       const oldMesh = mesh;
-      mesh = new DynamicInstancedMesh(oldMesh.geometry, worldView.getBlockMaterial(block.name), oldMesh.count * 2);
+      mesh = new DynamicInstancedMesh(oldMesh.geometry, worldView.getBlockMaterial(block.name, block.metadata), oldMesh.count * 2);
       mesh.setFromDynamicInstancedMesh(oldMesh);
       this.meshArray[instMeshIdx] = mesh;
     }
@@ -54,7 +59,8 @@ class BlockRenderStructure {
     const world = useWorldStore();
     const block = world.blocks[locString];
     if (!block) return;
-    let instMeshIdx = this.blockToMeshIdxMap[block.name];
+    const key = this.blockKey(block);
+    let instMeshIdx = this.blockToMeshIdxMap[key];
     if (instMeshIdx === undefined) return;
     this.meshArray[instMeshIdx].removeBlock(locString);
   }
@@ -67,16 +73,18 @@ class BlockRenderStructure {
 
   getBlockGeometry(block: Block): BufferGeometry {
     const worldView = useWorldViewStore();
-    let geometryId = worldView.geometryMap[block.name];
+    const key = this.blockKey(block);
+    // Try metadata-specific entry first, then fall back to name-only
+    let geometryId = worldView.geometryMap[key] ?? worldView.geometryMap[block.name];
     if (!geometryId && (block.name.includes("sapling") || block.name.includes("kelp") || block.name.includes("seagrass") || block.name.includes("magrove_root"))) geometryId = "cross";
     if (!geometryId || geometryId === "cube") return this.boxGeometry;
     if (geometryId === "flat") return this.flatGeometry;
-    if (geometryId === "slab_bottom") return this.bottomSlabGeometry;
+    // metadata >= 8 means top slab in Minecraft 1.12
+    if (geometryId === "slab_bottom") return (block.metadata ?? 0) >= 8 ? this.topSlabGeometry : this.bottomSlabGeometry;
     if (geometryId === "slab_top") return this.topSlabGeometry;
 
     if (!this.geometryCache[geometryId]) {
       const loader = new GLTFLoader();
-      const blockName = block.name; // capture for closure
 
       const promise = loader.loadAsync(`textures/turtle/${geometryId}.glb`)
         .then((gltf) => gltf.scene.traverse((child) => {
@@ -102,11 +110,11 @@ class BlockRenderStructure {
       /* @ts-ignore */
       geometryOrPromise.then(() => {
         const geometry = this.geometryCache[geometryId];
-        console.log(`geometry request done — geometryId=${geometryId} block=${block.name}`);
+        console.log(`geometry request done — geometryId=${geometryId} block=${key}`);
         if (geometry) {
-          const meshIdx = this.blockToMeshIdxMap[block.name];
+          const meshIdx = this.blockToMeshIdxMap[key];
           if (meshIdx !== undefined) {
-            console.log(`geometry swap: geometryId=${geometryId} block=${block.name}`);
+            console.log(`geometry swap: geometryId=${geometryId} block=${key}`);
             this.meshArray[meshIdx].geometry = geometry as BufferGeometry;
           }
         }
