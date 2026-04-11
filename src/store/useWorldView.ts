@@ -94,8 +94,6 @@ export const useWorldViewStore = defineStore('worldView', {
       "minecraft:dead_bush": "cross",
       "minecraft:fern": "cross",
       "minecraft:large_fern": "cross",
-      "minecraft:grass": "cube",
-      "grass": "cube",
       "minecraft:tall_grass": "cross",
       "minecraft:vine": "cross",
       "minecraft:dandelion": "cross",
@@ -117,6 +115,7 @@ export const useWorldViewStore = defineStore('worldView', {
       "minecraft:golden_rail": "flat",
       "minecraft:detector_rail": "flat",
       "minecraft:activator_rail": "flat",
+      "minecraft:snow_layer": "flat",
     } as { [blockId: string]: string },
   }),
   getters: {
@@ -197,7 +196,8 @@ export const useWorldViewStore = defineStore('worldView', {
           "minecraft:log2": "minecraft/log_acacia",
           "minecraft:log": "minecraft/log_oak",
           "minecraft:wheat": "minecraft/crops_wheat",
-
+          "minecraft:snow_layer": "minecraft/snow",
+          
           "minecraft:double_stone_slab": "minecraft/stone_slab",
         };
 
