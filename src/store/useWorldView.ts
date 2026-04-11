@@ -110,12 +110,16 @@ export const useWorldViewStore = defineStore('worldView', {
       "minecraft:sunflower": "cross",
       "minecraft:cornflower": "cross",
       "minecraft:peony": "cross",
+      "minecraft:brewing_stand": "cross",
+      "minecraft:wheat": "cross",
       "quark:root": "cross",
+      "projecte:interdiction_torch": "cross",
       "minecraft:rail": "flat",
       "minecraft:golden_rail": "flat",
       "minecraft:detector_rail": "flat",
       "minecraft:activator_rail": "flat",
       "minecraft:snow_layer": "flat",
+      "minecraft:carpet": "flat",
       "minecraft:stone_slab": "slab_bottom",
       "minecraft:wooden_slab": "slab_bottom",
       "minecraft:stone_slab2": "slab_bottom",
@@ -207,8 +211,12 @@ export const useWorldViewStore = defineStore('worldView', {
           "minecraft:log": "minecraft/log_oak",
           "minecraft:wheat": "minecraft/crops_wheat",
           "minecraft:snow_layer": "minecraft/snow",
+          "minecraft:brick_block": "minecraft/brick",
+          "minecraft:carpet": "minecraft/wool_colored_white",
           
           "minecraft:double_stone_slab": "minecraft/stone_slab",
+          "buildcrafttransport:pipe_holder": "buildcraftcore/item_hatch",
+          "quark:polished_stone": "minecraft/stone_slab",
         };
 
         const applyTexture = (texture: THREE.Texture) => {
