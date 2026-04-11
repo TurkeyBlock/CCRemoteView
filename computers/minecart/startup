@@ -14,7 +14,7 @@ function Split(s, delimiter)
 end
 
 local function get_files_from_server()
-  local files = { "capi", "rcMinecart.lua", "startup.lua" }
+  local files = { "capi", "rcMinecart.lua", "startup" }
   term.write("autoupdate...")
   for _, name in ipairs(files) do
     local url = base_url .. "computers/minecart/" .. name
@@ -28,14 +28,14 @@ local function get_files_from_server()
     f.write(res.readAll())
     f.close()
     res.close()
-    if name == "startup.lua" then
+    if name == "startup" then
       if fs.exists("backup") then
-        fs.delete("backup/startup.lua")
+        fs.delete("backup/startup")
       else
         fs.makeDir("backup")
       end
-      if fs.exists("startup.lua") then
-        fs.copy("startup.lua", "backup/startup.lua")
+      if fs.exists("startup") then
+        fs.copy("startup", "backup/startup")
       end
     end
   end
