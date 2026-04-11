@@ -17,7 +17,7 @@ local function get_files_from_server()
   local files = { "capi", "rcMinecart.lua", "startup.lua" }
   term.write("autoupdate...")
   for _, name in ipairs(files) do
-    local url = base_url .. "computers/minecartComputer/" .. name
+    local url = base_url .. "computers/minecart/" .. name
     local res = http.get(url, nil)
     while not res do
       print("Error on GET " .. url .. " - retrying in 5 seconds")
