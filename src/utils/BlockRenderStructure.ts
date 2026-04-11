@@ -11,6 +11,8 @@ class BlockRenderStructure {
   defaultInstanceCount = 16;
   boxGeometry: BoxGeometry;
   flatGeometry: PlaneGeometry;
+  bottomSlabGeometry: BoxGeometry;
+  topSlabGeometry: BoxGeometry;
   geometryCache = {} as { [geometryId: string]: BufferGeometry | Promise<void> | null };
 
   constructor(parentSceneObject: Object3D) {
@@ -19,6 +21,10 @@ class BlockRenderStructure {
     this.flatGeometry = new PlaneGeometry(1, 1);
     this.flatGeometry.rotateX(-Math.PI / 2); // Lie flat in XZ plane
     this.flatGeometry.translate(0, -0.5, 0); // Sit at the bottom of the block space
+    this.bottomSlabGeometry = new BoxGeometry(1, 0.5, 1);
+    this.bottomSlabGeometry.translate(0, -0.25, 0); // Occupies the lower half of the block space
+    this.topSlabGeometry = new BoxGeometry(1, 0.5, 1);
+    this.topSlabGeometry.translate(0, 0.25, 0); // Occupies the upper half of the block space
   }
 
   addBlock(locString: string, block: Block) {
@@ -65,6 +71,8 @@ class BlockRenderStructure {
     if (!geometryId && (block.name.includes("sapling") || block.name.includes("kelp") || block.name.includes("seagrass") || block.name.includes("magrove_root"))) geometryId = "cross";
     if (!geometryId || geometryId === "cube") return this.boxGeometry;
     if (geometryId === "flat") return this.flatGeometry;
+    if (geometryId === "slab_bottom") return this.bottomSlabGeometry;
+    if (geometryId === "slab_top") return this.topSlabGeometry;
 
     if (!this.geometryCache[geometryId]) {
       const loader = new GLTFLoader();
