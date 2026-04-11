@@ -1,0 +1,155 @@
+-- sapi: stationaryComputer API
+-- Analogous to capi. Location is captured once on boot and reused.
+
+-- !MUST END WITH '/'
+url = "%%APP_URL%%/"
+
+use_modem       = false
+MODEM_SERVER_ID = 0
+
+-- Populated once at boot by init_location()
+loc = nil   -- { x, y, z } or nil if GPS unavailable
+
+-- Stop-signal semaphore
+locSemaphore = {
+    stopSignal = false,
+    count      = 0,
+}
+
+local headers = { ["Content-Type"] = "application/json" }
+local modem_device = nil
+local _sleep_mode  = false
+
+-- ─── Boot-time location capture ──────────────────────────────
+
+-- Call once from startup before launching rcStationary.
+-- Retries until a GPS fix is obtained or max_attempts is reached.
+function init_location(max_attempts)
+    max_attempts = max_attempts or 10
+    for i = 1, max_attempts do
+        local x, y, z = gps.locate(2)
+        if x then
+            loc = { x = x, y = y, z = z }
+            print("GPS fix: " .. x .. ", " .. y .. ", " .. z)
+            return true
+        end
+        print("GPS attempt " .. i .. "/" .. max_attempts .. " failed, retrying...")
+        os.sleep(2)
+    end
+    print("Warning: GPS unavailable — loc will be nil")
+    return false
+end
+
+-- ─── Modem setup ─────────────────────────────────────────────
+
+function init_modem()
+    modem_device = peripheral.find("modem")
+    if modem_device then
+        modem_device.open(os.getComputerID())
+        return true
+    end
+    return false
+end
+
+-- ─── Status / result helpers ──────────────────────────────────
+
+function send_status_update()
+    local payload = {
+        id    = os.getComputerID(),
+        type  = "stationaryComputer",
+        sleep = _sleep_mode,
+        loc   = loc,
+    }
+    if use_modem and modem_device then
+        modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(),
+            { type = "statusUpdate", data = payload })
+    else
+        local json = textutils.serializeJSON(payload)
+        local res  = http.post(url .. "api/statusUpdate", json, headers)
+        if res then res.close() end
+    end
+end
+
+function send_command_result(ok, ...)
+    local args = { ... }
+    local payload = {
+        id      = os.getComputerID(),
+        success = ok,
+        result  = ok and args or nil,
+        error   = (not ok) and tostring(args[1]) or nil,
+    }
+    if use_modem and modem_device then
+        modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(),
+            { type = "commandResult", data = payload })
+    else
+        local json = textutils.serializeJSON(payload)
+        local res  = http.post(url .. "api/commandResult", json, headers)
+        if res then res.close() end
+    end
+end
+
+function set_sleep_mode(enabled)
+    _sleep_mode = enabled
+end
+
+-- ─── Chat helper ─────────────────────────────────────────────
+
+function send_chat(player, message, uuid)
+    local data = {
+        id      = os.getComputerID(),
+        player  = player,
+        message = message,
+        uuid    = uuid or "",
+    }
+    if use_modem and modem_device then
+        modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(),
+            { type = "chat", data = data })
+    else
+        local json = textutils.serializeJSON(data)
+        local res  = http.post(url .. "chat", json, headers)
+        if res then res.close() end
+    end
+end
+
+-- ─── Sense helper ────────────────────────────────────────────
+
+function sense()
+    local sensor = peripheral.find("plethora:sensor")
+    if not sensor then return false, "no plethora:sensor attached" end
+
+    local raw      = sensor.sense()
+    local entities = {}
+    for _, e in ipairs(raw) do
+        table.insert(entities, {
+            id   = e.id,
+            name = e.name,
+            x    = e.x,
+            y    = e.y,
+            z    = e.z,
+        })
+    end
+
+    local payload = { id = os.getComputerID(), entities = entities }
+    if loc then payload.origin = loc end
+
+    if use_modem and modem_device then
+        modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(),
+            { type = "sense", data = payload })
+    else
+        local json = textutils.serializeJSON(payload)
+        local res  = http.post(url .. "sense", json, headers)
+        if res then res.close() end
+    end
+
+    print("? entity scan (" .. #entities .. " entities)")
+    return true
+end
+
+-- ─── Say helper ──────────────────────────────────────────────
+
+function say(message)
+    local chat = peripheral.find("plethora:chat")
+    if not chat then return false, "no chat recorder attached" end
+    chat.say(message)
+    return true
+end

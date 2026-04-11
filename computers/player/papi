@@ -1,0 +1,130 @@
+-- papi: playerComputer API
+-- Analogous to tapi for turtleComputers.
+-- Provides shared state, HTTP/modem helpers, and the stop-signal semaphore.
+
+-- !MUST END WITH '/'
+url = "%%APP_URL%%/"
+
+-- Modem config
+use_modem   = false
+MODEM_SERVER_ID = 0   -- set by startup if a modem server is found
+
+-- Stop-signal semaphore (mirrors tapi)
+-- Commands that run loops should check locSemaphore.stopSignal and
+-- bracket critical sections with count inc/dec.
+locSemaphore = {
+    stopSignal = false,
+    count      = 0,
+}
+
+-- Cached sleep-mode flag (sent in status updates)
+local _sleep_mode = false
+
+-- ─── GPS helpers ─────────────────────────────────────────────
+
+-- Returns x, y, z from GPS, or nil if unavailable.
+function get_location()
+    local x, y, z = gps.locate(2)   -- 2-second timeout
+    if x then return x, y, z end
+    return nil, nil, nil
+end
+
+-- ─── Status / result helpers (HTTP) ──────────────────────────
+
+function send_status_update()
+    local x, y, z = get_location()
+    local payload = {
+        id       = os.getComputerID(),
+        type     = "playerComputer",
+        sleep    = _sleep_mode,
+        loc      = x and { x = x, y = y, z = z } or nil,
+    }
+    if use_modem then
+        local modem = peripheral.find("modem")
+        if modem then
+            modem.transmit(MODEM_SERVER_ID, os.getComputerID(),
+                { type = "statusUpdate", data = payload })
+        end
+    else
+        local json = textutils.serializeJSON(payload)
+        local res  = http.post(url .. "api/statusUpdate", json,
+                               { ["Content-Type"] = "application/json" })
+        if res then res.close() end
+    end
+end
+
+function send_command_result(ok, ...)
+    local args = { ... }
+    local payload = {
+        id      = os.getComputerID(),
+        success = ok,
+        result  = ok and args or nil,
+        error   = (not ok) and tostring(args[1]) or nil,
+    }
+    if use_modem then
+        local modem = peripheral.find("modem")
+        if modem then
+            modem.transmit(MODEM_SERVER_ID, os.getComputerID(),
+                { type = "commandResult", data = payload })
+        end
+    else
+        local json = textutils.serializeJSON(payload)
+        local res  = http.post(url .. "api/commandResult", json,
+                               { ["Content-Type"] = "application/json" })
+        if res then res.close() end
+    end
+end
+
+function set_sleep_mode(enabled)
+    _sleep_mode = enabled
+end
+
+-- ─── Scan helper ─────────────────────────────────────────────
+
+local SCAN_INCLUDE_METADATA = true
+local SCAN_INCLUDE_STATE    = false
+
+function scan()
+    local scanner = peripheral.find("plethora:scanner")
+    if not scanner then
+        return false, "no plethora:scanner attached"
+    end
+
+    local x, y, z = get_location()
+    if not x then
+        return false, "GPS fix failed"
+    end
+
+    local raw    = scanner.scan(4)
+    local blocks = {}
+    for _, b in ipairs(raw) do
+        local entry = { x = b.x, y = b.y, z = b.z, name = b.name }
+        if SCAN_INCLUDE_METADATA then entry.metadata = b.metadata end
+        if SCAN_INCLUDE_STATE and b.state and next(b.state) then
+            entry.state = b.state
+        end
+        table.insert(blocks, entry)
+    end
+
+    local payload = {
+        id     = os.getComputerID(),
+        origin = { x = x, y = y, z = z },
+        blocks = blocks,
+    }
+
+    if use_modem then
+        local modem = peripheral.find("modem")
+        if modem then
+            modem.transmit(MODEM_SERVER_ID, os.getComputerID(),
+                { type = "scan", data = payload })
+        end
+    else
+        local json = textutils.serializeJSON(payload)
+        local res  = http.post(url .. "scan", json,
+            { ["Content-Type"] = "application/json" })
+        if res then res.close() end
+    end
+
+    print("? block scan (" .. #blocks .. " blocks @ " .. x .. "," .. y .. "," .. z .. ")")
+    return true
+end
