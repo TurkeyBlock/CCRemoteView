@@ -171,6 +171,10 @@ export default defineComponent({
       computerId: -1 as Number,
       manualX: null as number | null,
       manualZ: null as number | null,
+      _ws: null as WebSocket | null,
+      _wsBackoff: 1000 as number,
+      _wsReconnectTimeout: null as ReturnType<typeof setTimeout> | null,
+      _cmdResultInterval: null as ReturnType<typeof setInterval> | null,
     };
   },
   watch: {
@@ -210,70 +214,79 @@ export default defineComponent({
         }
       });
     },
-    pollStatus() {
+    connectWebSocket() {
       const world = useWorldStore();
       const worldView = useWorldViewStore();
 
-      fetch(world.apiURL + "getStateUpdate", {
+      const wsUrl = world.URL
+        ? world.URL.replace(/^http/, 'ws')
+        : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
+
+      const ws = new WebSocket(wsUrl);
+      this._ws = ws;
+
+      ws.onopen = () => {
+        this._wsBackoff = 1000;
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.state) {
+          world.setComputerStatus(data.state.computers);
+          world.blocks = data.state.world.blocks;
+          worldView.regenerateSceneFromBlocks();
+          world.lastTransactionId = data.state.lastTransactionId;
+        } else {
+          world.applyTransactions(data.transactions);
+        }
+        worldView.render();
+        world.isLoading = false;
+      };
+
+      ws.onclose = (event) => {
+        if (event.code === 4401) { world.isUnauthorized = true; return; }
+        const delay = this._wsBackoff;
+        this._wsBackoff = Math.min(this._wsBackoff * 2, 10000);
+        this._wsReconnectTimeout = setTimeout(() => this.connectWebSocket(), delay);
+      };
+
+      ws.onerror = () => ws.close();
+    },
+    pollCommandResult() {
+      const world = useWorldStore();
+      const worldView = useWorldViewStore();
+      if (worldView.selectedComputerId === -1) return;
+      fetch(world.apiURL + "getCommandResult", {
         method: "POST",
         mode: "cors",
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ lastTransactionId: world.lastTransactionId }),
+        body: JSON.stringify({
+          computerId: worldView.selectedComputerId,
+          getOnlyLatest: true,
+        }),
       })
-        .then((res) => {
-          if (res.status === 401) { world.isUnauthorized = true; return null; }
-          return res.json();
-        })
+        .then((res) => res.json())
         .then((data) => {
-          if (!data) return;
-          // console.log(data);
-          if (data.state) {
-            world.setComputerStatus(data.state.computers);
-            world.blocks = data.state.world.blocks;
-            worldView.regenerateSceneFromBlocks();
-            world.lastTransactionId = data.state.lastTransactionId;
-          } else {
-            world.applyTransactions(data.transactions);
+          if (data.result) {
+            world.commandResult[data.computerId] = data.result.ret;
           }
-          worldView.render();
-        })
-        .finally(() => {
-          world.isLoading = false;
-          if (!world.isUnauthorized) setTimeout(() => this.pollStatus(), 400);
         });
-
-      if (worldView.selectedComputerId !== -1) {
-        fetch(world.apiURL + "getCommandResult", {
-          method: "POST",
-          mode: "cors",
-          headers: {
-            "Access-Control-Allow-Origin": "*",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            computerId: worldView.selectedComputerId,
-            getOnlyLatest: true,
-          }),
-        })
-          .then((res) => res.json())
-          .then((data) => {
-            if (data.result) {
-              world.commandResult[data.computerId] = data.result.ret;
-            }
-          });
-      }
     },
     isStale,
   },
   mounted() {
     useUserStore().startPolling();
-    this.pollStatus();
+    this.connectWebSocket();
+    this._cmdResultInterval = setInterval(() => this.pollCommandResult(), 400);
   },
   beforeUnmount() {
     useUserStore().stopPolling();
+    if (this._ws) { this._ws.onclose = null; this._ws.close(); }
+    if (this._wsReconnectTimeout) clearTimeout(this._wsReconnectTimeout);
+    if (this._cmdResultInterval) clearInterval(this._cmdResultInterval);
   },
 });
 </script>

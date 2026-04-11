@@ -9,6 +9,7 @@ const zlib = require('zlib');
 const app = express();
 const httpTerminator = require('http-terminator');
 const simpleNodeLogger = require('simple-node-logger');
+const { WebSocketServer } = require('ws');
 let _jwtDecode = null;
 async function jwtDecode(params) {
   if (!_jwtDecode) _jwtDecode = (await import('@auth/core/jwt')).decode;
@@ -70,6 +71,17 @@ let sideCommands = {}
 let modemServerId = null;
 let modemServerIp = null;
 let lastModemStateUpdate = 0;
+
+// --- Browser WebSocket clients ---
+const browserClients = new Set();
+
+function broadcastTransaction(transaction) {
+  if (browserClients.size === 0) return;
+  const msg = JSON.stringify({ transactions: { [transaction.id]: transaction } });
+  for (const ws of browserClients) {
+    if (ws.readyState === ws.OPEN) ws.send(msg);
+  }
+}
 
 const userManagement = new UserManagement();
 const turtleIpManager = new TurtleIpManager();
@@ -241,8 +253,10 @@ const scanLastTime = {};
 app.post('/api/state', requireApprovedComputer, (req, res) => {
   // Tag the state with how it arrived so the frontend can show modem vs HTTP
   req.body.via_modem = modemServerIp !== null && req.ip === modemServerIp;
-  applyTransaction(extractState(req.body, state), state, transactionCache);
+  const t = extractState(req.body, state);
+  applyTransaction(t, state, transactionCache);
   if (state.computers[req.body.id]) state.computers[req.body.id].lastSeen = Date.now();
+  broadcastTransaction(t);
   res.sendStatus(200);
 });
 
@@ -280,6 +294,7 @@ app.post('/api/scan', requireApprovedComputer, (req, res) => {
   if (Object.keys(transaction.blocks).length > 0) {
     applyTransaction(transaction, state, transactionCache);
     state.lastReadyTransactionId++;
+    broadcastTransaction(transaction);
     log.info(`/api/scan id=${id} mapped ${Object.keys(transaction.blocks).length} block changes`);
   }
 
@@ -296,6 +311,7 @@ app.post('/api/sense', requireApprovedComputer, (req, res) => {
   const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: state.computers[String(id)] } };
   applyTransaction(transaction, state, transactionCache);
   state.lastReadyTransactionId++;
+  broadcastTransaction(transaction);
   log.info(`/api/sense id=${id} reported ${entities.length} entities`);
   res.json({ ok: true });
 });
@@ -312,6 +328,7 @@ app.post('/api/chat', requireApprovedComputer, (req, res) => {
   const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: state.computers[String(id)] } };
   applyTransaction(transaction, state, transactionCache);
   state.lastReadyTransactionId++;
+  broadcastTransaction(transaction);
   log.info(`/api/chat id=${id} player=${player} message=${message}`);
   res.json({ ok: true });
 });
@@ -370,6 +387,7 @@ app.post('/api/modem/register', requireApprovedComputer, (req, res) => {
     const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: modemState } };
     applyTransaction(transaction, state, transactionCache);
     state.lastReadyTransactionId++;
+    broadcastTransaction(transaction);
   }
   res.json({ ok: true });
 });
@@ -723,6 +741,17 @@ function autoSave() {
 const PORT = parseInt(process.env.APP_PORT || '8081', 10);
 const server = app.listen(PORT, () => log.info(`Turtle remote controller server listening on port ${PORT}.`));
 autoSave();
+
+// --- Browser WebSocket server ---
+const wss = new WebSocketServer({ server });
+wss.on('connection', async (ws, req) => {
+  const token = await getSession(req);
+  if (!token) { ws.close(4401, 'Unauthorized'); return; }
+  browserClients.add(ws);
+  ws.send(JSON.stringify({ state }));
+  ws.on('close', () => browserClients.delete(ws));
+  ws.on('error', () => { browserClients.delete(ws); ws.terminate(); });
+});
 
 const terminator = httpTerminator.createHttpTerminator({ gracefulTerminationTimeout: 200, server });
 process.on('SIGINT', async () => {
