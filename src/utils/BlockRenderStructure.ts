@@ -1,4 +1,4 @@
-import { BoxGeometry, BufferGeometry, Mesh, Object3D } from "three";
+import { BoxGeometry, BufferGeometry, Mesh, Object3D, PlaneGeometry } from "three";
 import { useWorldStore } from "../store/useWorld";
 import { useWorldViewStore } from "../store/useWorldView";
 import { Block } from "../types/types";
@@ -10,11 +10,15 @@ class BlockRenderStructure {
   blockToMeshIdxMap = {} as { [blockId: string]: number };
   defaultInstanceCount = 16;
   boxGeometry: BoxGeometry;
+  flatGeometry: PlaneGeometry;
   geometryCache = {} as { [geometryId: string]: BufferGeometry | Promise<void> | null };
 
   constructor(parentSceneObject: Object3D) {
     this.meshArray = parentSceneObject.children as DynamicInstancedMesh[];
     this.boxGeometry = new BoxGeometry();
+    this.flatGeometry = new PlaneGeometry(1, 1);
+    this.flatGeometry.rotateX(-Math.PI / 2); // Lie flat in XZ plane
+    this.flatGeometry.translate(0, -0.5, 0); // Sit at the bottom of the block space
   }
 
   addBlock(locString: string, block: Block) {
@@ -60,6 +64,7 @@ class BlockRenderStructure {
     let geometryId = worldView.geometryMap[block.name];
     if (!geometryId && (block.name.includes("sapling") || block.name.includes("kelp") || block.name.includes("seagrass") || block.name.includes("magrove_root"))) geometryId = "cross";
     if (!geometryId || geometryId === "cube") return this.boxGeometry;
+    if (geometryId === "flat") return this.flatGeometry;
 
     if (!this.geometryCache[geometryId]) {
       const loader = new GLTFLoader();

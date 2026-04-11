@@ -113,6 +113,10 @@ export const useWorldViewStore = defineStore('worldView', {
       "minecraft:cornflower": "cross",
       "minecraft:peony": "cross",
       "quark:root": "cross",
+      "minecraft:rail": "flat",
+      "minecraft:golden_rail": "flat",
+      "minecraft:detector_rail": "flat",
+      "minecraft:activator_rail": "flat",
     } as { [blockId: string]: string },
   }),
   getters: {
@@ -205,9 +209,9 @@ export const useWorldViewStore = defineStore('worldView', {
           const tint = this.blockTint[id];
           if (tint) this.materials[id].color.setHex(tint);
           else if (id.includes('leaves')) this.materials[id].color.setHex(BIOME_TINT);
-          if (this.geometryMap[id] === "cross" || id.includes("leaves") || id.includes("sapling") || id.includes("kelp") || id.includes("seagrass"))
+          if (this.geometryMap[id] === "cross" || this.geometryMap[id] === "flat" || id.includes("leaves") || id.includes("sapling") || id.includes("kelp") || id.includes("seagrass"))
             this.materials[id].alphaTest = 1;
-          if (this.geometryMap[id] === "cross" || id.includes("sapling") || id.includes("kelp") || id.includes("seagrass"))
+          if (this.geometryMap[id] === "cross" || this.geometryMap[id] === "flat" || id.includes("sapling") || id.includes("kelp") || id.includes("seagrass"))
             this.materials[id].side = THREE.DoubleSide;
           if (texture.image.width !== texture.image.height)
             this.addAnimatedTexture(texture);
