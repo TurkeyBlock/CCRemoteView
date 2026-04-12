@@ -1,7 +1,7 @@
 interface TurtleState {
     id: number,
     label: "",
-    type?: 'turtle' | 'minecart' | 'modem',
+    type?: 'turtle' | 'minecart' | 'modem' | 'player' | 'stationary',
     loc: Vec,
     rot: number,
     inv: ItemStack[],

@@ -22,7 +22,18 @@ print("Listening on channel " .. MODEM_ID)
 modem.open(MODEM_ID)
 
 local served_ids = {}
-local register_json = textutils.serializeJSON({ id = MODEM_ID })
+
+-- Attempt a one-shot GPS fix so the server can place this modem on the render.
+-- Runs synchronously here — safe because the event loop hasn't started yet.
+local loc_x, loc_y, loc_z = gps.locate(3)
+local modem_loc = loc_x and { x = loc_x, y = loc_y, z = loc_z } or nil
+if modem_loc then
+  print("GPS fix: " .. loc_x .. ", " .. loc_y .. ", " .. loc_z)
+else
+  print("GPS unavailable — modem will appear without location")
+end
+
+local register_json = textutils.serializeJSON({ id = MODEM_ID, loc = modem_loc })
 
 local REGISTER_URL = BASE_URL .. "modem/register"
 local POLL_URL     = BASE_URL .. "poll"
@@ -87,6 +98,7 @@ local endpoint_map = {
   sense         = "sense",
   chat          = "chat",
   commandResult = "commandResult",
+  statusUpdate  = "statusUpdate",
 }
 
 -- Fire-and-forget: forward a modem message to the HTTP server.

@@ -333,6 +333,25 @@ app.post('/api/chat', requireApprovedComputer, (req, res) => {
   res.json({ ok: true });
 });
 
+// Lightweight state update used by player and stationary computers.
+// Payload: { id, type, sleep, loc } — loc may be null if GPS is unavailable.
+// Merges with existing computer state so a temporary GPS failure does not
+// wipe a previously known location.
+app.post('/api/statusUpdate', requireApprovedComputer, (req, res) => {
+  const body = req.body;
+  body.via_modem = modemServerIp !== null && req.ip === modemServerIp;
+  const id = String(body.id);
+  const existing = state.computers[id] || {};
+  const merged = { ...existing, ...body };
+  if (!merged.loc && existing.loc) merged.loc = existing.loc;
+  const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [body.id]: merged } };
+  applyTransaction(transaction, state, transactionCache);
+  state.lastReadyTransactionId++;
+  if (state.computers[id]) state.computers[id].lastSeen = Date.now();
+  broadcastTransaction(transaction);
+  res.sendStatus(200);
+});
+
 app.post('/api/getCommand', requireApprovedComputer, (req, res) => {
   const s = req.body;
   console.log(`Computer ${s.id} requested command (size: ${JSON.stringify(req.body).length} bytes)`);
@@ -383,7 +402,11 @@ app.post('/api/modem/register', requireApprovedComputer, (req, res) => {
   // Push modem state to the frontend at most every 20s to avoid flooding transactions
   if (isNew || now - lastModemStateUpdate > 20_000) {
     lastModemStateUpdate = now;
-    const modemState = { id: Number(id), type: 'modem', label: `Modem ${id}`, lastSeen: now };
+    // Preserve loc: use the newly reported loc if present, otherwise keep any
+    // previously known loc so a re-registration without GPS doesn't clear the map pin.
+    const prevLoc = state.computers[String(id)]?.loc;
+    const loc = req.body.loc || prevLoc || undefined;
+    const modemState = { id: Number(id), type: 'modem', label: `Modem ${id}`, lastSeen: now, ...(loc && { loc }) };
     const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: modemState } };
     applyTransaction(transaction, state, transactionCache);
     state.lastReadyTransactionId++;

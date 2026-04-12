@@ -10,6 +10,12 @@
       <template v-if="world.computers[computerId]?.type === 'minecart'">
         <MinecartPanel :computerId="computerId" />
       </template>
+      <template v-else-if="world.computers[computerId]?.type === 'player'">
+        <PlayerPanel :computerId="computerId" />
+      </template>
+      <template v-else-if="world.computers[computerId]?.type === 'stationary'">
+        <StationaryPanel :computerId="computerId" />
+      </template>
       <template v-else>
         <div v-if="world.computers[computerId]?.loc" class="location">
           📍 {{ world.computers[computerId].loc.x }}, {{ world.computers[computerId].loc.y }}, {{ world.computers[computerId].loc.z }}
@@ -60,6 +66,8 @@ import TurtleInventory from "./TurtleInventory.vue";
 import LuaTerminal from "./LuaTerminal.vue"
 import MinecartPanel from "./MinecartPanel.vue";
 import ModemPanel from "./ModemPanel.vue";
+import PlayerPanel from "./PlayerPanel.vue";
+import StationaryPanel from "./StationaryPanel.vue";
 import { useWorldStore } from "../store/useWorld";
 import FuelGauge from "./FuelGauge.vue";
 import { useWorldViewStore } from "../store/useWorldView";
@@ -70,7 +78,7 @@ export default defineComponent({
     const worldView = useWorldViewStore();
     return { world, worldView }
   },
-  components: { MovementControl, TurtleInventory, LuaTerminal, FuelGauge, MinecartPanel, ModemPanel },
+  components: { MovementControl, TurtleInventory, LuaTerminal, FuelGauge, MinecartPanel, ModemPanel, PlayerPanel, StationaryPanel },
   props: {
     computerId: {
       required: true,
