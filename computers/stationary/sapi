@@ -60,14 +60,9 @@ function send_status_update()
         sleep = _sleep_mode,
         loc   = loc,
     }
-    if use_modem and modem_device then
-        modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(),
-            { type = "statusUpdate", data = payload })
-    else
-        local json = textutils.serializeJSON(payload)
-        local res  = http.post(url .. "statusUpdate", json, headers)
-        if res then res.close() end
-    end
+    local json = textutils.serializeJSON(payload)
+    local res  = http.post(url .. "statusUpdate", json, headers)
+    if res then res.close() end
 end
 
 function send_command_result(succ, ret)
@@ -79,14 +74,9 @@ function send_command_result(succ, ret)
     if not ok then
         data = { computerId = os.getComputerID(), result = { succ = false, ret = "error: result not serializable" } }
     end
-    if use_modem and modem_device then
-        modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(),
-            { type = "commandResult", data = data })
-    else
-        local json = textutils.serializeJSON(data)
-        local res  = http.post(url .. "commandResult", json, headers)
-        if res then res.close() end
-    end
+    local json = textutils.serializeJSON(data)
+    local res  = http.post(url .. "commandResult", json, headers)
+    if res then res.close() end
 end
 
 function set_sleep_mode(enabled)
@@ -102,14 +92,9 @@ function send_chat(player, message, uuid)
         message = message,
         uuid    = uuid or "",
     }
-    if use_modem and modem_device then
-        modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(),
-            { type = "chat", data = data })
-    else
-        local json = textutils.serializeJSON(data)
-        local res  = http.post(url .. "chat", json, headers)
-        if res then res.close() end
-    end
+    local json = textutils.serializeJSON(data)
+    local res  = http.post(url .. "chat", json, headers)
+    if res then res.close() end
 end
 
 -- ─── Sense helper ────────────────────────────────────────────
@@ -133,14 +118,9 @@ function sense()
     local payload = { id = os.getComputerID(), entities = entities }
     if loc then payload.origin = loc end
 
-    if use_modem and modem_device then
-        modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(),
-            { type = "sense", data = payload })
-    else
-        local json = textutils.serializeJSON(payload)
-        local res  = http.post(url .. "sense", json, headers)
-        if res then res.close() end
-    end
+    local json = textutils.serializeJSON(payload)
+    local res  = http.post(url .. "sense", json, headers)
+    if res then res.close() end
 
     print("? entity scan (" .. #entities .. " entities)")
     return true

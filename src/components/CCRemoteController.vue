@@ -1,9 +1,6 @@
 <template>
   <div class="hud">
-    <h1 v-if="world.isUnauthorized" class="centered">
-      Session expired. <a href="/api/signin">Sign in</a>
-    </h1>
-    <h1 v-else-if="world.isLoading" class="centered">
+    <h1 v-if="world.isLoading" class="centered">
       LOADING ... (depending on the number of blocks this might take some
       seconds)
     </h1>
@@ -29,8 +26,16 @@
       <div class="panel-right">
         <RenderFilters ref="renderFilters" @opened="closeOtherPanels('renderFilters')" />
         <BlockTransparency ref="blockTransparency" @opened="closeOtherPanels('blockTransparency')" />
+        <div v-if="isGuest" class="guest-controls">
+          <a href="/api/signin" class="guest-signin">Sign in</a>
+          <button
+            class="guest-refresh-btn"
+            :disabled="guestRefreshDisabled"
+            @click="guestRefresh"
+          >{{ guestRefreshDisabled ? 'Refreshed ✓' : 'Refresh' }}</button>
+        </div>
         <span v-if="user.loaded && user.isOperator && !user.isAdmin" class="operator-badge">Operator</span>
-        <OperatorRequest v-if="user.loaded && !user.isOperator" />
+        <OperatorRequest v-if="user.loaded && !user.isOperator && !isGuest" />
         <AdminPanel v-if="user.isAdmin" ref="adminPanel" @opened="closeOtherPanels('adminPanel')" />
       </div>
     </div>
@@ -38,7 +43,7 @@
       v-if="worldView.selectedInventory"
       :inventory="worldView.selectedInventory"
       :inventorySize="worldView.selectedInventorySize"
-      style="grid-column: 2"
+      style="grid-column: 2; pointer-events: auto"
     />
     <Scene />
     <KeyboardBindings />
@@ -51,6 +56,7 @@
   position: absolute;
   display: grid;
   user-select: none;
+  pointer-events: none;
 }
 .centered {
   position: fixed;
@@ -65,6 +71,7 @@
   align-items: flex-start;
   gap: 8px;
   padding: 10px;
+  pointer-events: auto;
 }
 
 .panel-left {
@@ -132,6 +139,46 @@
   border-color: rgb(100, 100, 100);
 }
 
+.guest-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgb(30, 30, 30);
+  border: 1px solid rgb(70, 70, 70);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.guest-signin {
+  color: darkgray;
+  font-size: 0.85em;
+  text-decoration: none;
+}
+
+.guest-signin:hover {
+  color: white;
+}
+
+.guest-refresh-btn {
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: none;
+  background: rgb(52, 52, 52);
+  color: darkgray;
+  cursor: pointer;
+  font-size: 0.85em;
+}
+
+.guest-refresh-btn:hover:not(:disabled) {
+  background: rgb(70, 70, 70);
+  color: white;
+}
+
+.guest-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 select {
   padding: 4px;
   border-radius: 4px;
@@ -175,6 +222,9 @@ export default defineComponent({
       _wsBackoff: 1000 as number,
       _wsReconnectTimeout: null as ReturnType<typeof setTimeout> | null,
       _cmdResultInterval: null as ReturnType<typeof setInterval> | null,
+      isGuest: false,
+      guestRefreshDisabled: false,
+      _guestRefreshTimer: null as ReturnType<typeof setTimeout> | null,
     };
   },
   watch: {
@@ -244,7 +294,12 @@ export default defineComponent({
       };
 
       ws.onclose = (event) => {
-        if (event.code === 4401) { world.isUnauthorized = true; return; }
+        if (event.code === 4401) {
+          this.isGuest = true;
+          if (this._cmdResultInterval) { clearInterval(this._cmdResultInterval); this._cmdResultInterval = null; }
+          this.loadGuestState();
+          return;
+        }
         const delay = this._wsBackoff;
         this._wsBackoff = Math.min(this._wsBackoff * 2, 10000);
         this._wsReconnectTimeout = setTimeout(() => this.connectWebSocket(), delay);
@@ -275,6 +330,37 @@ export default defineComponent({
           }
         });
     },
+    async loadGuestState() {
+      const world = useWorldStore();
+      const worldView = useWorldViewStore();
+      const res = await fetch('/api/state').catch(() => null);
+      if (!res) return;
+      if (res.status === 429) {
+        const data = await res.json().catch(() => ({}));
+        this.startGuestCooldown(data.retryAfter ?? 30);
+        return;
+      }
+      const data = await res.json().catch(() => null);
+      if (!data) return;
+      world.setComputerStatus(data.computers);
+      world.blocks = data.world.blocks;
+      worldView.regenerateSceneFromBlocks();
+      worldView.render();
+      world.isLoading = false;
+      this.startGuestCooldown(30);
+    },
+    guestRefresh() {
+      if (this.guestRefreshDisabled) return;
+      this.loadGuestState();
+    },
+    startGuestCooldown(seconds: number) {
+      this.guestRefreshDisabled = true;
+      if (this._guestRefreshTimer) clearTimeout(this._guestRefreshTimer);
+      this._guestRefreshTimer = setTimeout(() => {
+        this.guestRefreshDisabled = false;
+        this._guestRefreshTimer = null;
+      }, seconds * 1000);
+    },
     isStale,
   },
   mounted() {
@@ -287,6 +373,7 @@ export default defineComponent({
     if (this._ws) { this._ws.onclose = null; this._ws.close(); }
     if (this._wsReconnectTimeout) clearTimeout(this._wsReconnectTimeout);
     if (this._cmdResultInterval) clearInterval(this._cmdResultInterval);
+    if (this._guestRefreshTimer) clearTimeout(this._guestRefreshTimer);
   },
 });
 </script>

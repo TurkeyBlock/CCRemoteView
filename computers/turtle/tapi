@@ -113,12 +113,8 @@ function send_status_update()
   scan_inventory()
   scan_turtle_specs()
 
-  if use_modem then
-    modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(), { type = "state", data = state })
-  else
-    local json = textutils.serializeJSON(state)
-    http.request(state_url, json, headers)
-  end
+  local json = textutils.serializeJSON(state)
+  http.request(state_url, json, headers)
 end
 
 -- Send a command result to the server.
@@ -131,13 +127,9 @@ function send_command_result(succ, ret)
   if not ok then
     data = { computerId = os.getComputerID(), result = { succ = false, ret = "error: result not serializable" } }
   end
-  if use_modem then
-    modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(), { type = "commandResult", data = data })
-  else
-    local json = textutils.serializeJSON(data)
-    local res = http.post(url .. "commandResult", json, headers)
-    if res then res.close() end
-  end
+  local json = textutils.serializeJSON(data)
+  local res = http.post(url .. "commandResult", json, headers)
+  if res then res.close() end
 end
 
 local function does_side_have_inventory(side)
@@ -910,14 +902,28 @@ local INCLUDE_STATE    = false   -- include blockstate property table
 
 function scan()
   if not peripheral.find("plethora:scanner") then
+    print("scan: no scanner found, attempting to equip plethora:module on left")
     local ok, err = equipItem("plethora:module", "left")
-    if not ok then return false, err end
+    if not ok then
+      print("scan FAIL: equipItem failed: " .. tostring(err))
+      return false, err
+    end
+    print("scan: equip succeeded")
   end
 
   local scanner = peripheral.find("plethora:scanner")
-  if not scanner then return false, "no scanner attached" end
+  if not scanner then
+    print("scan FAIL: scanner still not found after equip")
+    return false, "no scanner attached"
+  end
+
   local raw = scanner.scan(4)
-  print("? block scan")
+  if not raw then
+    print("scan FAIL: scanner.scan(4) returned nil")
+    return false, "scan returned nil"
+  end
+  print("scan: got " .. #raw .. " raw blocks")
+
   local blocks = {}
   for _, b in ipairs(raw) do
     if not (b.x == 0 and b.y == 0 and b.z == 0) then
@@ -927,13 +933,22 @@ function scan()
       table.insert(blocks, entry)
     end
   end
+  print("scan: " .. #blocks .. " blocks after filtering self")
+
   local payload = { id = os.getComputerID(), blocks = blocks }
-  if use_modem then
-    modem_device.transmit(MODEM_SERVER_ID, os.getComputerID(), { type = "scan", data = payload })
-  else
-    local json = textutils.serializeJSON(payload)
-    local res = http.post(url .. "scan", json, { ["Content-Type"] = "application/json" })
-    if res then res.close() end
+  local ok, json = pcall(textutils.serializeJSON, payload)
+  if not ok then
+    print("scan FAIL: serializeJSON error: " .. tostring(json))
+    return false, "serialization error"
   end
+
+  local res = http.post(url .. "scan", json, { ["Content-Type"] = "application/json" })
+  if not res then
+    print("scan FAIL: http.post to " .. url .. "scan returned nil")
+    return false, "http post failed"
+  end
+  local status = res.getResponseCode and res.getResponseCode() or "?"
+  print("scan: http response " .. tostring(status))
+  res.close()
   return true
 end

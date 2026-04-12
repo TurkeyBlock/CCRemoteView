@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import * as THREE from "three";
 import { Block, Inventory, EntitySighting } from '../types/types';
 import { useWorldStore } from './useWorld';
+import { geometryMap, textureAliases } from './blockMaps';
 
 const BIOME_TINT = 0x88C149;
 
@@ -66,71 +67,6 @@ export const useWorldViewStore = defineStore('worldView', {
       "biomesoplenty:willow_vine": BIOME_TINT,
       "minecraft:leaves2": BIOME_TINT
     } as { [id: string]: number; },
-    geometryMap: {
-      "minecraft:crops_wheat": "cross",
-      "minecraft:fire": "cross",
-      "minecraft:torch": "cross",
-      "minecraft:tallgrass": "cross",
-      "minecraft:reeds": "cross",
-      "minecraft:red_flower": "cross",
-      "biomesoplenty:bush": "cross",
-      "biomesoplenty:toadstool": "cross",
-      "biomesoplenty:reed": "cross",
-      "biomesoplenty:clover": "cross",
-      "biomesoplenty:goldenrod": "cross",
-      "biomesoplenty:sprout": "cross",
-      "biomesoplenty:mangrove_root": "cross",
-      "biomesoplenty:spanish_moss": "cross",
-      "biomesoplenty:cattail": "cross",
-      "biomesoplenty:willow_vine": "cross",
-      "biomesoplenty:glowshroom": "cross",
-      "biomesoplenty:orange_cosmos": "cross",
-      "biomesoplenty:pink_daffodil": "cross",
-      "minecraft:cobweb": "cross",
-      "minecraft:oak_sapling": "cross",
-      "minecraft:brown_mushroom": "cross",
-      "minecraft:red_mushroom": "cross",
-      "minecraft:sugar_cane": "cross",
-      "minecraft:dead_bush": "cross",
-      "minecraft:fern": "cross",
-      "minecraft:large_fern": "cross",
-      "minecraft:tall_grass": "cross",
-      "minecraft:vine": "cross",
-      "minecraft:dandelion": "cross",
-      "minecraft:lilac": "cross",
-      "minecraft:poppy": "cross",
-      "minecraft:allium": "cross",
-      "minecraft:rose": "cross",
-      "minecraft:rose_bush": "cross",
-      "minecraft:lily_of_the_valley": "cross",
-      "minecraft:azure_bluet": "cross",
-      "minecraft:blue_orchid": "cross",
-      "minecraft:oxeye_daisy": "cross",
-      "minecraft:white_tulip": "cross",
-      "minecraft:sunflower": "cross",
-      "minecraft:cornflower": "cross",
-      "minecraft:peony": "cross",
-      "minecraft:brewing_stand": "cross",
-      "minecraft:wheat": "cross",
-      "quark:root": "cross",
-      "projecte:interdiction_torch": "cross",
-      "minecraft:rail": "flat",
-      "minecraft:golden_rail": "flat",
-      "minecraft:detector_rail": "flat",
-      "minecraft:activator_rail": "flat",
-      "minecraft:snow_layer": "flat",
-      "minecraft:carpet": "flat",
-      "minecraft:stone_slab": "slab_bottom",
-      "minecraft:wooden_slab": "slab_bottom",
-      "minecraft:stone_slab2": "slab_bottom",
-      "minecraft:purpur_slab": "slab_bottom",
-      "minecraft:brick_slab": "slab_bottom",
-      "minecraft:sandstone_slab": "slab_bottom",
-      "minecraft:red_sandstone_slab": "slab_bottom",
-      "minecraft:nether_brick_slab": "slab_bottom",
-      "minecraft:quartz_slab": "slab_bottom",
-      "minecraft:cobblestone_slab": "slab_bottom",
-    } as { [blockId: string]: string },
   }),
   getters: {
 
@@ -200,26 +136,6 @@ export const useWorldViewStore = defineStore('worldView', {
 
         const world = useWorldStore();
 
-        const blockTextureAliases: { [id: string]: string } = {
-          "minecraft:rail": "minecraft/rail_normal",
-          "minecraft:golden_rail": "minecraft/rail_golden",
-          "minecraft:red_flower": "minecraft/flower_rose",
-          "minecraft:leaves2": "minecraft/leaves_acacia",
-          "minecraft:leaves": "minecraft/leaves_oak",
-          "minecraft:torch": "minecraft/torch_on",
-          "minecraft:bed": "minecraft/bed_head_top",
-          "minecraft:wooden_slab": "minecraft/planks_oak",
-          "minecraft:log2": "minecraft/log_acacia",
-          "minecraft:log": "minecraft/log_oak",
-          "minecraft:wheat": "minecraft/crops_wheat",
-          "minecraft:snow_layer": "minecraft/snow",
-          "minecraft:brick_block": "minecraft/brick",
-          "minecraft:carpet": "minecraft/wool_colored_white",
-
-          "minecraft:double_stone_slab": "minecraft/stone_slab",
-          "buildcrafttransport:pipe_holder": "buildcraftcore/item_hatch",
-          "quark:polished_stone": "minecraft/stone_slab",
-        };
 
         const applyTexture = (texture: THREE.Texture) => {
           texture.minFilter = THREE.NearestFilter;
@@ -231,7 +147,7 @@ export const useWorldViewStore = defineStore('worldView', {
           if (tint) this.materials[id].color.setHex(tint);
           else if (name.includes('leaves')) this.materials[id].color.setHex(BIOME_TINT);
           // Check geometry type by full key first, then by name
-          const geomId = this.geometryMap[id] ?? this.geometryMap[name];
+          const geomId = geometryMap[id] ?? geometryMap[name];
           if (geomId === "cross" || geomId === "flat" || name.includes("leaves") || name.includes("sapling") || name.includes("kelp") || name.includes("seagrass"))
             this.materials[id].alphaTest = 1;
           if (geomId === "cross" || geomId === "flat" || name.includes("sapling") || name.includes("kelp") || name.includes("seagrass"))
@@ -304,7 +220,7 @@ export const useWorldViewStore = defineStore('worldView', {
         }
 
         // Try alias by full key (e.g. "minecraft:wool:1") then by name, then derive from name
-        const texturePath = blockTextureAliases[id] ?? blockTextureAliases[name] ?? name.replace(':', '/');
+        const texturePath = textureAliases[id] ?? textureAliases[name] ?? name.replace(':', '/');
         loadTexture(texturePath);
       }
       return this.materials[id];

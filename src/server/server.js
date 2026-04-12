@@ -23,6 +23,7 @@ const CommandLineInterface = require('./utils/cmdLineInterface.js');
 
 const AUTOSAVE_INTERVAL_MIN = 1;
 const TRANSACTION_CACHE_COUNT = 10000;
+const GUEST_STATE_MIN_INTERVAL_MS = 30_000;
 const IS_PROD = process.env.NODE_ENV === 'production';
 const COOKIE_NAME = IS_PROD ? '__Secure-authjs.session-token' : 'authjs.session-token';
 const APP_URL = IS_PROD ? process.env.APP_URL : 'http://localhost:3001';
@@ -249,6 +250,9 @@ function extractState(computerState, state) {
 const SCAN_MIN_INTERVAL_MS = 1000;
 const scanLastTime = {};
 
+// --- Guest state rate limiting ---
+const guestStateLastTime = {};
+
 // --- Computer endpoints (IP allowlist gated) ---
 app.post('/api/state', requireApprovedComputer, (req, res) => {
   // Tag the state with how it arrived so the frontend can show modem vs HTTP
@@ -466,7 +470,18 @@ app.post('/api/poll', requireApprovedComputer, (req, res) => {
 });
 
 // --- Browser endpoints ---
-app.get('/api/state', compression(), (_req, res) => {
+app.get('/api/state', compression(), async (req, res) => {
+  const token = await getSession(req);
+  if (!token) {
+    const ip = req.ip;
+    const now = Date.now();
+    if (guestStateLastTime[ip] && now - guestStateLastTime[ip] < GUEST_STATE_MIN_INTERVAL_MS) {
+      const retryAfter = Math.ceil((guestStateLastTime[ip] + GUEST_STATE_MIN_INTERVAL_MS - now) / 1000);
+      res.set('Retry-After', String(retryAfter));
+      return res.status(429).json({ error: 'rate limited', retryAfter });
+    }
+    guestStateLastTime[ip] = now;
+  }
   res.send(state);
 });
 

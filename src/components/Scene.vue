@@ -22,6 +22,9 @@ var scene: Scene,
   cameraControls: CameraControls,
   blocks: THREE.Group,
   entities: THREE.Group,
+  inventoryIndicators: THREE.Group,
+  inventorySprites = new Map<string, THREE.Sprite>(),
+  exclamationMaterial: THREE.SpriteMaterial,
   raycaster: THREE.Raycaster,
   clock: THREE.Clock,
   mouse = { x: 0, y: 0 },
@@ -164,6 +167,24 @@ export default defineComponent({
       scene.add(blocks);
       entities = new THREE.Group();
       scene.add(entities);
+
+      const exclCanvas = document.createElement('canvas');
+      exclCanvas.width = 64;
+      exclCanvas.height = 64;
+      const exclCtx = exclCanvas.getContext('2d')!;
+      exclCtx.fillStyle = 'rgba(0,0,0,0.55)';
+      exclCtx.beginPath();
+      exclCtx.arc(32, 32, 28, 0, Math.PI * 2);
+      exclCtx.fill();
+      exclCtx.fillStyle = '#ffffff';
+      exclCtx.font = 'bold 52px sans-serif';
+      exclCtx.textAlign = 'center';
+      exclCtx.textBaseline = 'middle';
+      exclCtx.fillText('!', 32, 34);
+      exclamationMaterial = new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(exclCanvas), depthTest: false });
+      inventoryIndicators = new THREE.Group();
+      scene.add(inventoryIndicators);
+
       entityGeometry = new THREE.OctahedronGeometry(0.35);
       entityFallbackMaterial = new THREE.MeshPhongMaterial({ color: 0xff8800 });
 
@@ -259,6 +280,8 @@ export default defineComponent({
       scene.remove.apply(scene, scene.children);
       blocks.remove.apply(blocks, blocks.children);
       entities.remove.apply(entities, entities.children);
+      inventoryIndicators.remove.apply(inventoryIndicators, inventoryIndicators.children);
+      inventorySprites.clear();
       this.worldView.entityMeshes = {};
       this.worldView.computerModels = {};
 
@@ -278,18 +301,44 @@ export default defineComponent({
       for (const locString in world.blocks) {
         if (!this.worldView.isBlockVisible(locString)) continue;
         blockMeshes.addBlock(locString, world.blocks[locString]);
+        if (world.blocks[locString].inventory) {
+          this.addInventoryIndicator(locString);
+        }
       }
       scene.add(blocks);
       scene.add(entities);
+      scene.add(inventoryIndicators);
 
       this.addComputers();
+    },
+    addInventoryIndicator(locString: string) {
+      if (inventorySprites.has(locString)) return;
+      const [x, y, z] = locString.split(',').map(Number);
+      const sprite = new THREE.Sprite(exclamationMaterial);
+      sprite.position.set(x, y + 0.9, z);
+      sprite.scale.set(0.5, 0.5, 0.5);
+      inventoryIndicators.add(sprite);
+      inventorySprites.set(locString, sprite);
+    },
+    removeInventoryIndicator(locString: string) {
+      const sprite = inventorySprites.get(locString);
+      if (sprite) {
+        inventoryIndicators.remove(sprite);
+        inventorySprites.delete(locString);
+      }
     },
     addBlock(locString: string, block: Block) {
       if (!this.worldView.isBlockVisible(locString)) return;
       blockMeshes.addBlock(locString, block);
+      if (block.inventory) {
+        this.addInventoryIndicator(locString);
+      } else {
+        this.removeInventoryIndicator(locString);
+      }
     },
     removeBlock(locString: string) {
       blockMeshes.removeBlock(locString);
+      this.removeInventoryIndicator(locString);
     },
     clearAllBlocks() {
       blockMeshes.clearAll();

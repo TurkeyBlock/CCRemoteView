@@ -1,10 +1,10 @@
 -- Modem Server
--- Proactively polls the HTTP server for commands/stop signals and distributes them to
+-- Polls the HTTP server for pending commands/stop signals and distributes them to
 -- client computers via wireless modem. Client computers send state/scan/sense/chat/
--- commandResult to this server, which forwards them to the HTTP server.
+-- commandResult directly to the HTTP server themselves.
 --
 -- All HTTP requests are asynchronous (http.request) so the event loop is never
--- blocked — timer events (poll, heartbeat) cannot be silently consumed by a
+-- blocked — timer events (poll, heartbeat, reseed) cannot be silently consumed by a
 -- blocking http.post call.
 
 -- !MUST END WITH '/api/'
@@ -35,8 +35,10 @@ end
 
 local register_json = textutils.serializeJSON({ id = MODEM_ID, loc = modem_loc })
 
-local REGISTER_URL = BASE_URL .. "modem/register"
-local POLL_URL     = BASE_URL .. "poll"
+local REGISTER_URL  = BASE_URL .. "modem/register"
+local POLL_URL      = BASE_URL .. "poll"
+local COMPUTERS_URL = BASE_URL .. "modem/computers"
+local RESEED_INTERVAL = 300  -- re-check registered computers every 5 minutes
 
 -- Idle/sleep state
 local idle_seconds     = 0
@@ -92,28 +94,10 @@ local function send_heartbeat()
   end
 end
 
-local endpoint_map = {
-  state         = "state",
-  scan          = "scan",
-  sense         = "sense",
-  chat          = "chat",
-  commandResult = "commandResult",
-  statusUpdate  = "statusUpdate",
-}
-
--- Fire-and-forget: forward a modem message to the HTTP server.
--- Response is closed in the http_success handler.
-local function forward_to_server(message)
-  local computer_id = message.data and (message.data.id or message.data.computerId)
-  if computer_id and not served_ids[computer_id] then
-    served_ids[computer_id] = true
-    print("+ registered computer " .. tostring(computer_id))
-  end
-
-  local endpoint = endpoint_map[message.type]
-  if not endpoint or not message.data then return end
-  local json = textutils.serializeJSON(message.data)
-  http.request(BASE_URL .. endpoint, json, headers)
+-- Async reseed: refresh served_ids from the server periodically so newly-registered
+-- computers are discovered without requiring a modem restart.
+local function fire_reseed()
+  http.request({ url = COMPUTERS_URL, method = "GET" })
 end
 
 register()
@@ -121,6 +105,7 @@ seed_served_ids()
 
 local poll_timer      = os.startTimer(0)
 local heartbeat_timer = os.startTimer(HEARTBEAT_INTERVAL)
+local reseed_timer    = os.startTimer(RESEED_INTERVAL)
 
 while true do
   local event, p1, p2, p3, p4 = os.pullEvent()
@@ -135,6 +120,10 @@ while true do
     elseif p1 == heartbeat_timer then
       send_heartbeat()
       heartbeat_timer = os.startTimer(HEARTBEAT_INTERVAL)
+
+    elseif p1 == reseed_timer then
+      fire_reseed()
+      reseed_timer = os.startTimer(RESEED_INTERVAL)
     end
 
   elseif event == "http_success" then
@@ -187,8 +176,19 @@ while true do
         prev_sleep_level = sleep_level
       end
       poll_timer = os.startTimer(get_poll_interval())
+    elseif url == COMPUTERS_URL then
+      local data = textutils.unserializeJSON(response.readAll()) or {}
+      response.close()
+      if data.ids then
+        for _, id in ipairs(data.ids) do
+          if not served_ids[id] then
+            served_ids[id] = true
+            print("+ discovered computer " .. tostring(id))
+          end
+        end
+      end
     else
-      -- register, forward_to_server, and any other fire-and-forget responses
+      -- register and any other fire-and-forget responses
       if response then response.close() end
     end
 
@@ -198,12 +198,7 @@ while true do
       polling_in_flight = false
       poll_timer = os.startTimer(get_poll_interval())
     end
-    -- Other failures (register, forward_to_server): nothing to do.
+    -- Other failures (register, reseed): nothing to do.
 
-  elseif event == "modem_message" then
-    local message = p4
-    if type(message) == "table" then
-      forward_to_server(message)
-    end
   end
 end

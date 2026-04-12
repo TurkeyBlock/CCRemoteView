@@ -39,18 +39,10 @@ function send_status_update()
         sleep    = _sleep_mode,
         loc      = x and { x = x, y = y, z = z } or nil,
     }
-    if use_modem then
-        local modem = peripheral.find("modem")
-        if modem then
-            modem.transmit(MODEM_SERVER_ID, os.getComputerID(),
-                { type = "statusUpdate", data = payload })
-        end
-    else
-        local json = textutils.serializeJSON(payload)
-        local res  = http.post(url .. "statusUpdate", json,
-                               { ["Content-Type"] = "application/json" })
-        if res then res.close() end
-    end
+    local json = textutils.serializeJSON(payload)
+    local res  = http.post(url .. "statusUpdate", json,
+                           { ["Content-Type"] = "application/json" })
+    if res then res.close() end
 end
 
 function send_command_result(succ, ret)
@@ -62,18 +54,10 @@ function send_command_result(succ, ret)
     if not ok then
         data = { computerId = os.getComputerID(), result = { succ = false, ret = "error: result not serializable" } }
     end
-    if use_modem then
-        local modem = peripheral.find("modem")
-        if modem then
-            modem.transmit(MODEM_SERVER_ID, os.getComputerID(),
-                { type = "commandResult", data = data })
-        end
-    else
-        local json = textutils.serializeJSON(data)
-        local res  = http.post(url .. "commandResult", json,
-                               { ["Content-Type"] = "application/json" })
-        if res then res.close() end
-    end
+    local json = textutils.serializeJSON(data)
+    local res  = http.post(url .. "commandResult", json,
+                           { ["Content-Type"] = "application/json" })
+    if res then res.close() end
 end
 
 function set_sleep_mode(enabled)
@@ -113,18 +97,10 @@ function scan()
         blocks = blocks,
     }
 
-    if use_modem then
-        local modem = peripheral.find("modem")
-        if modem then
-            modem.transmit(MODEM_SERVER_ID, os.getComputerID(),
-                { type = "scan", data = payload })
-        end
-    else
-        local json = textutils.serializeJSON(payload)
-        local res  = http.post(url .. "scan", json,
-            { ["Content-Type"] = "application/json" })
-        if res then res.close() end
-    end
+    local json = textutils.serializeJSON(payload)
+    local res  = http.post(url .. "scan", json,
+        { ["Content-Type"] = "application/json" })
+    if res then res.close() end
 
     print("? block scan (" .. #blocks .. " blocks @ " .. x .. "," .. y .. "," .. z .. ")")
     return true
