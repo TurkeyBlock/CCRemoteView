@@ -92,11 +92,13 @@ local SCAN_INCLUDE_STATE    = false
 function scan()
     local scanner = peripheral.find("plethora:scanner")
     if not scanner then
+        print("! scan: no plethora:scanner attached")
         return false, "no plethora:scanner attached"
     end
 
     local x, y, z = get_location()
     if not x then
+        print("! scan: GPS fix failed")
         return false, "GPS fix failed"
     end
 
