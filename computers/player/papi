@@ -57,7 +57,7 @@ function send_status_update()
         id       = os.getComputerID(),
         type     = "player",
         sleep    = _sleep_mode,
-        loc      = x and { x = x, y = y, z = z } or nil,
+        loc      = x and { x = math.floor(x), y = math.floor(y), z = math.floor(z) } or nil,
     }
     local json = textutils.serializeJSON(payload)
     local res  = http.post(url .. "statusUpdate", json,

@@ -3,9 +3,9 @@
     <div class="inventory-container">
       <GenericInventorySlot
         v-for="slotIdx in inventorySize"
-        :key="`${inventory[slotIdx-1] && inventory[slotIdx-1].name}${inventory[slotIdx-1] && inventory[slotIdx-1].count}`"
+        :key="`${normalizedInventory[slotIdx] && normalizedInventory[slotIdx].name}${normalizedInventory[slotIdx] && normalizedInventory[slotIdx].count}`"
         :computerId="-1"
-        :invSlot="inventory[slotIdx-1]"
+        :invSlot="normalizedInventory[slotIdx]"
         :slotNum="slotIdx"
         :isSelected="false"
       />
@@ -49,6 +49,23 @@ export default defineComponent({
       required: true,
       type: Number,
     }
-  }
+  },
+  computed: {
+    normalizedInventory(): Record<number, { name: string; count: number }> {
+      const inv = this.inventory as any;
+      if (!inv) return {};
+      // CC serializes a full (sequential) chest as a JSON array (0-indexed).
+      // A sparse chest becomes a JSON object with 1-based string keys.
+      // Normalise both to a 1-indexed object so the template can use slotIdx directly.
+      if (Array.isArray(inv)) {
+        const result: Record<number, any> = {};
+        for (let i = 0; i < inv.length; i++) {
+          if (inv[i] != null) result[i + 1] = inv[i];
+        }
+        return result;
+      }
+      return inv;
+    },
+  },
 });
 </script>
