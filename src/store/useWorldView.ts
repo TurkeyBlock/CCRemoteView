@@ -2,9 +2,7 @@ import { defineStore } from 'pinia'
 import * as THREE from "three";
 import { Block, Inventory, EntitySighting } from '../types/types';
 import { useWorldStore } from './useWorld';
-import { geometryMap, textureAliases } from './blockMaps';
-
-const BIOME_TINT = 0x88C149;
+import { geometryMap, textureAliases, blockTint, BIOME_TINT } from './blockMaps';
 
 export const useWorldViewStore = defineStore('worldView', {
   state: () => ({
@@ -42,31 +40,6 @@ export const useWorldViewStore = defineStore('worldView', {
     textureIndex: [] as string[],
     textureIndexLoading: false as boolean,
     textureIndexPending: [] as string[],
-    blockTint: {
-      "minecraft:water": 0x1e97f2,
-      "minecraft:grass": BIOME_TINT,
-      "grass": BIOME_TINT,
-      "minecraft:tall_grass": BIOME_TINT,
-      "minecraft:grass_block": BIOME_TINT,
-      "minecraft:acacia_leaves": BIOME_TINT,
-      "minecraft:birch_leaves": 0x80a755,
-      "minecraft:dark_oak_leaves": BIOME_TINT,
-      "minecraft:jungle_leaves": BIOME_TINT,
-      "minecraft:oak_leaves": BIOME_TINT,
-      "minecraft:spruce_leaves": 0x619961,
-      "minecraft:fern": BIOME_TINT,
-      "minecraft:large_fern": BIOME_TINT,
-      "minecraft:vine": BIOME_TINT,
-      "minecraft:lily_pad": BIOME_TINT,
-      "biomesoplenty:bush": BIOME_TINT,
-      "biomesoplenty:clover": BIOME_TINT,
-      "biomesoplenty:sprout": BIOME_TINT,
-      "biomesoplenty:flowering_oak_leaves": BIOME_TINT,
-      "biomesoplenty:mahogany_leaves": BIOME_TINT,
-      "biomesoplenty:willow_leaves": BIOME_TINT,
-      "biomesoplenty:willow_vine": BIOME_TINT,
-      "minecraft:leaves2": BIOME_TINT
-    } as { [id: string]: number; },
   }),
   getters: {
 
@@ -143,7 +116,7 @@ export const useWorldViewStore = defineStore('worldView', {
           this.materials[id].map = texture;
           this.materials[id].color.setHex(0xffffff);
           // Check tint by full key first, then by name
-          const tint = this.blockTint[id] ?? this.blockTint[name];
+          const tint = blockTint[id] ?? blockTint[name];
           if (tint) this.materials[id].color.setHex(tint);
           else if (name.includes('leaves')) this.materials[id].color.setHex(BIOME_TINT);
           // Check geometry type by full key first, then by name
