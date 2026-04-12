@@ -42,13 +42,24 @@ end
 
 -- ─── Modem setup ─────────────────────────────────────────────
 
-function init_modem()
-    modem_device = peripheral.find("modem")
-    if modem_device then
-        modem_device.open(os.getComputerID())
-        return true
+local function discover_modem_id()
+    local res = http.get(url .. "modem/id")
+    if res then
+        local data = textutils.unserializeJSON(res.readAll())
+        res.close()
+        if data and data.id then return data.id end
     end
-    return false
+    return nil
+end
+
+modem_device = peripheral.find("modem")
+if modem_device then
+    MODEM_SERVER_ID = discover_modem_id()
+    if MODEM_SERVER_ID then
+        modem_device.open(os.getComputerID())
+        use_modem = true
+        print("Modem mode: server ID " .. MODEM_SERVER_ID)
+    end
 end
 
 -- ─── Status / result helpers ──────────────────────────────────

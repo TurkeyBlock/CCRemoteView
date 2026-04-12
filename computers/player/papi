@@ -7,7 +7,27 @@ url = "%%APP_URL%%/api/"
 
 -- Modem config
 use_modem   = false
-MODEM_SERVER_ID = 0   -- set by startup if a modem server is found
+MODEM_SERVER_ID = 0
+
+local function discover_modem_id()
+    local res = http.get(url .. "modem/id")
+    if res then
+        local data = textutils.unserializeJSON(res.readAll())
+        res.close()
+        if data and data.id then return data.id end
+    end
+    return nil
+end
+
+local _modem_device = peripheral.find("modem")
+if _modem_device then
+    MODEM_SERVER_ID = discover_modem_id()
+    if MODEM_SERVER_ID then
+        _modem_device.open(os.getComputerID())
+        use_modem = true
+        print("Modem mode: server ID " .. MODEM_SERVER_ID)
+    end
+end
 
 -- Stop-signal semaphore (mirrors tapi)
 -- Commands that run loops should check locSemaphore.stopSignal and
@@ -91,17 +111,27 @@ function scan()
         table.insert(blocks, entry)
     end
 
+    local ox, oy, oz = math.floor(x), math.floor(y), math.floor(z)
     local payload = {
         id     = os.getComputerID(),
-        origin = { x = x, y = y, z = z },
+        origin = { x = ox, y = oy, z = oz },
         blocks = blocks,
     }
 
     local json = textutils.serializeJSON(payload)
     local res  = http.post(url .. "scan", json,
         { ["Content-Type"] = "application/json" })
-    if res then res.close() end
-
-    print("? block scan (" .. #blocks .. " blocks @ " .. x .. "," .. y .. "," .. z .. ")")
+    if not res then
+        print("! scan: HTTP request failed")
+        return false, "http request failed"
+    end
+    local code = res.getResponseCode()
+    local body = res.readAll()
+    res.close()
+    if code ~= 200 then
+        print("! scan failed (HTTP " .. code .. "): " .. tostring(body))
+        return false, "server error: " .. code
+    end
+    print("? block scan (" .. #blocks .. " blocks @ " .. ox .. "," .. oy .. "," .. oz .. ")")
     return true
 end

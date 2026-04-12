@@ -284,14 +284,14 @@ app.post('/api/scan', requireApprovedComputer, (req, res) => {
   scanLastTime[id] = now;
 
   const computer = state.computers[String(id)];
-  if (!computer?.loc) return res.status(400).json({ error: 'computer position unknown — send a state update first' });
+  const origin = req.body.origin ?? computer?.loc;
+  if (!origin) return res.status(400).json({ error: 'computer position unknown — send origin in request or a state update first' });
 
-  const origin = req.body.origin ?? computer.loc;
   const { x: tx, y: ty, z: tz } = origin;
   const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: {} };
 
   for (const block of blocks) {
-    const locString = `${tx + block.x},${ty + block.y},${tz + block.z}`;
+    const locString = `${Math.round(tx + block.x)},${Math.round(ty + block.y)},${Math.round(tz + block.z)}`;
     if (!block.name || block.name === 'minecraft:air') {
       if (state.world.blocks[locString]) transaction.blocks[locString] = null;
     } else {
