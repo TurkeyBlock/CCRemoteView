@@ -4,6 +4,7 @@ import { useWorldViewStore } from "../store/useWorldView";
 import { Block } from "../types/types";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import DynamicInstancedMesh from "./DynamicInstancedMesh";
+import { geometryMap } from "../store/blockMaps";
 
 class BlockRenderStructure {
   meshArray: DynamicInstancedMesh[];
@@ -75,7 +76,7 @@ class BlockRenderStructure {
     const worldView = useWorldViewStore();
     const key = this.blockKey(block);
     // Try metadata-specific entry first, then fall back to name-only
-    let geometryId = worldView.geometryMap[key] ?? worldView.geometryMap[block.name];
+    let geometryId = geometryMap[key] ?? geometryMap[block.name];
     if (!geometryId && (block.name.includes("sapling") || block.name.includes("kelp") || block.name.includes("seagrass") || block.name.includes("magrove_root"))) geometryId = "cross";
     if (!geometryId || geometryId === "cube") return this.boxGeometry;
     if (geometryId === "flat") return this.flatGeometry;
