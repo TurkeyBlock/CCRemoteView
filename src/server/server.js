@@ -35,6 +35,13 @@ const log = simpleNodeLogger.createSimpleLogger({
   timestampFormat: 'YYYY-MM-DD HH:mm:ss.SSS'
 });
 
+// Proxy fix: traffic arrives via Cloudflare tunnel (cloudflared on localhost), so req.ip
+// would always be 127.0.0.1 without this. Trusting loopback makes Express read the real
+// client IP from the X-Forwarded-For header that cloudflared injects.
+// Without a proxy: remove this line and req.ip will reflect the direct connection IP.
+app.set('trust proxy', 'loopback');
+// END Proxy fix
+
 app.use(cors({
   origin: IS_PROD ? process.env.APP_URL : 'http://localhost:3000'
 }));

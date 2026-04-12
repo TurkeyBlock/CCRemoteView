@@ -20,6 +20,8 @@
         <span class="client-label">{{ world.computers[id]?.label }}</span>
       </div>
     </div>
+
+    <LuaTerminal :computerId="computerId" />
   </div>
 </template>
 
@@ -81,8 +83,10 @@
 import { defineComponent, computed } from "vue";
 import { useWorldStore } from "../store/useWorld";
 import { useWorldViewStore } from "../store/useWorldView";
+import LuaTerminal from "./LuaTerminal.vue";
 
 export default defineComponent({
+  components: { LuaTerminal },
   props: {
     computerId: {
       required: true,

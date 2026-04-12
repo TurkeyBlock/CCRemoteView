@@ -22,6 +22,7 @@ print("Listening on channel " .. MODEM_ID)
 modem.open(MODEM_ID)
 
 local served_ids = {}
+served_ids[MODEM_ID] = true  -- always include self so terminal commands are executed locally
 
 -- Attempt a one-shot GPS fix so the server can place this modem on the render.
 -- Runs synchronously here — safe because the event loop hasn't started yet.
@@ -134,15 +135,39 @@ while true do
       local activity = false
       for id_str, cmd in pairs(data.commands or {}) do
         if cmd and cmd ~= "" then
-          modem.transmit(tonumber(id_str), MODEM_ID, { type = "command", command = cmd })
-          print("> cmd -> " .. id_str)
+          if tonumber(id_str) == MODEM_ID then
+            -- Execute on self rather than forwarding via modem
+            local fn, err = loadstring(cmd)
+            local result
+            if fn then
+              setfenv(fn, getfenv())
+              local ok, val = pcall(fn)
+              result = ok and textutils.serializeJSON(val) or ("error: " .. tostring(val))
+            else
+              result = "load error: " .. tostring(err)
+            end
+            print("> self-exec: " .. cmd)
+            http.request(
+              BASE_URL .. "commandResult",
+              textutils.serializeJSON({ computerId = MODEM_ID, result = result }),
+              headers
+            )
+          else
+            modem.transmit(tonumber(id_str), MODEM_ID, { type = "command", command = cmd })
+            print("> cmd -> " .. id_str)
+          end
           activity = true
         end
       end
       for id_str, signal in pairs(data.stops or {}) do
         if signal then
-          modem.transmit(tonumber(id_str), MODEM_ID, { type = "stopSignal" })
-          print("> stop -> " .. id_str)
+          if tonumber(id_str) == MODEM_ID then
+            print("> self-stop: rebooting")
+            os.reboot()
+          else
+            modem.transmit(tonumber(id_str), MODEM_ID, { type = "stopSignal" })
+            print("> stop -> " .. id_str)
+          end
           activity = true
         end
       end
