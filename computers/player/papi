@@ -90,9 +90,9 @@ local SCAN_INCLUDE_METADATA = true
 local SCAN_INCLUDE_STATE    = false
 
 function scan()
-    local neural = peripheral.find("plethora:neural")
+    local neural = peripheral.find("neuralInterface")
     if not neural then
-        print("! scan: no plethora:neural interface found")
+        print("! scan: no neuralInterface peripheral found")
         return false, "no neural interface found"
     end
     if not neural.scan then
