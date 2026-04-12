@@ -6,11 +6,31 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import DynamicInstancedMesh from "./DynamicInstancedMesh";
 import { geometryMap } from "../store/blockMaps";
 
+// The 6 axis-aligned face directions and their neighbour offsets
+const FACE_DIRS = [
+  { key: 'px', dx:  1, dy:  0, dz:  0 },
+  { key: 'nx', dx: -1, dy:  0, dz:  0 },
+  { key: 'py', dx:  0, dy:  1, dz:  0 },
+  { key: 'ny', dx:  0, dy: -1, dz:  0 },
+  { key: 'pz', dx:  0, dy:  0, dz:  1 },
+  { key: 'nz', dx:  0, dy:  0, dz: -1 },
+] as const;
+
+const OPPOSITE_FACE: Record<string, string> = {
+  px: 'nx', nx: 'px',
+  py: 'ny', ny: 'py',
+  pz: 'nz', nz: 'pz',
+};
+
 class BlockRenderStructure {
   meshArray: DynamicInstancedMesh[];
-  blockToMeshIdxMap = {} as { [blockId: string]: number };
+  blockToMeshIdxMap = {} as { [key: string]: number };
   defaultInstanceCount = 16;
+
+  // Geometries
   boxGeometry: BoxGeometry;
+  /** One PlaneGeometry per face direction, offset ±0.5 from block centre */
+  faceGeometries: Record<string, PlaneGeometry>;
   flatGeometry: PlaneGeometry;
   bottomSlabGeometry: BoxGeometry;
   topSlabGeometry: BoxGeometry;
@@ -19,51 +39,162 @@ class BlockRenderStructure {
   constructor(parentSceneObject: Object3D) {
     this.meshArray = parentSceneObject.children as DynamicInstancedMesh[];
     this.boxGeometry = new BoxGeometry();
+
+    // Build six face-plane geometries.
+    // PlaneGeometry default: 1×1, normal facing +Z, centred at origin.
+    const px = new PlaneGeometry(1, 1); px.rotateY( Math.PI / 2);  px.translate( 0.5,  0,    0);
+    const nx = new PlaneGeometry(1, 1); nx.rotateY(-Math.PI / 2);  nx.translate(-0.5,  0,    0);
+    const py = new PlaneGeometry(1, 1); py.rotateX(-Math.PI / 2);  py.translate( 0,    0.5,  0);
+    const ny = new PlaneGeometry(1, 1); ny.rotateX( Math.PI / 2);  ny.translate( 0,   -0.5,  0);
+    const pz = new PlaneGeometry(1, 1);                             pz.translate( 0,    0,    0.5);
+    const nz = new PlaneGeometry(1, 1); nz.rotateY( Math.PI);      nz.translate( 0,    0,   -0.5);
+    this.faceGeometries = { px, nx, py, ny, pz, nz };
+
     this.flatGeometry = new PlaneGeometry(1, 1);
-    this.flatGeometry.rotateX(-Math.PI / 2); // Lie flat in XZ plane
-    this.flatGeometry.translate(0, -0.5, 0); // Sit at the bottom of the block space
+    this.flatGeometry.rotateX(-Math.PI / 2);
+    this.flatGeometry.translate(0, -0.5, 0);
     this.bottomSlabGeometry = new BoxGeometry(1, 0.5, 1);
-    this.bottomSlabGeometry.translate(0, -0.25, 0); // Occupies the lower half of the block space
+    this.bottomSlabGeometry.translate(0, -0.25, 0);
     this.topSlabGeometry = new BoxGeometry(1, 0.5, 1);
-    this.topSlabGeometry.translate(0, 0.25, 0); // Occupies the upper half of the block space
+    this.topSlabGeometry.translate(0, 0.25, 0);
   }
 
   blockKey(block: Block): string {
     return block.metadata ? `${block.name}:${block.metadata}` : block.name;
   }
 
+  // Returns true if this block type should use per-face culled rendering.
+  // Only full cubes qualify; slabs, plants, custom GLTFs etc. use the legacy path.
+  private isCubeBlock(block: Block): boolean {
+    const key = this.blockKey(block);
+    const geomId = geometryMap[key] ?? geometryMap[block.name];
+    return !geomId || geomId === 'cube';
+  }
+
+  // Returns true if the block at locString is a solid cube that occludes adjacent faces.
+  private isSolid(locString: string): boolean {
+    const world = useWorldStore();
+    const block = world.blocks[locString];
+    if (!block) return false;
+    return this.isCubeBlock(block);
+  }
+
+  // Returns (and if necessary creates) the DynamicInstancedMesh for a block+face pair.
+  private getFaceMesh(block: Block, faceKey: string): DynamicInstancedMesh {
+    const worldView = useWorldViewStore();
+    const meshKey = `${this.blockKey(block)}:${faceKey}`;
+
+    let idx = this.blockToMeshIdxMap[meshKey];
+    if (idx === undefined) {
+      const mesh = new DynamicInstancedMesh(
+        this.faceGeometries[faceKey],
+        worldView.getBlockMaterial(block.name, block.metadata),
+      );
+      idx = this.meshArray.push(mesh) - 1;
+      this.blockToMeshIdxMap[meshKey] = idx;
+    }
+
+    // Grow the instanced mesh if it is full
+    let mesh = this.meshArray[idx];
+    if (mesh.count === mesh.maxInstanceCount) {
+      const old = mesh;
+      mesh = new DynamicInstancedMesh(
+        old.geometry,
+        worldView.getBlockMaterial(block.name, block.metadata),
+        old.count * 2,
+      );
+      mesh.setFromDynamicInstancedMesh(old);
+      this.meshArray[idx] = mesh;
+    }
+    return this.meshArray[idx];
+  }
+
   addBlock(locString: string, block: Block) {
     if (!block || !locString) throw new Error(`Given block is ${block}`);
-    const worldView = useWorldViewStore();
-    const key = this.blockKey(block);
 
-    let instMeshIdx = this.blockToMeshIdxMap[key];
-    if (instMeshIdx === undefined) {
-      let newMesh = new DynamicInstancedMesh(this.getBlockGeometry(block), worldView.getBlockMaterial(block.name, block.metadata));
-      instMeshIdx = this.meshArray.push(newMesh) - 1;
-      this.blockToMeshIdxMap[key] = instMeshIdx;
-    }
-    instMeshIdx = this.blockToMeshIdxMap[key];
-    let mesh = this.meshArray[instMeshIdx];
-
-    if (mesh.count == mesh.maxInstanceCount) {
-      const oldMesh = mesh;
-      mesh = new DynamicInstancedMesh(oldMesh.geometry, worldView.getBlockMaterial(block.name, block.metadata), oldMesh.count * 2);
-      mesh.setFromDynamicInstancedMesh(oldMesh);
-      this.meshArray[instMeshIdx] = mesh;
+    if (!this.isCubeBlock(block)) {
+      this.addNonCubeBlock(locString, block);
+      return;
     }
 
-    mesh.addBlock(locString, block);
+    const [x, y, z] = locString.split(',').map(Number);
+
+    // Add only the faces that are not occluded by a solid neighbour
+    for (const { key, dx, dy, dz } of FACE_DIRS) {
+      const neighbourLoc = `${x + dx},${y + dy},${z + dz}`;
+      if (!this.isSolid(neighbourLoc)) {
+        this.getFaceMesh(block, key).addBlock(locString, block);
+      }
+    }
+
+    // Hide the neighbour face that now points back toward this block
+    const world = useWorldStore();
+    for (const { key, dx, dy, dz } of FACE_DIRS) {
+      const neighbourLoc = `${x + dx},${y + dy},${z + dz}`;
+      const neighbour = world.blocks[neighbourLoc];
+      if (neighbour && this.isCubeBlock(neighbour)) {
+        const oppFace = OPPOSITE_FACE[key];
+        const meshIdx = this.blockToMeshIdxMap[`${this.blockKey(neighbour)}:${oppFace}`];
+        if (meshIdx !== undefined) this.meshArray[meshIdx].removeBlock(neighbourLoc);
+      }
+    }
   }
 
   removeBlock(locString: string) {
     const world = useWorldStore();
     const block = world.blocks[locString];
     if (!block) return;
+
+    if (!this.isCubeBlock(block)) {
+      const idx = this.blockToMeshIdxMap[this.blockKey(block)];
+      if (idx !== undefined) this.meshArray[idx].removeBlock(locString);
+      return;
+    }
+
+    // Remove all six face instances for this block
+    for (const { key } of FACE_DIRS) {
+      const meshIdx = this.blockToMeshIdxMap[`${this.blockKey(block)}:${key}`];
+      if (meshIdx !== undefined) this.meshArray[meshIdx].removeBlock(locString);
+    }
+
+    // Re-expose neighbour faces that were hidden behind this block
+    const [x, y, z] = locString.split(',').map(Number);
+    for (const { key, dx, dy, dz } of FACE_DIRS) {
+      const neighbourLoc = `${x + dx},${y + dy},${z + dz}`;
+      const neighbour = world.blocks[neighbourLoc];
+      if (neighbour && this.isCubeBlock(neighbour)) {
+        this.getFaceMesh(neighbour, OPPOSITE_FACE[key]).addBlock(neighbourLoc, neighbour);
+      }
+    }
+  }
+
+  // Legacy full-geometry rendering for non-cube blocks (slabs, plants, custom GLTFs…)
+  private addNonCubeBlock(locString: string, block: Block) {
+    const worldView = useWorldViewStore();
     const key = this.blockKey(block);
-    let instMeshIdx = this.blockToMeshIdxMap[key];
-    if (instMeshIdx === undefined) return;
-    this.meshArray[instMeshIdx].removeBlock(locString);
+
+    let idx = this.blockToMeshIdxMap[key];
+    if (idx === undefined) {
+      const mesh = new DynamicInstancedMesh(
+        this.getBlockGeometry(block),
+        worldView.getBlockMaterial(block.name, block.metadata),
+      );
+      idx = this.meshArray.push(mesh) - 1;
+      this.blockToMeshIdxMap[key] = idx;
+    }
+    idx = this.blockToMeshIdxMap[key];
+    let mesh = this.meshArray[idx];
+    if (mesh.count === mesh.maxInstanceCount) {
+      const old = mesh;
+      mesh = new DynamicInstancedMesh(
+        old.geometry,
+        worldView.getBlockMaterial(block.name, block.metadata),
+        old.count * 2,
+      );
+      mesh.setFromDynamicInstancedMesh(old);
+      this.meshArray[idx] = mesh;
+    }
+    mesh.addBlock(locString, block);
   }
 
   clearAll() {
@@ -73,20 +204,21 @@ class BlockRenderStructure {
   }
 
   getBlockGeometry(block: Block): BufferGeometry {
-    const worldView = useWorldViewStore();
     const key = this.blockKey(block);
-    // Try metadata-specific entry first, then fall back to name-only
     let geometryId = geometryMap[key] ?? geometryMap[block.name];
-    if (!geometryId && (block.name.includes("sapling") || block.name.includes("kelp") || block.name.includes("seagrass") || block.name.includes("magrove_root"))) geometryId = "cross";
+    if (!geometryId && (
+      block.name.includes("sapling") ||
+      block.name.includes("kelp") ||
+      block.name.includes("seagrass") ||
+      block.name.includes("magrove_root")
+    )) geometryId = "cross";
     if (!geometryId || geometryId === "cube") return this.boxGeometry;
     if (geometryId === "flat") return this.flatGeometry;
-    // metadata >= 8 means top slab in Minecraft 1.12
     if (geometryId === "slab_bottom") return (block.metadata ?? 0) >= 8 ? this.topSlabGeometry : this.bottomSlabGeometry;
     if (geometryId === "slab_top") return this.topSlabGeometry;
 
     if (!this.geometryCache[geometryId]) {
       const loader = new GLTFLoader();
-
       const promise = loader.loadAsync(`textures/turtle/${geometryId}.glb`)
         .then((gltf) => gltf.scene.traverse((child) => {
           /* @ts-ignore */
@@ -94,7 +226,7 @@ class BlockRenderStructure {
             this.geometryCache[geometryId] = (child as Mesh).geometry;
             console.log("geometry request response:", this.geometryCache);
           }
-        }))
+        }));
       promise.catch((error) => {
         console.error(error);
         this.geometryCache[geometryId] = null;
@@ -102,7 +234,7 @@ class BlockRenderStructure {
       this.geometryCache[geometryId] = promise;
     }
 
-    let geometryOrPromise: BufferGeometry | Promise<void> | null = this.geometryCache[geometryId];
+    const geometryOrPromise: BufferGeometry | Promise<void> | null = this.geometryCache[geometryId];
     if (geometryOrPromise === null) return this.boxGeometry;
 
     /* @ts-ignore */
@@ -121,10 +253,8 @@ class BlockRenderStructure {
         }
       });
       return this.boxGeometry;
-    } else {
-      console.log("geometry is already cached");
-      return geometryOrPromise as BufferGeometry;
     }
+    return geometryOrPromise as BufferGeometry;
   }
 }
 

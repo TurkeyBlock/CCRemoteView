@@ -8,6 +8,9 @@ class DynamicInstancedMesh extends InstancedMesh {
     super(geometry, material, maxInstanceCount);
     this.maxInstanceCount = maxInstanceCount;
     this.count = 0;
+    // Three.js computes the bounding sphere from the geometry origin, not from actual
+    // instance positions, so frustum culling incorrectly hides whole block-type meshes.
+    this.frustumCulled = false;
   }
   addBlock(locString: string, block: Block) {
     if (!block) throw new Error(`Given block is ${block}`);
