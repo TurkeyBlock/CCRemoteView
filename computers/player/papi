@@ -90,10 +90,14 @@ local SCAN_INCLUDE_METADATA = true
 local SCAN_INCLUDE_STATE    = false
 
 function scan()
-    local scanner = peripheral.find("plethora:scanner")
-    if not scanner then
-        print("! scan: no plethora:scanner attached")
-        return false, "no plethora:scanner attached"
+    local neural = peripheral.find("plethora:neural")
+    if not neural then
+        print("! scan: no plethora:neural interface found")
+        return false, "no neural interface found"
+    end
+    if not neural.scan then
+        print("! scan: neural interface has no scan method (scanner module not equipped?)")
+        return false, "no scanner module equipped"
     end
 
     local x, y, z = get_location()
@@ -102,7 +106,7 @@ function scan()
         return false, "GPS fix failed"
     end
 
-    local raw    = scanner.scan(4)
+    local raw    = neural.scan(4)
     local blocks = {}
     for _, b in ipairs(raw) do
         local entry = { x = b.x, y = b.y, z = b.z, name = b.name }
