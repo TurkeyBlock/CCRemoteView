@@ -197,6 +197,87 @@ class BlockRenderStructure {
     mesh.addBlock(locString, block);
   }
 
+  /**
+   * Efficient initial load for a large block set.
+   *
+   * Instead of the per-block addBlock path (which adds then immediately removes
+   * neighbour faces as interior blocks arrive), this does two cheap passes:
+   *   1. A synchronous forward pass over every visible block to collect which
+   *      faces are exposed.  No Three.js calls, just hash lookups.
+   *   2. An async mesh-building pass that creates each DynamicInstancedMesh at
+   *      the correct pre-allocated size and populates it, yielding to the browser
+   *      every CHUNK_SIZE instances so the UI stays responsive.
+   *
+   * @param blocks   The full world block dictionary (world.blocks).
+   * @param isVisible  Visibility filter — same predicate used by the scene loop.
+   */
+  async bulkLoadBlocks(
+    blocks: { [locString: string]: Block },
+    isVisible: (locString: string) => boolean,
+  ) {
+    const worldView = useWorldViewStore();
+    const CHUNK_SIZE = 3000;
+
+    // ── Phase 1: collect face instances per mesh key (no Three.js calls) ──────
+    // meshKey → array of locStrings that need an instance in that mesh
+    const facesByKey = new Map<string, string[]>();
+    // meshKey → {block, optional faceDir} for geometry/material lookup
+    const keyMeta   = new Map<string, { block: Block; faceDir?: string }>();
+
+    for (const locString in blocks) {
+      if (!isVisible(locString)) continue;
+      const block = blocks[locString];
+
+      if (!this.isCubeBlock(block)) {
+        // Non-cube blocks use a single legacy mesh, keyed by block type only.
+        const key = this.blockKey(block);
+        if (!facesByKey.has(key)) { facesByKey.set(key, []); keyMeta.set(key, { block }); }
+        facesByKey.get(key)!.push(locString);
+        continue;
+      }
+
+      const parts = locString.split(',');
+      const x = +parts[0], y = +parts[1], z = +parts[2];
+
+      for (const { key: faceDir, dx, dy, dz } of FACE_DIRS) {
+        const nLoc = `${x + dx},${y + dy},${z + dz}`;
+        // Occluded if a solid cube occupies the neighbour slot (visibility not
+        // considered for occlusion — consistent with the per-block addBlock path).
+        const nb = blocks[nLoc];
+        if (nb && this.isCubeBlock(nb)) continue;
+
+        const meshKey = `${this.blockKey(block)}:${faceDir}`;
+        if (!facesByKey.has(meshKey)) { facesByKey.set(meshKey, []); keyMeta.set(meshKey, { block, faceDir }); }
+        facesByKey.get(meshKey)!.push(locString);
+      }
+    }
+
+    // ── Phase 2: build meshes in async chunks ─────────────────────────────────
+    let instancesThisChunk = 0;
+
+    for (const [meshKey, locStrings] of facesByKey) {
+      const { block, faceDir } = keyMeta.get(meshKey)!;
+      const geometry = faceDir
+        ? this.faceGeometries[faceDir]
+        : this.getBlockGeometry(block);
+      const material = worldView.getBlockMaterial(block.name, block.metadata);
+
+      // Pre-allocate at exact capacity — no doubling during bulk load.
+      const mesh = new DynamicInstancedMesh(geometry, material, Math.max(locStrings.length, 1));
+      const idx = this.meshArray.push(mesh) - 1;
+      this.blockToMeshIdxMap[meshKey] = idx;
+
+      for (const loc of locStrings) {
+        mesh.addBlock(loc, blocks[loc]);
+        instancesThisChunk++;
+        if (instancesThisChunk >= CHUNK_SIZE) {
+          instancesThisChunk = 0;
+          await new Promise<void>(resolve => setTimeout(resolve, 0));
+        }
+      }
+    }
+  }
+
   clearAll() {
     for (const mesh of this.meshArray) {
       mesh.clearAll();

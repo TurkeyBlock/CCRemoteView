@@ -273,7 +273,7 @@ export default defineComponent({
       this.worldView.hoveredBlockPos = null;
       this.worldView.gotoBlockPos = null;
     },
-    regenerateSceneFromBlocks() {
+    async regenerateSceneFromBlocks() {
       const world = useWorldStore();
 
       // delete objects
@@ -297,17 +297,24 @@ export default defineComponent({
 
       blockMeshes = new BlockRenderStructure(blocks);
 
-      // add blocks
+      // Add groups to scene first so blocks appear progressively during async load.
+      scene.add(blocks);
+      scene.add(entities);
+      scene.add(inventoryIndicators);
+
+      // Bulk-load: single forward pass to compute visible faces, then build meshes
+      // in async chunks so the UI stays responsive.
+      await blockMeshes.bulkLoadBlocks(
+        world.blocks,
+        (loc) => this.worldView.isBlockVisible(loc),
+      );
+
+      // Inventory indicators are cheap — add them after the bulk load.
       for (const locString in world.blocks) {
-        if (!this.worldView.isBlockVisible(locString)) continue;
-        blockMeshes.addBlock(locString, world.blocks[locString]);
         if (world.blocks[locString].inventory) {
           this.addInventoryIndicator(locString);
         }
       }
-      scene.add(blocks);
-      scene.add(entities);
-      scene.add(inventoryIndicators);
 
       this.addComputers();
     },
