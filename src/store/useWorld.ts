@@ -110,6 +110,21 @@ export const useWorldStore = defineStore('world', {
           console.log(data);
         });
     },
+    sendChatMessage(computerId: number, message: string) {
+      fetch(this.apiURL + "sendChat", {
+        method: 'POST',
+        mode: "cors",
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id: computerId, message }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          console.log(data);
+        });
+    },
     sendStopSignal(computerId: number) {
       fetch(this.apiURL + "setStopSignal", {
         method: 'POST',

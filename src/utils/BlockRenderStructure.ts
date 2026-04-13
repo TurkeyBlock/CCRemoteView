@@ -218,15 +218,27 @@ class BlockRenderStructure {
     const worldView = useWorldViewStore();
     const CHUNK_SIZE = 3000;
 
+    // Yield immediately so the caller's isLoading = false fires and the
+    // browser repaints before any work starts.  Without this, Phase 1 runs
+    // synchronously inside the caller's stack frame — the loading overlay
+    // stays up until the first await deep in Phase 2.
+    await new Promise<void>(r => setTimeout(r, 0));
+
     // ── Phase 1: collect face instances per mesh key (no Three.js calls) ──────
     // meshKey → array of locStrings that need an instance in that mesh
     const facesByKey = new Map<string, string[]>();
     // meshKey → {block, optional faceDir} for geometry/material lookup
     const keyMeta   = new Map<string, { block: Block; faceDir?: string }>();
 
+    let phase1Count = 0;
     for (const locString in blocks) {
       if (!isVisible(locString)) continue;
       const block = blocks[locString];
+
+      // Yield periodically so the render loop can fire between chunks.
+      if (++phase1Count % CHUNK_SIZE === 0) {
+        await new Promise<void>(r => setTimeout(r, 0));
+      }
 
       if (!this.isCubeBlock(block)) {
         // Non-cube blocks use a single legacy mesh, keyed by block type only.

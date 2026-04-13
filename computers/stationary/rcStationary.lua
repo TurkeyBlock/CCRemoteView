@@ -56,6 +56,18 @@ function poll_stop_signal()
     end
 end
 
+-- Poll the server for messages to say in chat and relay them via sapi.say().
+function poll_chat_send()
+    while true do
+        local msg = sapi.get_chat_message()
+        if msg then
+            sapi.say(msg)
+        else
+            os.sleep(1)
+        end
+    end
+end
+
 -- Forward chat events to the server.
 function monitor_chat()
     while true do
@@ -129,7 +141,8 @@ function main()
                 sapi.locSemaphore.stopSignal = false
             end
         end,
-        monitor_chat
+        monitor_chat,
+        poll_chat_send
     )
 end
 
@@ -172,6 +185,9 @@ function modem_main()
                             sapi.locSemaphore.stopSignal = true
                             while sapi.locSemaphore.count > 0 do os.sleep(0.001) end
                             sapi.locSemaphore.stopSignal = false
+
+                        elseif message.type == "chatSend" then
+                            sapi.say(message.message)
 
                         elseif message.type == "command" then
                             print("cmd received, command field: " .. tostring(message.command))

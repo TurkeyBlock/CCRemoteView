@@ -137,6 +137,20 @@ function sense()
     return true
 end
 
+-- ─── Chat send helper ────────────────────────────────────────
+
+function get_chat_message()
+    local data = { id = os.getComputerID() }
+    local json = textutils.serializeJSON(data)
+    local res  = http.post(url .. "getChatMessage", json, headers)
+    if res then
+        local body = res.readAll()
+        res.close()
+        if body and body ~= "" then return body end
+    end
+    return nil
+end
+
 -- ─── Say helper ──────────────────────────────────────────────
 
 function say(message)

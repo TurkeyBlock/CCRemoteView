@@ -27,13 +27,22 @@
       </div>
     </div>
 
-    <div v-if="computer.chatLog && computer.chatLog.length > 0" class="section">
-      <div class="section-title">Chat Log</div>
-      <div class="chat-log">
+    <div class="section">
+      <div class="section-title">Chat</div>
+      <div v-if="computer.chatLog && computer.chatLog.length > 0" class="chat-log">
         <div v-for="(msg, i) in [...computer.chatLog].reverse().slice(0, 20)" :key="i" class="chat-row">
           <span class="chat-player">{{ msg.player }}:</span>
           <span class="chat-message">{{ msg.message }}</span>
         </div>
+      </div>
+      <div class="chat-send">
+        <input
+          v-model="chatInput"
+          class="chat-input"
+          placeholder="Send message..."
+          @keydown.enter="sendChat"
+        />
+        <button class="chat-send-btn" @click="sendChat">Send</button>
       </div>
     </div>
 
@@ -112,10 +121,28 @@ button.missing {
   color: lightgray;
   flex: 1;
 }
+.chat-send {
+  display: flex;
+  gap: 4px;
+  margin-top: 2px;
+}
+.chat-input {
+  flex: 1;
+  padding: 4px 6px;
+  background: #2a2e32;
+  border: 1px solid #4a5060;
+  border-radius: 4px;
+  color: lightgray;
+  font-size: 0.8em;
+}
+.chat-send-btn {
+  padding: 4px 10px;
+  font-size: 0.8em;
+}
 </style>
 
 <script lang="ts">
-import { defineComponent, computed } from "vue";
+import { defineComponent, computed, ref } from "vue";
 import { useWorldStore } from "../store/useWorld";
 import { useWorldViewStore } from "../store/useWorldView";
 import LuaTerminal from "./LuaTerminal.vue";
@@ -132,7 +159,16 @@ export default defineComponent({
     const world = useWorldStore();
     const worldView = useWorldViewStore();
     const computer = computed(() => world.computers[props.computerId]);
-    return { world, worldView, computer };
+    const chatInput = ref('');
+
+    function sendChat() {
+      const msg = chatInput.value.trim();
+      if (!msg) return;
+      world.sendChatMessage(props.computerId, msg);
+      chatInput.value = '';
+    }
+
+    return { world, worldView, computer, chatInput, sendChat };
   },
 });
 </script>

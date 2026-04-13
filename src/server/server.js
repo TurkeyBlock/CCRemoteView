@@ -76,6 +76,7 @@ let commandResultCache = {}
 let cmds = {}
 let stopSignal = {}
 let sideCommands = {}
+let chatQueue = {}
 let modemServerId = null;
 let modemServerIp = null;
 let lastModemStateUpdate = 0;
@@ -344,6 +345,24 @@ app.post('/api/chat', requireApprovedComputer, (req, res) => {
   res.json({ ok: true });
 });
 
+// Queue a message for the stationary computer to say in chat.
+app.post('/api/sendChat', requireOperator, (req, res) => {
+  const { id, message } = req.body;
+  if (!message) return res.status(400).json({ error: 'message required' });
+  if (!chatQueue[id]) chatQueue[id] = [];
+  chatQueue[id].push(message);
+  log.info(`/api/sendChat id=${id} user=${req.token.sub} <${message}>`);
+  userManagement.incrementActionCount(req.token.sub);
+  res.json({ ok: true });
+});
+
+// Polled by the stationary computer — returns and dequeues the next message to say.
+app.post('/api/getChatMessage', requireApprovedComputer, (req, res) => {
+  const id = req.body.id;
+  if (!chatQueue[id] || chatQueue[id].length === 0) { res.send(''); return; }
+  res.send(chatQueue[id].shift());
+});
+
 // Lightweight state update used by player and stationary computers.
 // Payload: { id, type, sleep, loc } — loc may be null if GPS is unavailable.
 // Merges with existing computer state so a temporary GPS failure does not
@@ -458,6 +477,7 @@ app.post('/api/poll', requireApprovedComputer, (req, res) => {
   const commands = {};
   const stops = {};
   const sides = {};
+  const chats = {};
   for (const id of ids) {
     if (stopSignal[id]) {
       stops[String(id)] = true;
@@ -471,9 +491,13 @@ app.post('/api/poll', requireApprovedComputer, (req, res) => {
       sides[String(id)] = sideCommands[id].shift();
       log.info(`Modem: delivering side command to computer ${id}`);
     }
+    if (chatQueue[id] && chatQueue[id].length > 0) {
+      chats[String(id)] = chatQueue[id].shift();
+      log.info(`Modem: delivering chat to computer ${id}`);
+    }
   }
-  log.info(`Modem: poll (${ids.length} computers, ${Object.keys(commands).length} cmds, ${Object.keys(stops).length} stops, ${Object.keys(sides).length} sides)`);
-  res.json({ commands, stops, sides });
+  log.info(`Modem: poll (${ids.length} computers, ${Object.keys(commands).length} cmds, ${Object.keys(stops).length} stops, ${Object.keys(sides).length} sides, ${Object.keys(chats).length} chats)`);
+  res.json({ commands, stops, sides, chats });
 });
 
 // --- Browser endpoints ---
