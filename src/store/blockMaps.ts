@@ -121,6 +121,39 @@ export const geometryMap: { [blockId: string]: string } = {
   ...Object.fromEntries(slab_bottom.map(id => [id, "slab_bottom"])),
 };
 
+// ─── Non-occluding blocks ─────────────────────────────────────────────────────
+// Full-cube blocks that are transparent or semi-transparent and therefore must
+// NOT hide the faces of adjacent blocks.  Used by BlockRenderStructure.isSolid.
+//
+// Pattern-matched so modded variants (e.g. "botania:mana_glass") are covered
+// automatically.  Add explicit names at the bottom for one-offs.
+
+const NON_OCCLUDING_PATTERNS: readonly string[] = [
+  "glass",    // minecraft:glass, stained_glass, glass_pane, tinted_glass, …
+  "leaves",   // minecraft:leaves, oak_leaves, birch_leaves, …
+  "water",    // minecraft:water, flowing_water
+  "ice",      // minecraft:ice, packed_ice, blue_ice, frosted_ice
+];
+
+const NON_OCCLUDING_EXACT = new Set<string>([
+  "minecraft:slime",
+  "minecraft:beacon",
+  "minecraft:end_portal",
+  "minecraft:end_gateway",
+]);
+
+/**
+ * Returns true if this block is full-cube shaped but should not occlude
+ * the faces of neighbouring blocks (i.e. it is transparent or semi-transparent).
+ */
+export function isNonOccluding(blockName: string): boolean {
+  if (NON_OCCLUDING_EXACT.has(blockName)) return true;
+  for (const pat of NON_OCCLUDING_PATTERNS) {
+    if (blockName.includes(pat)) return true;
+  }
+  return false;
+}
+
 // ─── Texture Aliases ─────────────────────────────────────────────────────────
 // Maps block IDs (or "name:metadata" keys) to their texture file path
 // (relative to the blocks/ folder, without .png extension).

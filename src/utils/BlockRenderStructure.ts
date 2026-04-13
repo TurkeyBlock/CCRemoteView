@@ -4,7 +4,7 @@ import { useWorldViewStore } from "../store/useWorldView";
 import { Block } from "../types/types";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import DynamicInstancedMesh from "./DynamicInstancedMesh";
-import { geometryMap } from "../store/blockMaps";
+import { geometryMap, isNonOccluding } from "../store/blockMaps";
 
 // The 6 axis-aligned face directions and their neighbour offsets
 const FACE_DIRS = [
@@ -76,7 +76,7 @@ class BlockRenderStructure {
     const world = useWorldStore();
     const block = world.blocks[locString];
     if (!block) return false;
-    return this.isCubeBlock(block);
+    return this.isCubeBlock(block) && !isNonOccluding(block.name);
   }
 
   // Returns (and if necessary creates) the DynamicInstancedMesh for a block+face pair.
@@ -132,7 +132,7 @@ class BlockRenderStructure {
     for (const { key, dx, dy, dz } of FACE_DIRS) {
       const neighbourLoc = `${x + dx},${y + dy},${z + dz}`;
       const neighbour = world.blocks[neighbourLoc];
-      if (neighbour && this.isCubeBlock(neighbour)) {
+      if (neighbour && this.isCubeBlock(neighbour) && !isNonOccluding(neighbour.name)) {
         const oppFace = OPPOSITE_FACE[key];
         const meshIdx = this.blockToMeshIdxMap[`${this.blockKey(neighbour)}:${oppFace}`];
         if (meshIdx !== undefined) this.meshArray[meshIdx].removeBlock(neighbourLoc);
@@ -241,10 +241,9 @@ class BlockRenderStructure {
 
       for (const { key: faceDir, dx, dy, dz } of FACE_DIRS) {
         const nLoc = `${x + dx},${y + dy},${z + dz}`;
-        // Occluded if a solid cube occupies the neighbour slot (visibility not
-        // considered for occlusion — consistent with the per-block addBlock path).
+        // Occluded if a solid opaque cube occupies the neighbour slot.
         const nb = blocks[nLoc];
-        if (nb && this.isCubeBlock(nb)) continue;
+        if (nb && this.isCubeBlock(nb) && !isNonOccluding(nb.name)) continue;
 
         const meshKey = `${this.blockKey(block)}:${faceDir}`;
         if (!facesByKey.has(meshKey)) { facesByKey.set(meshKey, []); keyMeta.set(meshKey, { block, faceDir }); }
