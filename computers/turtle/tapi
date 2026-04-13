@@ -134,12 +134,14 @@ end
 
 local function does_side_have_inventory(side)
   if not peripheral.isPresent(side) then return false end
-  if not peripheral.hasType then
-    -- added for backwards compatability
-    return peripheral.getType(side) == "inventory"
-  else
+  if peripheral.hasType then
     return peripheral.hasType(side, "inventory")
   end
+  -- Old CC: hasType doesn't exist. peripheral.getType returns the mod-specific
+  -- type string (e.g. "minecraft:chest"), never the generic "inventory" string,
+  -- so a string comparison is always wrong. Instead, probe by calling list().
+  local ok, result = pcall(peripheral.call, side, "list")
+  return ok and type(result) == "table"
 end
 
 function scan_surrounding_blocks()
