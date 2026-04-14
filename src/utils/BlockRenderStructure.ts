@@ -221,32 +221,27 @@ class BlockRenderStructure {
     isVisible: (locString: string) => boolean,
   ) {
     const worldView = useWorldViewStore();
-    const CHUNK_SIZE = 3000;
+    // Phase 2 chunk size: larger = fewer yields = faster overall, still progressive
+    const CHUNK_SIZE = 10000;
+    // Cache transparency list once — checked millions of times in Phase 1
+    const transparencyList = worldView.transparencyList;
 
-    // Yield immediately so the caller's isLoading = false fires and the
-    // browser repaints before any work starts.  Without this, Phase 1 runs
-    // synchronously inside the caller's stack frame — the loading overlay
-    // stays up until the first await deep in Phase 2.
+    // Yield once so the caller can repaint (camera position, loading overlay)
+    // before the synchronous Phase 1 work begins.
     await new Promise<void>(r => setTimeout(r, 0));
 
     // ── Phase 1: collect face instances per mesh key (no Three.js calls) ──────
-    // meshKey → array of locStrings that need an instance in that mesh
+    // No yielding here — purely hash-map reads, nothing to render yet, and
+    // the per-yield browser minimum (~4 ms) adds up to hundreds of ms for
+    // large worlds with no visual benefit.
     const facesByKey = new Map<string, string[]>();
-    // meshKey → {block, optional faceDir} for geometry/material lookup
     const keyMeta   = new Map<string, { block: Block; faceDir?: string }>();
 
-    let phase1Count = 0;
     for (const locString in blocks) {
       if (!isVisible(locString)) continue;
       const block = blocks[locString];
 
-      // Yield periodically so the render loop can fire between chunks.
-      if (++phase1Count % CHUNK_SIZE === 0) {
-        await new Promise<void>(r => setTimeout(r, 0));
-      }
-
       if (!this.isCubeBlock(block)) {
-        // Non-cube blocks use a single legacy mesh, keyed by block type only.
         const key = this.blockKey(block);
         if (!facesByKey.has(key)) { facesByKey.set(key, []); keyMeta.set(key, { block }); }
         facesByKey.get(key)!.push(locString);
@@ -258,8 +253,10 @@ class BlockRenderStructure {
 
       for (const { key: faceDir, dx, dy, dz } of FACE_DIRS) {
         const nLoc = `${x + dx},${y + dy},${z + dz}`;
-        // Occluded if a solid opaque cube occupies the neighbour slot.
-        if (this.isSolid(nLoc)) continue;
+        // Inline solid check using the already-available `blocks` map to avoid
+        // Pinia store lookups in the innermost loop (called ~6× per block).
+        const nb = blocks[nLoc];
+        if (nb && this.isCubeBlock(nb) && !isNonOccluding(nb.name) && !transparencyList.includes(nb.name)) continue;
 
         const meshKey = `${this.blockKey(block)}:${faceDir}`;
         if (!facesByKey.has(meshKey)) { facesByKey.set(meshKey, []); keyMeta.set(meshKey, { block, faceDir }); }
@@ -268,6 +265,8 @@ class BlockRenderStructure {
     }
 
     // ── Phase 2: build meshes in async chunks ─────────────────────────────────
+    // Yields every CHUNK_SIZE instances so blocks appear progressively while
+    // controls remain blocked (acceptable during initial load).
     let instancesThisChunk = 0;
 
     for (const [meshKey, locStrings] of facesByKey) {
