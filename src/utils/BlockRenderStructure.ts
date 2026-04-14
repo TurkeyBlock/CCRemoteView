@@ -76,7 +76,10 @@ class BlockRenderStructure {
     const world = useWorldStore();
     const block = world.blocks[locString];
     if (!block) return false;
-    return this.isCubeBlock(block) && !isNonOccluding(block.name);
+    if (!this.isCubeBlock(block) || isNonOccluding(block.name)) return false;
+    const worldView = useWorldViewStore();
+    if (worldView.transparencyList.includes(block.name) && worldView.transparencyOpacity < 1) return false;
+    return true;
   }
 
   // Returns (and if necessary creates) the DynamicInstancedMesh for a block+face pair.
@@ -127,15 +130,17 @@ class BlockRenderStructure {
       }
     }
 
-    // Hide the neighbour face that now points back toward this block
-    const world = useWorldStore();
-    for (const { key, dx, dy, dz } of FACE_DIRS) {
-      const neighbourLoc = `${x + dx},${y + dy},${z + dz}`;
-      const neighbour = world.blocks[neighbourLoc];
-      if (neighbour && this.isCubeBlock(neighbour) && !isNonOccluding(neighbour.name)) {
-        const oppFace = OPPOSITE_FACE[key];
-        const meshIdx = this.blockToMeshIdxMap[`${this.blockKey(neighbour)}:${oppFace}`];
-        if (meshIdx !== undefined) this.meshArray[meshIdx].removeBlock(neighbourLoc);
+    // Only hide neighbour faces when this block itself occludes
+    if (this.isSolid(locString)) {
+      const world = useWorldStore();
+      for (const { key, dx, dy, dz } of FACE_DIRS) {
+        const neighbourLoc = `${x + dx},${y + dy},${z + dz}`;
+        const neighbour = world.blocks[neighbourLoc];
+        if (neighbour && this.isCubeBlock(neighbour) && !isNonOccluding(neighbour.name)) {
+          const oppFace = OPPOSITE_FACE[key];
+          const meshIdx = this.blockToMeshIdxMap[`${this.blockKey(neighbour)}:${oppFace}`];
+          if (meshIdx !== undefined) this.meshArray[meshIdx].removeBlock(neighbourLoc);
+        }
       }
     }
   }
@@ -254,8 +259,7 @@ class BlockRenderStructure {
       for (const { key: faceDir, dx, dy, dz } of FACE_DIRS) {
         const nLoc = `${x + dx},${y + dy},${z + dz}`;
         // Occluded if a solid opaque cube occupies the neighbour slot.
-        const nb = blocks[nLoc];
-        if (nb && this.isCubeBlock(nb) && !isNonOccluding(nb.name)) continue;
+        if (this.isSolid(nLoc)) continue;
 
         const meshKey = `${this.blockKey(block)}:${faceDir}`;
         if (!facesByKey.has(meshKey)) { facesByKey.set(meshKey, []); keyMeta.set(meshKey, { block, faceDir }); }

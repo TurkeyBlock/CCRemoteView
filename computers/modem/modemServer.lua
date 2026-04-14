@@ -13,7 +13,8 @@ local HEARTBEAT_INTERVAL = 60  -- seconds between heartbeat broadcasts
 
 local modem = peripheral.find("modem") or error("No modem attached", 0)
 local MODEM_ID = os.getComputerID()
-local headers = { ["Content-Type"] = "application/json" }
+local headers      = { ["Content-Type"] = "application/json" }
+local text_headers = { ["Content-Type"] = "text/plain" }
 
 print("Modem Server starting (ID: " .. MODEM_ID .. ")")
 print("Heartbeat: " .. HEARTBEAT_INTERVAL .. "s")
@@ -86,7 +87,7 @@ local function fire_poll()
   if #ids == 0 then return end
   polling_in_flight = true
   pending_wait = get_poll_interval()
-  http.request(POLL_URL, textutils.serializeJSON({ ids = ids }), headers)
+  http.request(POLL_URL, table.concat(ids, ","), text_headers)
 end
 
 local function send_heartbeat()

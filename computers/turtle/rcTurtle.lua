@@ -10,10 +10,8 @@ local first_contact    = true
 -- HTTP mode: fetch and execute the next queued command from the server.
 -- Stop signal polling runs in parallel only during command execution.
 function get_command()
-    local payload = { id = os.getComputerID() }
-    if first_contact then payload.first_contact = true end
-    local json = textutils.serializeJSON(payload)
-    local res = http.post(get_command_url, json, { ["Content-Type"] = "application/json" })
+    local url = first_contact and (get_command_url .. "?fc=1") or get_command_url
+    local res = http.post(url, tostring(os.getComputerID()), { ["Content-Type"] = "text/plain" })
     if res then
         if first_contact then
             print("First server contact after reboot (id=" .. os.getComputerID() .. ")")
@@ -42,8 +40,7 @@ end
 -- HTTP mode: poll for a stop signal; sets the semaphore and returns when received.
 function poll_stop_signal()
     while true do
-        local json = textutils.serializeJSON({ id = os.getComputerID() })
-        local res = http.post(get_stop_signal_url, json, { ["Content-Type"] = "application/json" })
+        local res = http.post(get_stop_signal_url, tostring(os.getComputerID()), { ["Content-Type"] = "text/plain" })
         if res then
             local stop_string = res.readAll()
             if string.find(stop_string, "true") then

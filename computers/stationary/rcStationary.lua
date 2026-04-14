@@ -13,11 +13,8 @@ local first_contact    = true
 -- ─── HTTP transport ───────────────────────────────────────────
 
 function get_command()
-    local payload = { id = os.getComputerID() }
-    if first_contact then payload.first_contact = true end
-    local json = textutils.serializeJSON(payload)
-    local res  = http.post(get_command_url, json,
-                           { ["Content-Type"] = "application/json" })
+    local url = first_contact and (get_command_url .. "?fc=1") or get_command_url
+    local res  = http.post(url, tostring(os.getComputerID()), { ["Content-Type"] = "text/plain" })
     if res then
         if first_contact then
             print("First server contact after reboot (id=" .. os.getComputerID() .. ")")
@@ -46,9 +43,7 @@ end
 
 function poll_stop_signal()
     while true do
-        local json = textutils.serializeJSON({ id = os.getComputerID() })
-        local res  = http.post(get_stop_url, json,
-                               { ["Content-Type"] = "application/json" })
+        local res  = http.post(get_stop_url, tostring(os.getComputerID()), { ["Content-Type"] = "text/plain" })
         if res then
             local body = res.readAll()
             if string.find(body, "true") then
