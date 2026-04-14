@@ -110,7 +110,7 @@ export const useWorldViewStore = defineStore('worldView', {
             this.materials[id].side = THREE.DoubleSide;
           if (name.includes("water")) {
             this.materials[id].transparent = true;
-            this.materials[id].opacity = 0.35;
+            this.materials[id].opacity = 0.55;
             this.materials[id].depthWrite = false;
           }
           if (geomId === "flat") {
