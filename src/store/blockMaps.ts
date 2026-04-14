@@ -154,6 +154,10 @@ export function isNonOccluding(blockName: string): boolean {
   return false;
 }
 
+export function isLiquid(blockName: string): boolean {
+  return blockName.includes('water') || blockName.includes('lava');
+}
+
 // ─── Texture Aliases ─────────────────────────────────────────────────────────
 // Maps block IDs (or "name:metadata" keys) to their texture file path
 // (relative to the blocks/ folder, without .png extension).

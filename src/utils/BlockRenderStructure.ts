@@ -4,7 +4,7 @@ import { useWorldViewStore } from "../store/useWorldView";
 import { Block } from "../types/types";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import DynamicInstancedMesh from "./DynamicInstancedMesh";
-import { geometryMap, isNonOccluding } from "../store/blockMaps";
+import { geometryMap, isLiquid, isNonOccluding } from "../store/blockMaps";
 
 // The 6 axis-aligned face directions and their neighbour offsets
 const FACE_DIRS = [
@@ -121,18 +121,20 @@ class BlockRenderStructure {
     }
 
     const [x, y, z] = locString.split(',').map(Number);
+    const world = useWorldStore();
+    const liquid = isLiquid(block.name);
 
-    // Add only the faces that are not occluded by a solid neighbour
+    // Add only the faces that are not occluded
     for (const { key, dx, dy, dz } of FACE_DIRS) {
       const neighbourLoc = `${x + dx},${y + dy},${z + dz}`;
-      if (!this.isSolid(neighbourLoc)) {
-        this.getFaceMesh(block, key).addBlock(locString, block);
-      }
+      if (this.isSolid(neighbourLoc)) continue;
+      // Liquid sides/bottoms are culled against adjacent liquid blocks; tops always show
+      if (liquid && key !== 'py' && isLiquid(world.blocks[neighbourLoc]?.name ?? '')) continue;
+      this.getFaceMesh(block, key).addBlock(locString, block);
     }
 
-    // Only hide neighbour faces when this block itself occludes
+    // Only hide neighbour faces when this block itself is solid
     if (this.isSolid(locString)) {
-      const world = useWorldStore();
       for (const { key, dx, dy, dz } of FACE_DIRS) {
         const neighbourLoc = `${x + dx},${y + dy},${z + dz}`;
         const neighbour = world.blocks[neighbourLoc];
@@ -141,6 +143,19 @@ class BlockRenderStructure {
           const meshIdx = this.blockToMeshIdxMap[`${this.blockKey(neighbour)}:${oppFace}`];
           if (meshIdx !== undefined) this.meshArray[meshIdx].removeBlock(neighbourLoc);
         }
+      }
+    }
+
+    // Liquid blocks: hide side/bottom faces of adjacent liquid neighbours that now point inward
+    if (liquid) {
+      for (const { key, dx, dy, dz } of FACE_DIRS) {
+        const neighbourLoc = `${x + dx},${y + dy},${z + dz}`;
+        const neighbour = world.blocks[neighbourLoc];
+        if (!neighbour || !isLiquid(neighbour.name)) continue;
+        const oppFace = OPPOSITE_FACE[key];
+        if (oppFace === 'py') continue; // never hide a liquid neighbour's top face
+        const meshIdx = this.blockToMeshIdxMap[`${this.blockKey(neighbour)}:${oppFace}`];
+        if (meshIdx !== undefined) this.meshArray[meshIdx].removeBlock(neighbourLoc);
       }
     }
   }
@@ -251,12 +266,15 @@ class BlockRenderStructure {
       const parts = locString.split(',');
       const x = +parts[0], y = +parts[1], z = +parts[2];
 
+      const liquid = isLiquid(block.name);
       for (const { key: faceDir, dx, dy, dz } of FACE_DIRS) {
         const nLoc = `${x + dx},${y + dy},${z + dz}`;
         // Inline solid check using the already-available `blocks` map to avoid
         // Pinia store lookups in the innermost loop (called ~6× per block).
         const nb = blocks[nLoc];
         if (nb && this.isCubeBlock(nb) && !isNonOccluding(nb.name) && !transparencyList.includes(nb.name)) continue;
+        // Liquid sides/bottoms are culled against adjacent liquid blocks; tops always show
+        if (liquid && faceDir !== 'py' && nb && isLiquid(nb.name)) continue;
 
         const meshKey = `${this.blockKey(block)}:${faceDir}`;
         if (!facesByKey.has(meshKey)) { facesByKey.set(meshKey, []); keyMeta.set(meshKey, { block, faceDir }); }
