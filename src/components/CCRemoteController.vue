@@ -299,14 +299,17 @@ export default defineComponent({
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
         if (data.state) {
+          const alreadyCurrent = data.state.lastTransactionId === world.lastTransactionId;
           world.setComputerStatus(data.state.computers);
           world.blocks = data.state.world.blocks;
-          if (!world.computers[worldView.selectedComputerId]?.loc) {
-            const entry = Object.entries(world.computers).find(([, c]) => c.loc);
-            if (entry) worldView.selectedComputerId = Number(entry[0]);
-          }
-          worldView.regenerateSceneFromBlocks();
           world.lastTransactionId = data.state.lastTransactionId;
+          if (!alreadyCurrent) {
+            if (!world.computers[worldView.selectedComputerId]?.loc) {
+              const entry = Object.entries(world.computers).find(([, c]) => c.loc);
+              if (entry) worldView.selectedComputerId = Number(entry[0]);
+            }
+            worldView.regenerateSceneFromBlocks();
+          }
         } else {
           world.applyTransactions(data.transactions);
         }
