@@ -13,7 +13,7 @@ function get_command()
   if res then
     local cmd_string = res.readAll()
     res.close()
-    if cmd_string == "" then return end
+    if not cmd_string or cmd_string == "" then return end
     command_received = true
     local cmd, err = loadstring(cmd_string)
     if cmd then
