@@ -106,8 +106,13 @@ export const useWorldViewStore = defineStore('worldView', {
           const geomId = geometryMap[id] ?? geometryMap[name];
           if (geomId === "cross" || geomId === "flat" || name.includes("leaves") || name.includes("sapling") || name.includes("kelp") || name.includes("seagrass"))
             this.materials[id].alphaTest = 1;
-          if (geomId === "cross" || geomId === "flat" || name.includes("sapling") || name.includes("kelp") || name.includes("seagrass"))
+          if (geomId === "cross" || geomId === "flat" || name.includes("sapling") || name.includes("kelp") || name.includes("seagrass") || name.includes("water"))
             this.materials[id].side = THREE.DoubleSide;
+          if (name.includes("water")) {
+            this.materials[id].transparent = true;
+            this.materials[id].opacity = 0.65;
+            this.materials[id].depthWrite = false;
+          }
           if (geomId === "flat") {
             // Flat geometry sits coplanar with the top face of the block below.
             // polygonOffset nudges the depth value toward the camera so the flat
