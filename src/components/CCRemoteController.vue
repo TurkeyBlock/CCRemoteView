@@ -301,7 +301,7 @@ export default defineComponent({
         if (data.state) {
           world.setComputerStatus(data.state.computers);
           world.blocks = data.state.world.blocks;
-          if (worldView.selectedComputerId === -1) {
+          if (!world.computers[worldView.selectedComputerId]?.loc) {
             const entry = Object.entries(world.computers).find(([, c]) => c.loc);
             if (entry) worldView.selectedComputerId = Number(entry[0]);
           }
@@ -372,7 +372,7 @@ export default defineComponent({
       if (!data) return;
       world.setComputerStatus(data.computers);
       world.blocks = data.world.blocks;
-      if (worldView.selectedComputerId === -1) {
+      if (!world.computers[worldView.selectedComputerId]?.loc) {
         const entry = Object.entries(world.computers).find(([, c]) => c.loc);
         if (entry) worldView.selectedComputerId = Number(entry[0]);
       }
