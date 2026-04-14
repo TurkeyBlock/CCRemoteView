@@ -13,7 +13,9 @@ local first_contact    = true
 -- ─── HTTP transport ───────────────────────────────────────────
 
 function get_command()
-    local json = textutils.serializeJSON({ id = os.getComputerID(), first_contact = first_contact })
+    local payload = { id = os.getComputerID() }
+    if first_contact then payload.first_contact = true end
+    local json = textutils.serializeJSON(payload)
     local res  = http.post(get_command_url, json,
                            { ["Content-Type"] = "application/json" })
     if res then
