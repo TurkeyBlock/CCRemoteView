@@ -33,7 +33,6 @@ export const useWorldViewStore = defineStore('worldView', {
     selectedInventory: null as Inventory | null,
     selectedInventorySize: 0 as number,
     transparencyList: [] as string[],
-    transparencyOpacity: 0.3 as number,
     yMin: 0 as number,
     yMax: 255 as number,
     computerRangeXZ: null as number | null,
@@ -48,10 +47,12 @@ export const useWorldViewStore = defineStore('worldView', {
     isBlockVisible(locString: string): boolean {
       const [x, y, z] = locString.split(',').map(Number);
       if (y < this.yMin || y > this.yMax) return false;
+      const world = useWorldStore();
+      const block = world.blocks[locString];
+      if (block && this.transparencyList.includes(block.name)) return false;
       if (this.computerRangeXZ !== null) {
         let cx: number | null = null, cz: number | null = null;
         if (this.selectedComputerId !== -1) {
-          const world = useWorldStore();
           const turtle = world.computers[this.selectedComputerId];
           if (turtle?.loc) { cx = turtle.loc.x; cz = turtle.loc.z; }
         } else if (this.manualCenter) {
@@ -63,48 +64,23 @@ export const useWorldViewStore = defineStore('worldView', {
           if (Math.abs(z - cz) > this.computerRangeXZ) return false;
         }
       }
+      for (const id in world.computers) {
+        const c = world.computers[id];
+        if (c.type === 'minecart' && c.loc?.x === x && c.loc?.y === y && c.loc?.z === z) return false;
+      }
       return true;
     },
     addToTransparencyList(blockName: string) {
       const name = blockName.trim();
       if (!name || this.transparencyList.includes(name)) return;
       this.transparencyList.push(name);
-      if (this.materials[name]) {
-        this.materials[name].transparent = true;
-        this.materials[name].opacity = this.transparencyOpacity;
-        this.materials[name].needsUpdate = true;
-      }
-      if (this.transparencyOpacity < 1) {
-        this.regenerateSceneFromBlocks();
-      }
+      this.regenerateSceneFromBlocks();
     },
     removeFromTransparencyList(blockName: string) {
       const idx = this.transparencyList.indexOf(blockName);
       if (idx === -1) return;
       this.transparencyList.splice(idx, 1);
-      if (this.materials[blockName]) {
-        this.materials[blockName].transparent = false;
-        this.materials[blockName].opacity = 1;
-        this.materials[blockName].needsUpdate = true;
-      }
-      if (this.transparencyOpacity < 1) {
-        this.regenerateSceneFromBlocks();
-      }
-    },
-    setTransparencyOpacity(value: number) {
-      const wasOpaque = this.transparencyOpacity >= 1;
-      this.transparencyOpacity = value;
-      for (const name of this.transparencyList) {
-        if (this.materials[name]) {
-          this.materials[name].opacity = value;
-          this.materials[name].needsUpdate = true;
-        }
-      }
-      // Re-cull when crossing the fully-opaque threshold
-      const isNowOpaque = value >= 1;
-      if (wasOpaque !== isNowOpaque && this.transparencyList.length > 0) {
-        this.regenerateSceneFromBlocks();
-      }
+      this.regenerateSceneFromBlocks();
     },
     getBlockMaterial(name: string, metadata: number = 0) {
       // Cache key includes metadata when non-zero: "minecraft:wool:1"
@@ -134,10 +110,6 @@ export const useWorldViewStore = defineStore('worldView', {
             this.materials[id].side = THREE.DoubleSide;
           if (texture.image.width !== texture.image.height)
             this.addAnimatedTexture(texture);
-          if (this.transparencyList.includes(id) || this.transparencyList.includes(name)) {
-            this.materials[id].transparent = true;
-            this.materials[id].opacity = this.transparencyOpacity;
-          }
           this.materials[id].needsUpdate = true;
         };
 

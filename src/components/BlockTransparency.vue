@@ -12,20 +12,7 @@
         <button class="add-btn" @click="add">Add</button>
       </div>
 
-      <div class="opacity-row">
-        <span class="opacity-label">Opacity</span>
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          :value="worldView.transparencyOpacity"
-          @input="(e) => worldView.setTransparencyOpacity(Number((e.target as HTMLInputElement).value))"
-        />
-        <span class="opacity-value">{{ Math.round(worldView.transparencyOpacity * 100) }}%</span>
-      </div>
-
-      <div v-if="worldView.transparencyList.length" class="list">
+<div v-if="worldView.transparencyList.length" class="list">
         <div
           v-for="name in worldView.transparencyList"
           :key="name"
@@ -149,32 +136,6 @@ export default defineComponent({
 
 .add-btn:hover {
   background: rgb(80, 150, 80);
-}
-
-.opacity-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-}
-
-.opacity-label {
-  color: gray;
-  font-size: 0.85em;
-  white-space: nowrap;
-}
-
-input[type="range"] {
-  flex: 1;
-  accent-color: rgb(80, 150, 80);
-  min-width: 0;
-}
-
-.opacity-value {
-  color: darkgray;
-  font-size: 0.85em;
-  width: 2.8em;
-  text-align: right;
 }
 
 .list {

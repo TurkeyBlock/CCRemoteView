@@ -78,7 +78,7 @@ class BlockRenderStructure {
     if (!block) return false;
     if (!this.isCubeBlock(block) || isNonOccluding(block.name)) return false;
     const worldView = useWorldViewStore();
-    if (worldView.transparencyList.includes(block.name) && worldView.transparencyOpacity < 1) return false;
+    if (worldView.transparencyList.includes(block.name)) return false;
     return true;
   }
 
