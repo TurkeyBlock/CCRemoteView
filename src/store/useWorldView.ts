@@ -108,6 +108,14 @@ export const useWorldViewStore = defineStore('worldView', {
             this.materials[id].alphaTest = 1;
           if (geomId === "cross" || geomId === "flat" || name.includes("sapling") || name.includes("kelp") || name.includes("seagrass"))
             this.materials[id].side = THREE.DoubleSide;
+          if (geomId === "flat") {
+            // Flat geometry sits coplanar with the top face of the block below.
+            // polygonOffset nudges the depth value toward the camera so the flat
+            // block consistently wins the depth test without visually moving.
+            this.materials[id].polygonOffset = true;
+            this.materials[id].polygonOffsetFactor = -1;
+            this.materials[id].polygonOffsetUnits = -4;
+          }
           if (texture.image.width !== texture.image.height)
             this.addAnimatedTexture(texture);
           this.materials[id].needsUpdate = true;
