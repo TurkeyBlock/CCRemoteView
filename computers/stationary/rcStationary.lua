@@ -8,14 +8,19 @@ local get_command_url = sapi.url .. "getCommand/"
 local get_stop_url    = sapi.url .. "getStopSignal/"
 
 local command_received = false
+local first_contact    = true
 
 -- ─── HTTP transport ───────────────────────────────────────────
 
 function get_command()
-    local json = textutils.serializeJSON({ id = os.getComputerID() })
+    local json = textutils.serializeJSON({ id = os.getComputerID(), first_contact = first_contact })
     local res  = http.post(get_command_url, json,
                            { ["Content-Type"] = "application/json" })
     if res then
+        if first_contact then
+            print("First server contact after reboot (id=" .. os.getComputerID() .. ")")
+            first_contact = false
+        end
         local cmd_string = res.readAll()
         res.close()
         if not cmd_string or cmd_string == "" then return end

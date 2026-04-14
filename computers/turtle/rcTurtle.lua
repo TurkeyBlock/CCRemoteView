@@ -5,13 +5,18 @@ local get_command_url = tapi.url .. "getCommand/"
 local get_stop_signal_url = tapi.url .. "getStopSignal/"
 
 local command_received = false
+local first_contact    = true
 
 -- HTTP mode: fetch and execute the next queued command from the server.
 -- Stop signal polling runs in parallel only during command execution.
 function get_command()
-    local json = textutils.serializeJSON({ id = os.getComputerID() })
+    local json = textutils.serializeJSON({ id = os.getComputerID(), first_contact = first_contact })
     local res = http.post(get_command_url, json, { ["Content-Type"] = "application/json" })
     if res then
+        if first_contact then
+            print("First server contact after reboot (id=" .. os.getComputerID() .. ")")
+            first_contact = false
+        end
         local cmd_string = res.readAll()
         res.close()
         if not cmd_string or cmd_string == "" then return end

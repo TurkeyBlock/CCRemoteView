@@ -385,6 +385,7 @@ app.post('/api/statusUpdate', requireApprovedComputer, (req, res) => {
 app.post('/api/getCommand', requireApprovedComputer, (req, res) => {
   const s = req.body;
   console.log(`Computer ${s.id} requested command (size: ${JSON.stringify(req.body).length} bytes)`);
+  if (s.first_contact) log.info(`Computer ${s.id} first contact after reboot`);
   if (!cmds[s.id] || cmds[s.id].length === 0) { res.send(''); return; }
   res.send(cmds[s.id].shift());
 });
