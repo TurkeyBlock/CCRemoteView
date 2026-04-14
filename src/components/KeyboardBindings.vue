@@ -18,6 +18,8 @@ export default defineComponent({
       document.addEventListener("keydown", this.handleKeyDown);
     },
     handleKeyDown(keyEvent: KeyboardEvent) {
+      const tag = (keyEvent.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (keyEvent.target as HTMLElement)?.isContentEditable) return;
       console.log(keyEvent.key);
       switch(keyEvent.key) {
         case 'w':   this.sendTurtleCmd('return tapi.forward()'); break;
