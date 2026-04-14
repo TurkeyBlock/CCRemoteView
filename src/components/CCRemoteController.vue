@@ -7,10 +7,13 @@
     <div class="hud-panel">
       <div class="panel-left">
         <a class="home-link" href="/api/home">← turkeyblock.org</a>
+        <div class="modem-status" :class="world.modemServerId !== null ? 'modem-online' : 'modem-offline'">
+          📡 Modem: {{ world.modemServerId !== null ? `online (id ${world.modemServerId})` : 'offline' }}
+        </div>
         <select v-model="worldView.selectedComputerId" @change="worldView.followComputer(worldView.selectedComputerId)">
           <option :value="-1">[None]</option>
           <option v-for="id in world.getComputerIds" :key="id" :value="id">
-            {{ world.computers[id].type !== 'modem' && isStale(world.computers[id]) ? '⚠ ' : '' }}{{ world.computers[id].type === 'minecart' ? 'Minecart' : world.computers[id].type === 'modem' ? 'Modem' : 'Turtle' }} {{ id }}{{ world.computers[id].via_modem ? ' 📡' : world.computers[id].sleep_mode ? ' 💤' : '' }} : {{ world.computers[id].label }}
+            {{ world.computers[id].type === 'minecart' ? 'Minecart' : world.computers[id].type === 'modem' ? 'Modem' : 'Turtle' }} {{ id }}{{ world.computers[id].type === 'modem' ? (world.modemServerId !== null ? ' [online]' : ' [offline]') : ((world.computers[id].via_modem ? ' 📡' : '') + (world.computers[id].sleep_mode ? ' 💤' : '') + (isStale(world.computers[id]) ? ' [offline]' : ' [online]')) }} : {{ world.computers[id].label }}
           </option>
         </select>
         <div v-if="worldView.selectedComputerId === -1" class="manual-center">
@@ -186,6 +189,13 @@ select {
   color: darkgray;
   font-weight: bold;
 }
+
+.modem-status {
+  font-size: 0.75em;
+  letter-spacing: 0.03em;
+}
+.modem-online { color: rgb(80, 200, 80); }
+.modem-offline { color: rgb(120, 120, 120); }
 </style>
 
 <script lang="ts">
@@ -222,6 +232,7 @@ export default defineComponent({
       _wsBackoff: 1000 as number,
       _wsReconnectTimeout: null as ReturnType<typeof setTimeout> | null,
       _cmdResultInterval: null as ReturnType<typeof setInterval> | null,
+      _modemStatusInterval: null as ReturnType<typeof setInterval> | null,
       isGuest: false,
       guestRefreshDisabled: false,
       _guestRefreshTimer: null as ReturnType<typeof setTimeout> | null,
@@ -307,6 +318,13 @@ export default defineComponent({
 
       ws.onerror = () => ws.close();
     },
+    async pollModemStatus() {
+      const world = useWorldStore();
+      const res = await fetch(world.apiURL + 'modem/id').catch(() => null);
+      if (!res || !res.ok) return;
+      const data = await res.json().catch(() => null);
+      if (data) world.modemServerId = data.id ?? null;
+    },
     pollCommandResult() {
       const world = useWorldStore();
       const worldView = useWorldViewStore();
@@ -367,12 +385,15 @@ export default defineComponent({
     useUserStore().startPolling();
     this.connectWebSocket();
     this._cmdResultInterval = setInterval(() => this.pollCommandResult(), 400);
+    this.pollModemStatus();
+    this._modemStatusInterval = setInterval(() => this.pollModemStatus(), 15000);
   },
   beforeUnmount() {
     useUserStore().stopPolling();
     if (this._ws) { this._ws.onclose = null; this._ws.close(); }
     if (this._wsReconnectTimeout) clearTimeout(this._wsReconnectTimeout);
     if (this._cmdResultInterval) clearInterval(this._cmdResultInterval);
+    if (this._modemStatusInterval) clearInterval(this._modemStatusInterval);
     if (this._guestRefreshTimer) clearTimeout(this._guestRefreshTimer);
   },
 });

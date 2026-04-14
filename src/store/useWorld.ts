@@ -18,6 +18,7 @@ export const useWorldStore = defineStore('world', {
     lastTransactionId: -1,
     isLoading: true,
     isUnauthorized: false,
+    modemServerId: null as number | null,
   }),
   getters: {
     getComputerIds(): number[] {

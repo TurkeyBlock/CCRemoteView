@@ -1,6 +1,11 @@
 <template>
   <div class="modem-panel">
-    <div class="modem-title">📡 Modem Server {{ computerId }}</div>
+    <div class="modem-title">
+      📡 Modem Server {{ computerId }}
+      <span class="modem-status-badge" :class="world.modemServerId !== null ? 'modem-online' : 'modem-offline'">
+        {{ world.modemServerId !== null ? 'online' : 'offline' }}
+      </span>
+    </div>
 
     <div class="client-section">
       <div class="section-label">
@@ -35,7 +40,18 @@
   font-size: 0.9em;
   font-weight: bold;
   color: rgb(120, 180, 240);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
 }
+.modem-status-badge {
+  font-size: 0.8em;
+  font-weight: normal;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.modem-online { color: rgb(80, 200, 80); }
+.modem-offline { color: rgb(120, 120, 120); }
 .section-label {
   font-size: 0.75em;
   color: gray;
