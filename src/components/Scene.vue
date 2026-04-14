@@ -304,11 +304,6 @@ export default defineComponent({
 
       // Position the camera before blocks start loading so the first rendered
       // chunks appear around a known location rather than the origin.
-      // Auto-select the first computer with a GPS fix if none is already chosen.
-      if (this.worldView.selectedComputerId === -1) {
-        const entry = Object.entries(this.world.computers).find(([, c]) => c.loc);
-        if (entry) this.worldView.selectedComputerId = Number(entry[0]);
-      }
       if (this.worldView.selectedComputerId !== -1) {
         this.focusOnComputer(this.worldView.selectedComputerId);
       }

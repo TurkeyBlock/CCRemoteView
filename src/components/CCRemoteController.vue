@@ -240,9 +240,15 @@ export default defineComponent({
   },
   watch: {
     'worldView.selectedComputerId'(id: number) {
-      if (id !== -1) {
-        this.worldView.manualCenter = null;
+      if (id === -1) return;
+      this.worldView.manualCenter = null;
+      // Only rebuild the scene when a range filter is active — that's the only
+      // case where the visible block set actually changes with the computer.
+      // Otherwise just reposition the camera.
+      if (this.worldView.computerRangeXZ !== null) {
         this.worldView.regenerateSceneFromBlocks();
+      } else {
+        this.worldView.focusOnComputer(id);
       }
     },
   },
@@ -295,6 +301,10 @@ export default defineComponent({
         if (data.state) {
           world.setComputerStatus(data.state.computers);
           world.blocks = data.state.world.blocks;
+          if (worldView.selectedComputerId === -1) {
+            const entry = Object.entries(world.computers).find(([, c]) => c.loc);
+            if (entry) worldView.selectedComputerId = Number(entry[0]);
+          }
           worldView.regenerateSceneFromBlocks();
           world.lastTransactionId = data.state.lastTransactionId;
         } else {
@@ -362,6 +372,10 @@ export default defineComponent({
       if (!data) return;
       world.setComputerStatus(data.computers);
       world.blocks = data.world.blocks;
+      if (worldView.selectedComputerId === -1) {
+        const entry = Object.entries(world.computers).find(([, c]) => c.loc);
+        if (entry) worldView.selectedComputerId = Number(entry[0]);
+      }
       worldView.regenerateSceneFromBlocks();
       worldView.render();
       world.isLoading = false;
