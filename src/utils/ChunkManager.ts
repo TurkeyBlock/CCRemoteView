@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { Block } from '../types/types';
 import { useWorldViewStore } from '../store/useWorldView';
-import { toRaw } from 'vue';
 import { WorldChunk, CHUNK_SIZE, locToChunkKey } from './WorldChunk';
 import type { BuildRequest, BuildResult, MaterialMeta, SerializedBlock } from '../workers/chunkBuilder.worker';
 import ChunkBuilderWorker from '../workers/chunkBuilder.worker?worker';
@@ -238,7 +237,7 @@ export class ChunkManager {
   }
 
   private sendBuildRequest(chunk: WorldChunk): void {
-    const worldView = toRaw(useWorldViewStore());
+    const worldView = useWorldViewStore();
 
     // ── Build the block-key → local material index map ────────────────────
     // Each unique block type in this chunk gets a sequential local index.
@@ -314,7 +313,9 @@ export class ChunkManager {
       borderBlocks,
       matIndices,
       matMeta,
-      hiddenNames: worldView.transparencyList,
+      // Spread into a plain array — Vue reactive arrays are Proxy objects and
+      // cannot be serialized by structured clone (postMessage would throw).
+      hiddenNames: [...worldView.transparencyList],
       yMin: worldView.yMin,
       yMax: worldView.yMax,
     };
