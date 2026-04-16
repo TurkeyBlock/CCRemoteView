@@ -12,7 +12,6 @@ import { PerspectiveCamera, Scene } from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { Block } from "../types/types";
 import { ChunkManager } from "../utils/ChunkManager";
-import DynamicInstancedMesh from "../utils/DynamicInstancedMesh";
 
 CameraControls.install({ THREE: THREE });
 
@@ -203,24 +202,27 @@ export default defineComponent({
 
       renderer.render(scene, camera);
     },
-    getGotoBlockPosFromIntersect(intersection: THREE.Intersection) {
-      let transform = new THREE.Matrix4();
-      let instMesh = <DynamicInstancedMesh>intersection.object;
-      instMesh.getMatrixAt(<number>intersection.instanceId, transform);
-      let instPos = new THREE.Vector3().setFromMatrixPosition(transform);
-      let offset = intersection.point.clone().sub(instPos);
-      let vabs = new THREE.Vector3(
-        Math.abs(offset.x),
-        Math.abs(offset.y),
-        Math.abs(offset.z)
-      ).toArray();
-      let idx = vabs.indexOf(Math.max(...vabs));
-      let discreteOffset = new THREE.Vector3(0, 0, 0);
-      for (let i = 0; i < 3; i++) {
-        if (i == idx)
-          discreteOffset.setComponent(i, offset.getComponent(i) > 0 ? 1 : -1);
-      }
-      return instPos.clone().add(discreteOffset);
+    /** Given a raycast hit on a merged chunk mesh, return the block integer coords. */
+    getBlockPosFromHit(hit: THREE.Intersection): THREE.Vector3 {
+      // Transform the face normal from local mesh space to world space.
+      const worldNormal = hit.face!.normal.clone()
+        .transformDirection(hit.object.matrixWorld)
+        .round(); // snap to ±1 on one axis
+      // Step inward from the hit surface by 0.5 to land inside the struck block.
+      const inside = hit.point.clone().addScaledVector(worldNormal, -0.5);
+      return new THREE.Vector3(
+        Math.floor(inside.x + 0.5),
+        Math.floor(inside.y + 0.5),
+        Math.floor(inside.z + 0.5),
+      );
+    },
+    /** Return the adjacent air block the player would place a block into (one step outward). */
+    getGotoBlockPosFromHit(hit: THREE.Intersection): THREE.Vector3 {
+      const blockPos = this.getBlockPosFromHit(hit);
+      const worldNormal = hit.face!.normal.clone()
+        .transformDirection(hit.object.matrixWorld)
+        .round();
+      return blockPos.clone().add(worldNormal);
     },
     animate() {
       const delta = clock.getDelta();
@@ -270,17 +272,18 @@ export default defineComponent({
       }
       this.worldView.hoveredEntity = null;
 
-      const intersects = raycaster.intersectObjects(blocks.children);
-      for (let i = 0; i < intersects.length; i++) {
-        let instMesh = <DynamicInstancedMesh>intersects[i].object;
-        let transform = new THREE.Matrix4();
-        instMesh.getMatrixAt(<number>intersects[i].instanceId, transform);
-        let instPos = new THREE.Vector3().setFromMatrixPosition(transform);
-        this.worldView.hoveredBlock = this.world.getBlockByObjPosition(instPos);
-        this.worldView.hoveredBlockPos = instPos;
-        this.worldView.gotoBlockPos = this.getGotoBlockPosFromIntersect(
-          intersects[i]
-        );
+      // Blocks are now merged chunk meshes (THREE.Mesh with BufferGeometry).
+      // Use the face normal + hit point to recover the integer block coordinate.
+      const intersects = raycaster.intersectObjects(blocks.children, false);
+      for (const hit of intersects) {
+        if (!hit.face) continue;
+        const blockPos = this.getBlockPosFromHit(hit);
+        const locString = `${blockPos.x},${blockPos.y},${blockPos.z}`;
+        const block = this.world.blocks[locString];
+        if (!block) continue; // transparent face or gap — keep searching
+        this.worldView.hoveredBlock = block;
+        this.worldView.hoveredBlockPos = blockPos;
+        this.worldView.gotoBlockPos = this.getGotoBlockPosFromHit(hit);
         return;
       }
       this.worldView.hoveredBlock = null;
