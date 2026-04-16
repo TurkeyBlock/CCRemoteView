@@ -132,6 +132,12 @@ export class ChunkManager {
     renderDistanceBlocks: number,
     lockChunks = false,
   ): void {
+    // Force-update camera matrices before building the frustum.
+    // camera-controls fires its 'update' event before Three.js's render pass
+    // recomputes matrixWorldInverse, so without this the frustum lags one
+    // frame behind the actual camera orientation.
+    camera.updateMatrixWorld();
+
     // Build the current frustum.
     const frustum = new THREE.Frustum();
     const projScreen = new THREE.Matrix4();

@@ -382,7 +382,16 @@ export default defineComponent({
       if (!chunkManager || !camera || !cameraControls) return;
       const target = new THREE.Vector3();
       cameraControls.getTarget(target);
-      chunkManager.updateVisibility(camera, target, rawWorldView.renderDistance * CHUNK_SIZE, rawWorldView.lockChunks);
+      // Read renderDistance and lockChunks through the reactive proxy, not rawWorldView.
+      // rawWorldView is the raw Pinia state object; Pinia routes writes through an
+      // internal $state ref, so the raw object's own properties may not reflect
+      // changes made after setup().
+      chunkManager.updateVisibility(
+        camera,
+        target,
+        this.worldView.renderDistance * CHUNK_SIZE,
+        this.worldView.lockChunks,
+      );
     },
     addComputers() {
       for (const computerId in this.world.computers) {
