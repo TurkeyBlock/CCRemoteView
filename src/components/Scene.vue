@@ -3,7 +3,7 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref } from "vue";
+import { defineComponent, ref, toRaw } from "vue";
 import { useWorldStore } from "../store/useWorld";
 import { useWorldViewStore } from "../store/useWorldView";
 import * as THREE from "three";
@@ -11,7 +11,7 @@ import CameraControls from "camera-controls";
 import { PerspectiveCamera, Scene } from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { Block } from "../types/types";
-import BlockRenderStructure from "../utils/BlockRenderStructure";
+import { ChunkManager } from "../utils/ChunkManager";
 import DynamicInstancedMesh from "../utils/DynamicInstancedMesh";
 
 CameraControls.install({ THREE: THREE });
@@ -29,11 +29,16 @@ var scene: Scene,
   clock: THREE.Clock,
   mouse = { x: 0, y: 0 },
   turtleModel: THREE.Object3D,
-  blockMeshes: BlockRenderStructure,
+  chunkManager: ChunkManager,
   animatedTextures = [] as TextureAnimator[],
   entityGeometry: THREE.OctahedronGeometry,
   entityMaterials: { [name: string]: THREE.MeshPhongMaterial } = {},
-  entityFallbackMaterial: THREE.MeshPhongMaterial;
+  entityFallbackMaterial: THREE.MeshPhongMaterial,
+  // Raw (non-reactive) store references for the animate() hot path.
+  // toRaw() strips Vue's Proxy wrapper so repeated per-frame reads don't
+  // pay the Reflect.get / reactive-tracking overhead on every access.
+  rawWorld: ReturnType<typeof useWorldStore>,
+  rawWorldView: ReturnType<typeof useWorldViewStore>;
 
 class TextureAnimator {
   texture: THREE.Texture;
@@ -78,6 +83,9 @@ export default defineComponent({
     const world = useWorldStore();
     const worldView = useWorldViewStore();
     const geometry = new THREE.BoxGeometry();
+
+    rawWorld = toRaw(world);
+    rawWorldView = toRaw(worldView);
 
     return { world, worldView, geometry };
   },
@@ -190,6 +198,9 @@ export default defineComponent({
 
       cameraControls = new CameraControls(camera, renderer.domElement);
 
+      // Re-evaluate chunk visibility whenever the camera moves or rotates.
+      cameraControls.addEventListener('change', () => this.updateChunkVisibility());
+
       renderer.render(scene, camera);
     },
     getGotoBlockPosFromIntersect(intersection: THREE.Intersection) {
@@ -214,25 +225,28 @@ export default defineComponent({
     animate() {
       const delta = clock.getDelta();
 
-      // check if turtle moved
-      const computerId = this.worldView.followedComputer.computerId;
+      // Check if followed turtle moved. Use raw (non-reactive) store refs so
+      // these per-frame reads don't pay Vue Proxy / Reflect.get overhead.
+      const computerId = rawWorldView.followedComputer.computerId;
       if (computerId != -1) {
-        const currPos = this.world.computers[computerId]?.loc;
-        const lastPos = this.worldView.followedComputer.lastPos;
+        const currPos = rawWorld.computers[computerId]?.loc;
+        const lastPos = rawWorldView.followedComputer.lastPos;
         if (
           currPos && lastPos &&
           (currPos.x !== lastPos.x ||
           currPos.y !== lastPos.y ||
           currPos.z !== lastPos.z)
         ) {
-          this.worldView.setCameraFocus(
+          rawWorldView.setCameraFocus(
             new THREE.Vector3(currPos.x, currPos.y, currPos.z)
           );
-          this.worldView.followedComputer.lastPos = currPos;
+          // Write directly to raw object — lastPos is only read here, so no
+          // reactive notification is needed and this avoids Proxy setter cost.
+          rawWorldView.followedComputer.lastPos = currPos;
         }
       }
 
-      const hasControlsUpdated = cameraControls.update(delta);
+      cameraControls.update(delta);
       for (const el of animatedTextures) {
         el.update(delta * 1000);
       }
@@ -295,7 +309,8 @@ export default defineComponent({
       const ambientLight = new THREE.AmbientLight(0x404040); // soft white light
       scene.add(ambientLight);
 
-      blockMeshes = new BlockRenderStructure(blocks);
+      if (chunkManager) chunkManager.dispose();
+      chunkManager = new ChunkManager(blocks);
 
       // Add groups to scene first so blocks appear progressively during async load.
       scene.add(blocks);
@@ -308,12 +323,14 @@ export default defineComponent({
         this.focusOnComputer(this.worldView.selectedComputerId);
       }
 
-      // Bulk-load: single forward pass to compute visible faces, then build meshes
-      // in async chunks so the UI stays responsive.
-      await blockMeshes.bulkLoadBlocks(
+      // Bulk-load: partition all blocks into chunks, kick off async builds.
+      await chunkManager.bulkLoad(
         world.blocks,
         (loc) => this.worldView.isBlockVisible(loc),
       );
+
+      // Initial visibility pass with current camera state.
+      this.updateChunkVisibility();
 
       // Inventory indicators are cheap — add them after the bulk load.
       for (const locString in world.blocks) {
@@ -342,7 +359,7 @@ export default defineComponent({
     },
     addBlock(locString: string, block: Block) {
       if (!this.worldView.isBlockVisible(locString)) return;
-      blockMeshes.addBlock(locString, block);
+      chunkManager.addBlock(locString, block);
       if (block.inventory) {
         this.addInventoryIndicator(locString);
       } else {
@@ -350,11 +367,17 @@ export default defineComponent({
       }
     },
     removeBlock(locString: string) {
-      blockMeshes.removeBlock(locString);
+      chunkManager.removeBlock(locString);
       this.removeInventoryIndicator(locString);
     },
     clearAllBlocks() {
-      blockMeshes.clearAll();
+      chunkManager.clearAll();
+    },
+    updateChunkVisibility() {
+      if (!chunkManager || !camera || !cameraControls) return;
+      const target = new THREE.Vector3();
+      cameraControls.getTarget(target);
+      chunkManager.updateVisibility(camera, target, rawWorldView.renderDistance);
     },
     addComputers() {
       for (const computerId in this.world.computers) {
@@ -372,7 +395,7 @@ export default defineComponent({
       if (computerData.type === 'minecart') {
         model.rotation.set(0, 0, 0);
         const locString = `${computerData.loc.x},${computerData.loc.y},${computerData.loc.z}`;
-        blockMeshes.removeBlock(locString);
+        chunkManager.removeBlock(locString);
       } else {
         model.rotation.set(Math.PI / 2, 0, ((computerData.rot + 1) * Math.PI) / 2);
       }
@@ -396,9 +419,9 @@ export default defineComponent({
           const oldLocString = `${oldX},${oldY},${oldZ}`;
           const oldBlock = this.world.blocks[oldLocString];
           if (oldBlock && this.worldView.isBlockVisible(oldLocString)) {
-            blockMeshes.addBlock(oldLocString, oldBlock);
+            chunkManager.addBlock(oldLocString, oldBlock);
           }
-          blockMeshes.removeBlock(`${newX},${newY},${newZ}`);
+          chunkManager.removeBlock(`${newX},${newY},${newZ}`);
         }
         model.rotation.set(0, 0, 0);
       } else {
@@ -500,6 +523,7 @@ export default defineComponent({
     worldView.updateEntities = this.updateEntities;
     worldView.removeComputerModel = this.removeComputerModel;
     worldView.addAnimatedTexture = this.addAnimatedTexture;
+    worldView.updateChunkVisibility = this.updateChunkVisibility;
   },
 });
 </script>

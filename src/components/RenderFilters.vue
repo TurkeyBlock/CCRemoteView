@@ -16,6 +16,23 @@
       </div>
 
       <div class="section">
+        <span class="section-label">View dist</span>
+        <div class="range-row">
+          <input
+            type="number"
+            class="num-input"
+            v-model.number="renderDistLocal"
+            min="16"
+            max="2048"
+            step="16"
+            @change="applyRenderDist"
+          />
+          <span class="unit-label">blocks</span>
+          <button class="reset-btn" @click="resetRenderDist">Reset</button>
+        </div>
+      </div>
+
+      <div class="section">
         <span class="section-label">XZ ±</span>
         <div class="range-row">
           <input
@@ -64,6 +81,7 @@ export default defineComponent({
       yMinLocal: 0,
       yMaxLocal: 255,
       xzRangeLocal: null as number | null,
+      renderDistLocal: 128,
     };
   },
   computed: {
@@ -115,6 +133,17 @@ export default defineComponent({
       this.xzRangeLocal = null;
       this.worldView.computerRangeXZ = null;
       this.worldView.regenerateSceneFromBlocks();
+    },
+    applyRenderDist() {
+      const v = Math.max(16, Math.min(2048, this.renderDistLocal ?? 128));
+      this.renderDistLocal = v;
+      this.worldView.renderDistance = v;
+      this.worldView.updateChunkVisibility();
+    },
+    resetRenderDist() {
+      this.renderDistLocal = 128;
+      this.worldView.renderDistance = 128;
+      this.worldView.updateChunkVisibility();
     },
   },
 });

@@ -45,7 +45,7 @@ app.set('trust proxy', 'loopback');
 app.use(cors({
   origin: IS_PROD ? process.env.APP_URL : 'http://localhost:3000'
 }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '2mb' }));
 
 app.use(express.static('dist'));
 app.use('/textures', express.static('textures'));
@@ -198,7 +198,7 @@ function requireApprovedComputer(req, res, next) {
 
   // Stage 2: individual turtle ID (skipped when allowByIp override is on)
   const id = typeof req.body === 'string' ? Number(req.body) : (req.body?.id ?? req.body?.computerId);
-  if (!computerIdManager.allowByIp && id !== undefined) {
+  if (!computerIdManager.allowByIp && id !== undefined && !isNaN(id)) {
     if (!computerIdManager.isApproved(id)) {
       if (!computerIdManager.isPending(id)) {
         computerIdManager.addPending(id, ip);
@@ -382,9 +382,9 @@ app.post('/api/statusUpdate', requireApprovedComputer, (req, res) => {
   res.sendStatus(200);
 });
 
-app.post('/api/getCommand', express.text(), requireApprovedComputer, (req, res) => {
+app.post('/api/getCommand', express.text({ type: '*/*' }), requireApprovedComputer, (req, res) => {
   const id = Number(req.body);
-  console.log(`Computer ${id} requested command (size: ${req.body.length} bytes)`);
+  console.log(`Computer ${id} requested command from ${req.ip} (size: ${req.body?.length} bytes)`);
   if (req.query.fc) log.info(`Computer ${id} first contact after reboot`);
   if (!cmds[id] || cmds[id].length === 0) { res.send(''); return; }
   res.send(cmds[id].shift());
@@ -398,9 +398,9 @@ app.post('/api/commandResult', requireApprovedComputer, (req, res) => {
   res.sendStatus(200);
 });
 
-app.post('/api/getStopSignal', express.text(), requireApprovedComputer, (req, res) => {
+app.post('/api/getStopSignal', express.text({ type: '*/*' }), requireApprovedComputer, (req, res) => {
   const id = Number(req.body);
-  console.log(`Computer ${id} checked for stop signal (size: ${req.body.length} bytes)`);
+  console.log(`Computer ${id} checked for stop signal (size: ${req.body?.length} bytes)`);
   if (isNaN(id)) { res.sendStatus(400); return; }
   res.send(stopSignal[id] ? true : false);
   delete stopSignal[id];
@@ -472,7 +472,7 @@ app.get('/api/modem/computers', requireApprovedComputer, (_req, res) => {
 // is never delivered in a different poll cycle from the command it was meant to cancel.
 // If a stop signal and a command are both pending for the same computer, the stop signal
 // takes priority and the command is left in the queue for the next cycle.
-app.post('/api/poll', express.text(), requireApprovedComputer, (req, res) => {
+app.post('/api/poll', express.text({ type: '*/*' }), requireApprovedComputer, (req, res) => {
   if (typeof req.body !== 'string') return res.status(400).json({ error: 'body must be a comma-separated list of ids' });
   const ids = req.body.length > 0 ? req.body.split(',').map(Number).filter(n => !isNaN(n)) : [];
   const commands = {};
@@ -518,7 +518,7 @@ app.get('/api/state', compression(), async (req, res) => {
 });
 
 app.post('/api/getStateUpdate', compression(), (req, res) => {
-  if (!req.body.lastTransactionId == -1) {
+  if (req.body.lastTransactionId === -1) {
     res.send({ state });
     return;
   }

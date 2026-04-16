@@ -163,8 +163,23 @@ export function isLiquid(blockName: string): boolean {
 // (relative to the blocks/ folder, without .png extension).
 
 export const textureAliases: { [id: string]: string } = {
+  "minecraft:log:0": "minecraft/log_oak",
+  "minecraft:log:1": "minecraft/log_spruce",
+  "minecraft:log:2": "minecraft/log_birch",
+  "minecraft:log:3": "minecraft/log_jungle",
+  "minecraft:log:4": "minecraft/log_acacia",
+  "minecraft:log:5": "minecraft/log_dark_oak",
+
+  "minecraft:planks:0": "minecraft/planks_oak",
+  "minecraft:planks:1": "minecraft/planks_spruce",
+  "minecraft:planks:2": "minecraft/planks_birch",
+  "minecraft:planks:3": "minecraft/planks_jungle",
+  "minecraft:planks:4": "minecraft/planks_acacia",
+  "minecraft:planks:5": "minecraft/planks_dark_oak",
+
   "minecraft:rail": "minecraft/rail_normal",
   "minecraft:golden_rail": "minecraft/rail_golden",
+  
   "minecraft:red_flower": "minecraft/flower_rose",
   "minecraft:leaves2": "minecraft/leaves_acacia",
   "minecraft:leaves": "minecraft/leaves_oak",

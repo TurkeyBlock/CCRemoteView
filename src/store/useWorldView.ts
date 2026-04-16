@@ -17,6 +17,7 @@ export const useWorldViewStore = defineStore('worldView', {
     updateEntities: (computerId: string) => { },
     removeComputerModel: (computerId: string) => { },
     addAnimatedTexture: (texture: THREE.Texture) => { },
+    updateChunkVisibility: () => { },
     manualCenter: null as { x: number, z: number } | null,
     followedComputer: {
       computerId: -1 as number,
@@ -36,6 +37,8 @@ export const useWorldViewStore = defineStore('worldView', {
     yMin: 0 as number,
     yMax: 255 as number,
     computerRangeXZ: null as number | null,
+    /** How far from the camera target to load chunks, in blocks. Default 128 = 8 chunks. */
+    renderDistance: 128 as number,
     textureIndex: [] as string[],
     textureIndexLoading: false as boolean,
     textureIndexPending: [] as string[],
