@@ -199,7 +199,7 @@ export default defineComponent({
       cameraControls = new CameraControls(camera, renderer.domElement);
 
       // Re-evaluate chunk visibility whenever the camera moves or rotates.
-      cameraControls.addEventListener('change', () => this.updateChunkVisibility());
+      cameraControls.addEventListener('update', () => this.updateChunkVisibility());
 
       renderer.render(scene, camera);
     },
