@@ -12,6 +12,7 @@ import { PerspectiveCamera, Scene } from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { Block } from "../types/types";
 import { ChunkManager } from "../utils/ChunkManager";
+import { CHUNK_SIZE } from "../utils/WorldChunk";
 
 CameraControls.install({ THREE: THREE });
 
@@ -381,7 +382,7 @@ export default defineComponent({
       if (!chunkManager || !camera || !cameraControls) return;
       const target = new THREE.Vector3();
       cameraControls.getTarget(target);
-      chunkManager.updateVisibility(camera, target, rawWorldView.renderDistance, rawWorldView.lockChunks);
+      chunkManager.updateVisibility(camera, target, rawWorldView.renderDistance * CHUNK_SIZE, rawWorldView.lockChunks);
     },
     addComputers() {
       for (const computerId in this.world.computers) {

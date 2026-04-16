@@ -105,12 +105,9 @@ export class ChunkManager {
     // Skipping this makes loads faster but briefly freezes the UI.
     if (!skipYield) await new Promise<void>(r => setTimeout(r, 0));
 
-    // Kick off builds for all non-empty chunks.
-    for (const chunk of this.chunks.values()) {
-      if (chunk.blocks.size > 0) {
-        this.scheduleBuild(chunk.key);
-      }
-    }
+    // Don't pre-build everything here.  updateVisibility() triggers builds
+    // only for chunks that are actually within the render distance and frustum,
+    // so distant chunks never waste worker time until the camera approaches them.
   }
 
   /**
@@ -159,8 +156,10 @@ export class ChunkManager {
     }
 
     // Unload chunks that are no longer desired (skipped when chunks are locked).
+    // Snapshot loadedKeys before iterating — deleting from a Set mid-walk
+    // causes the iterator to skip entries that follow a deleted one.
     if (!lockChunks) {
-      for (const key of this.loadedKeys) {
+      for (const key of [...this.loadedKeys]) {
         if (!desiredKeys.has(key)) {
           const chunk = this.chunks.get(key);
           if (chunk) chunk.dispose(this.parent);
