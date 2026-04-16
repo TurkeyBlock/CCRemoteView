@@ -39,6 +39,10 @@ export const useWorldViewStore = defineStore('worldView', {
     computerRangeXZ: null as number | null,
     /** How far from the camera target to load chunks, in blocks. Default 128 = 8 chunks. */
     renderDistance: 128 as number,
+    /** When true, use one worker per CPU core for faster chunk builds at higher CPU cost. */
+    fastRender: false as boolean,
+    /** When true, skip the interactivity yield during bulk load for fastest possible load. */
+    skipLoadYield: false as boolean,
     textureIndex: [] as string[],
     textureIndexLoading: false as boolean,
     textureIndexPending: [] as string[],

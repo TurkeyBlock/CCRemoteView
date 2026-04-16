@@ -292,7 +292,7 @@ function buildGeometry(req: BuildRequest): BuildResult {
       const nLoc = `${nx},${ny},${nz}`;
       const nb = allBlocks[nLoc];
 
-      // Skip if neighbour is solid.
+      // Skip if neighbour occludes this face.
       if (nb && !hiddenSet.has(nb.name)) {
         const nbKey = nb.metadata ? `${nb.name}:${nb.metadata}` : nb.name;
         const nbIdx = matIndices[nbKey] ?? matIndices[nb.name];
@@ -300,13 +300,20 @@ function buildGeometry(req: BuildRequest): BuildResult {
           const nbMeta = matMeta[nbIdx];
           if (nbMeta) {
             const nbGeom = nbMeta.geomType;
-            const nbIsFullCube = nbGeom !== 'cross' && nbGeom !== 'flat';
+            // Slabs are partial blocks and must not occlude adjacent faces.
+            const nbIsFullCube = nbGeom !== 'cross' && nbGeom !== 'flat'
+              && nbGeom !== 'slab_bottom' && nbGeom !== 'slab_top';
+
             if (nbIsFullCube && !nbMeta.nonOccluding) {
-              // Liquid faces adjacent to same liquid type are also hidden,
-              // except the top face which always shows.
-              if (isLiquid && face.dy !== 1 && nbMeta.liquid) continue;
+              // Solid full-cube neighbour hides any non-liquid face.
               if (!isLiquid) continue;
+              // Liquid side faces are hidden by solid neighbours (water into ground).
+              // The top face always renders so the water surface is visible.
+              if (face.dy !== 1) continue;
             }
+
+            // Liquid-to-liquid: suppress all side faces regardless of nonOccluding flag.
+            if (isLiquid && nbMeta.liquid && face.dy !== 1) continue;
           }
         }
       }

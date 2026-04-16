@@ -51,6 +51,22 @@
         </p>
       </div>
 
+      <div class="section">
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="worldView.fastRender" @change="worldView.regenerateSceneFromBlocks()" />
+          Multiworker
+        </label>
+        <p class="hint">Builds chunks on all CPU cores in parallel.</p>
+      </div>
+
+      <div class="section">
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="worldView.skipLoadYield" @change="worldView.regenerateSceneFromBlocks()" />
+          Skip load pauses
+        </label>
+        <p class="hint">Removes interactivity waits during load. Faster but may freeze UI briefly.</p>
+      </div>
+
     </div>
   </div>
 </template>
@@ -260,5 +276,14 @@ export default defineComponent({
   color: gray;
   font-size: 0.78em;
   font-style: italic;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: darkgray;
+  cursor: pointer;
+  font-size: 0.85em;
 }
 </style>

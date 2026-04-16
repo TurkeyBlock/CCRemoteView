@@ -313,7 +313,7 @@ export default defineComponent({
       scene.add(ambientLight);
 
       if (chunkManager) chunkManager.dispose();
-      chunkManager = new ChunkManager(blocks);
+      chunkManager = new ChunkManager(blocks, rawWorldView.fastRender);
 
       // Add groups to scene first so blocks appear progressively during async load.
       scene.add(blocks);
@@ -330,6 +330,7 @@ export default defineComponent({
       await chunkManager.bulkLoad(
         world.blocks,
         (loc) => this.worldView.isBlockVisible(loc),
+        rawWorldView.skipLoadYield,
       );
 
       // Initial visibility pass with current camera state.

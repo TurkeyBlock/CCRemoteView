@@ -17,7 +17,9 @@ import { geometryMap, isNonOccluding, isLiquid } from '../store/blockMaps';
  */
 export class ChunkManager {
   private readonly parent: THREE.Object3D;
-  private readonly worker: Worker;
+  private readonly workers: Worker[];
+  private readonly workerBusy: boolean[];
+  private readonly maxConcurrent: number;
 
   /** All known chunks keyed by "cx,cy,cz". */
   private chunks = new Map<string, WorldChunk>();
@@ -28,19 +30,35 @@ export class ChunkManager {
   /** Keys that need a geometry rebuild. */
   private dirtyKeys = new Set<string>();
 
-  /** Keys currently being built by the worker. */
+  /** Keys currently being built by the worker pool. */
   private buildingKeys = new Set<string>();
 
-  /** Pending build requests queued while the worker is busy. */
+  /** Pending build requests queued while all workers are busy. */
   private buildQueue: string[] = [];
 
   /** Whether a dirty-chunk sweep has been scheduled. */
   private sweepPending = false;
 
-  constructor(parent: THREE.Object3D) {
+  /**
+   * @param parent     The Three.js group to attach chunk meshes to.
+   * @param fastRender When true, spawns one worker per logical CPU core
+   *                   (minus one reserved for the main thread) so chunks
+   *                   build in parallel.  Faster load at the cost of higher
+   *                   CPU usage during the initial build burst.
+   */
+  constructor(parent: THREE.Object3D, fastRender = false) {
     this.parent = parent;
-    this.worker = new ChunkBuilderWorker();
-    this.worker.onmessage = (e: MessageEvent<BuildResult>) => this.onWorkerResult(e.data);
+    this.maxConcurrent = fastRender
+      ? Math.max(2, (navigator.hardwareConcurrency ?? 4) - 1)
+      : 1;
+    this.workers = [];
+    this.workerBusy = [];
+    for (let i = 0; i < this.maxConcurrent; i++) {
+      const w = new ChunkBuilderWorker();
+      w.onmessage = (e: MessageEvent<BuildResult>) => this.onWorkerResult(e.data);
+      this.workers.push(w);
+      this.workerBusy.push(false);
+    }
   }
 
   // ─── Public API ─────────────────────────────────────────────────────────────
@@ -63,12 +81,18 @@ export class ChunkManager {
 
   /**
    * Partition all world blocks into chunks and kick off an initial build for
-   * every chunk that passes the visibility filter.  Yields to the browser
-   * between chunk batches so the UI stays responsive.
+   * every chunk that passes the visibility filter.
+   *
+   * @param skipYield When false (default) a single `setTimeout(0)` yield is
+   *                  inserted before dispatching builds so the browser can
+   *                  paint a frame and stay interactive.  Set to true to skip
+   *                  that pause for the fastest possible load at the cost of a
+   *                  brief UI freeze.
    */
   async bulkLoad(
     allBlocks: Record<string, Block>,
     isVisible: (locString: string) => boolean,
+    skipYield = false,
   ): Promise<void> {
     // Distribute blocks into chunks — pure JS, no Three.js calls.
     for (const [locString, block] of Object.entries(allBlocks)) {
@@ -77,11 +101,11 @@ export class ChunkManager {
       chunk.blocks.set(locString, block);
     }
 
-    // Yield once before kicking off builds.
-    await new Promise<void>(r => setTimeout(r, 0));
+    // Yield once so the browser can paint before the build queue fires.
+    // Skipping this makes loads faster but briefly freezes the UI.
+    if (!skipYield) await new Promise<void>(r => setTimeout(r, 0));
 
-    // Kick off builds for all non-empty chunks.  The worker queue ensures
-    // only one build runs at a time; the rest are queued automatically.
+    // Kick off builds for all non-empty chunks.
     for (const chunk of this.chunks.values()) {
       if (chunk.blocks.size > 0) {
         this.scheduleBuild(chunk.key);
@@ -180,7 +204,7 @@ export class ChunkManager {
 
   dispose(): void {
     this.clearAll();
-    this.worker.terminate();
+    for (const w of this.workers) w.terminate();
   }
 
   // ─── Internal ────────────────────────────────────────────────────────────────
@@ -221,22 +245,26 @@ export class ChunkManager {
   }
 
   private drainQueue(): void {
-    // Simple single-worker model: one build at a time.
-    // Extend to a pool by tracking worker-per-key if throughput demands it.
-    if (this.buildingKeys.size > 0) return;
-    const key = this.buildQueue.shift();
-    if (!key) return;
-    const chunk = this.chunks.get(key);
-    if (!chunk || chunk.blocks.size === 0) {
-      this.drainQueue();  // skip empty, try next
-      return;
+    // Fill up to maxConcurrent parallel builds.
+    while (this.buildingKeys.size < this.maxConcurrent) {
+      const workerIdx = this.workerBusy.indexOf(false);
+      if (workerIdx === -1) break; // all workers busy
+
+      const key = this.buildQueue.shift();
+      if (key === undefined) break; // queue empty
+
+      const chunk = this.chunks.get(key);
+      if (!chunk || chunk.blocks.size === 0) continue; // skip empty, try next
+
+      this.buildingKeys.add(key);
+      chunk.state = 'building';
+      this.workerBusy[workerIdx] = true;
+      this.sendBuildRequest(chunk, workerIdx);
     }
-    this.buildingKeys.add(key);
-    chunk.state = 'building';
-    this.sendBuildRequest(chunk);
   }
 
-  private sendBuildRequest(chunk: WorldChunk): void {
+  private sendBuildRequest(chunk: WorldChunk, workerIdx: number): void {
+    (chunk as any).__workerIdx = workerIdx;
     const worldView = useWorldViewStore();
 
     // ── Build the block-key → local material index map ────────────────────
@@ -320,7 +348,7 @@ export class ChunkManager {
       yMax: worldView.yMax,
     };
 
-    this.worker.postMessage(request);
+    this.workers[workerIdx].postMessage(request);
   }
 
   private onWorkerResult(result: BuildResult): void {
@@ -328,6 +356,12 @@ export class ChunkManager {
     this.buildingKeys.delete(key);
 
     const chunk = this.chunks.get(key);
+    if (chunk) {
+      const workerIdx: number = (chunk as any).__workerIdx ?? 0;
+      this.workerBusy[workerIdx] = false;
+      delete (chunk as any).__workerIdx;
+    }
+
     if (!chunk) {
       this.drainQueue();
       return;
