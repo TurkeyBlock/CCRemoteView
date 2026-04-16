@@ -200,8 +200,10 @@ export default defineComponent({
       cameraControls = new CameraControls(camera, renderer.domElement);
 
       // Small axes marker at the orbit target so the user can see the rotation center.
+      // Depth test enabled so it occludes/is occluded by blocks correctly.
+      // Visibility is driven by worldView.showOrbitMarker (off by default).
       orbitTargetMarker = new THREE.AxesHelper(0.75);
-      (orbitTargetMarker.material as THREE.LineBasicMaterial).depthTest = false;
+      orbitTargetMarker.visible = false;
       scene.add(orbitTargetMarker);
 
       // Re-evaluate chunk visibility whenever the camera moves or rotates.
@@ -389,7 +391,10 @@ export default defineComponent({
       if (!chunkManager || !camera || !cameraControls) return;
       const target = new THREE.Vector3();
       cameraControls.getTarget(target);
-      if (orbitTargetMarker) orbitTargetMarker.position.copy(target);
+      if (orbitTargetMarker) {
+        orbitTargetMarker.position.copy(target);
+        orbitTargetMarker.visible = this.worldView.showOrbitMarker;
+      }
       // Read renderDistance and lockChunks through the reactive proxy, not rawWorldView.
       // rawWorldView is the raw Pinia state object; Pinia routes writes through an
       // internal $state ref, so the raw object's own properties may not reflect

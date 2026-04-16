@@ -37,14 +37,16 @@ export const useWorldViewStore = defineStore('worldView', {
     yMin: 0 as number,
     yMax: 255 as number,
     computerRangeXZ: null as number | null,
-    /** How far from the camera target to load chunks, in chunks. Default 8. */
-    renderDistance: 8 as number,
+    /** How far from the camera target to load chunks, in chunks. Default 12. */
+    renderDistance: 12 as number,
     /** When true, use one worker per CPU core for faster chunk builds at higher CPU cost. */
     fastRender: false as boolean,
     /** When true, skip the interactivity yield during bulk load for fastest possible load. */
     skipLoadYield: false as boolean,
     /** When true, loaded chunks are never unloaded as the camera moves. */
     lockChunks: false as boolean,
+    /** When true, show the orbit target axes marker in the scene. */
+    showOrbitMarker: false as boolean,
     textureIndex: [] as string[],
     textureIndexLoading: false as boolean,
     textureIndexPending: [] as string[],

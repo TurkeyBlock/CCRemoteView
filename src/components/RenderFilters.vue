@@ -75,6 +75,13 @@
         <p class="hint">Keeps loaded chunks in memory permanently. Disabling sweeps out-of-range chunks.</p>
       </div>
 
+      <div class="section">
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="worldView.showOrbitMarker" @change="worldView.updateChunkVisibility()" />
+          Show orbit center
+        </label>
+      </div>
+
     </div>
   </div>
 </template>
@@ -105,7 +112,7 @@ export default defineComponent({
       yMinLocal: 0,
       yMaxLocal: 255,
       xzRangeLocal: null as number | null,
-      renderDistLocal: 8,
+      renderDistLocal: 12,
     };
   },
   computed: {
@@ -165,8 +172,8 @@ export default defineComponent({
       this.worldView.updateChunkVisibility();
     },
     resetRenderDist() {
-      this.renderDistLocal = 8;
-      this.worldView.renderDistance = 8;
+      this.renderDistLocal = 12;
+      this.worldView.renderDistance = 12;
       this.worldView.updateChunkVisibility();
     },
   },
