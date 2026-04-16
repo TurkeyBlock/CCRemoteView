@@ -43,6 +43,8 @@ export const useWorldViewStore = defineStore('worldView', {
     fastRender: false as boolean,
     /** When true, skip the interactivity yield during bulk load for fastest possible load. */
     skipLoadYield: false as boolean,
+    /** When true, loaded chunks are never unloaded as the camera moves. */
+    lockChunks: false as boolean,
     textureIndex: [] as string[],
     textureIndexLoading: false as boolean,
     textureIndexPending: [] as string[],

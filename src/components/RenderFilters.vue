@@ -67,6 +67,14 @@
         <p class="hint">Removes interactivity waits during load. Faster but may freeze UI briefly.</p>
       </div>
 
+      <div class="section">
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="worldView.lockChunks" @change="worldView.updateChunkVisibility()" />
+          Lock chunks
+        </label>
+        <p class="hint">Keeps loaded chunks in memory permanently. Disabling sweeps out-of-range chunks.</p>
+      </div>
+
     </div>
   </div>
 </template>

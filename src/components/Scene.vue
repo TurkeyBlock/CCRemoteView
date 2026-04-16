@@ -381,7 +381,7 @@ export default defineComponent({
       if (!chunkManager || !camera || !cameraControls) return;
       const target = new THREE.Vector3();
       cameraControls.getTarget(target);
-      chunkManager.updateVisibility(camera, target, rawWorldView.renderDistance);
+      chunkManager.updateVisibility(camera, target, rawWorldView.renderDistance, rawWorldView.lockChunks);
     },
     addComputers() {
       for (const computerId in this.world.computers) {

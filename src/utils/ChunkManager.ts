@@ -121,16 +121,19 @@ export class ChunkManager {
    *   2. The chunk's AABB intersects the camera frustum
    *
    * Chunks entering the set are loaded (built if needed); chunks leaving
-   * the set are unloaded (GPU memory freed).
+   * the set are unloaded (GPU memory freed) unless lockChunks is true.
    *
    * @param camera            The active perspective camera.
    * @param cameraTarget      The orbit target (not the camera position itself).
    * @param renderDistanceBlocks  Maximum block-distance from target to load.
+   * @param lockChunks        When true, skip the unload pass so loaded chunks
+   *                          accumulate permanently for the session.
    */
   updateVisibility(
     camera: THREE.PerspectiveCamera,
     cameraTarget: THREE.Vector3,
     renderDistanceBlocks: number,
+    lockChunks = false,
   ): void {
     // Build the current frustum.
     const frustum = new THREE.Frustum();
@@ -155,12 +158,14 @@ export class ChunkManager {
       desiredKeys.add(key);
     }
 
-    // Unload chunks that are no longer desired.
-    for (const key of this.loadedKeys) {
-      if (!desiredKeys.has(key)) {
-        const chunk = this.chunks.get(key);
-        if (chunk) chunk.dispose(this.parent);
-        this.loadedKeys.delete(key);
+    // Unload chunks that are no longer desired (skipped when chunks are locked).
+    if (!lockChunks) {
+      for (const key of this.loadedKeys) {
+        if (!desiredKeys.has(key)) {
+          const chunk = this.chunks.get(key);
+          if (chunk) chunk.dispose(this.parent);
+          this.loadedKeys.delete(key);
+        }
       }
     }
 
