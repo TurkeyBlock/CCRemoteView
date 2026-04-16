@@ -30,6 +30,7 @@ var scene: Scene,
   mouse = { x: 0, y: 0 },
   turtleModel: THREE.Object3D,
   chunkManager: ChunkManager,
+  orbitTargetMarker: THREE.AxesHelper,
   animatedTextures = [] as TextureAnimator[],
   entityGeometry: THREE.OctahedronGeometry,
   entityMaterials: { [name: string]: THREE.MeshPhongMaterial } = {},
@@ -198,6 +199,11 @@ export default defineComponent({
 
       cameraControls = new CameraControls(camera, renderer.domElement);
 
+      // Small axes marker at the orbit target so the user can see the rotation center.
+      orbitTargetMarker = new THREE.AxesHelper(0.75);
+      (orbitTargetMarker.material as THREE.LineBasicMaterial).depthTest = false;
+      scene.add(orbitTargetMarker);
+
       // Re-evaluate chunk visibility whenever the camera moves or rotates.
       cameraControls.addEventListener('update', () => this.updateChunkVisibility());
 
@@ -320,6 +326,7 @@ export default defineComponent({
       scene.add(blocks);
       scene.add(entities);
       scene.add(inventoryIndicators);
+      if (orbitTargetMarker) scene.add(orbitTargetMarker);
 
       // Position the camera before blocks start loading so the first rendered
       // chunks appear around a known location rather than the origin.
@@ -382,6 +389,7 @@ export default defineComponent({
       if (!chunkManager || !camera || !cameraControls) return;
       const target = new THREE.Vector3();
       cameraControls.getTarget(target);
+      if (orbitTargetMarker) orbitTargetMarker.position.copy(target);
       // Read renderDistance and lockChunks through the reactive proxy, not rawWorldView.
       // rawWorldView is the raw Pinia state object; Pinia routes writes through an
       // internal $state ref, so the raw object's own properties may not reflect

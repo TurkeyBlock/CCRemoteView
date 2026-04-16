@@ -146,17 +146,28 @@ export class ChunkManager {
 
     const desiredKeys = new Set<string>();
 
+    // XZ expand for frustum pop-in margin.
+    const xzExpand = CHUNK_SIZE * 0.5;
+
     for (const [key, chunk] of this.chunks) {
       if (chunk.blocks.size === 0) continue;
 
-      // Distance test: use distance from target to the nearest point on the chunk AABB.
-      const nearest = new THREE.Vector3();
-      chunk.bounds.clampPoint(cameraTarget, nearest);
-      if (nearest.distanceTo(cameraTarget) > renderDistanceBlocks) continue;
+      // XZ-only distance test — chunks load as full vertical columns so Y
+      // distance is irrelevant.  The Y render filter handles what's displayed.
+      const nearestX = Math.max(chunk.bounds.min.x, Math.min(cameraTarget.x, chunk.bounds.max.x));
+      const nearestZ = Math.max(chunk.bounds.min.z, Math.min(cameraTarget.z, chunk.bounds.max.z));
+      const dx = nearestX - cameraTarget.x;
+      const dz = nearestZ - cameraTarget.z;
+      if (dx * dx + dz * dz > renderDistanceBlocks * renderDistanceBlocks) continue;
 
-      // Frustum test: expand the chunk bounds slightly to avoid edge-case pop-in.
-      const expandedBounds = chunk.bounds.clone().expandByScalar(CHUNK_SIZE * 0.5);
-      if (!frustum.intersectsBox(expandedBounds)) continue;
+      // Frustum test against a full-height column so that no vertical chunk in a
+      // visible XZ column is skipped.  Expanding XZ by half a chunk prevents
+      // edge-case pop-in at the frustum boundary.
+      const columnBounds = new THREE.Box3(
+        new THREE.Vector3(chunk.bounds.min.x - xzExpand, -512, chunk.bounds.min.z - xzExpand),
+        new THREE.Vector3(chunk.bounds.max.x + xzExpand,  512, chunk.bounds.max.z + xzExpand),
+      );
+      if (!frustum.intersectsBox(columnBounds)) continue;
 
       desiredKeys.add(key);
     }
