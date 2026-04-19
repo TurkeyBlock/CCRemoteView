@@ -10,8 +10,10 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+.next
+tsconfig.tsbuildinfo
+next-env.d.ts
 grab
-logs
 *.local
 
 # Editor directories and files
@@ -40,4 +42,4 @@ packagedZip
 
 # domain secrets (auth)
 .env
-.env.local
+.env.*

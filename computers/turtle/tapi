@@ -685,6 +685,50 @@ function suckAll()
   return suck() or suckUp() or suckDown()
 end
 
+-- Pull a specific item by name from an adjacent inventory into the turtle.
+-- Approach credited to "fatboychummy".
+-- Moves the target item to slot 1 of the chest (shuffling any blocker to an empty slot),
+-- then calls turtle.suck() to pull it into the turtle.
+-- @param itemName string  full item id, e.g. "minecraft:iron_ingot"
+-- @param side     string  peripheral side, e.g. "front", "top", "bottom"
+-- @param count    number? max items to pull (default: full stack)
+-- @return boolean, string?  success, error message on failure
+function suckItem(itemName, side, count)
+  local chest = peripheral.wrap(side)
+  if not chest then return false, "no inventory at side: " .. tostring(side) end
+
+  local chestName = peripheral.getName(chest)
+  local list = chest.list()
+  local size = chest.size()
+
+  -- find target item
+  local targetSlot = nil
+  for slot, item in pairs(list) do
+    if item.name == itemName then targetSlot = slot break end
+  end
+  if not targetSlot then return false, "item not found: " .. itemName end
+
+  if targetSlot ~= 1 then
+    -- if slot 1 is occupied, move it to a free slot first
+    if list[1] then
+      local emptySlot = nil
+      for slot = 1, size do
+        if not list[slot] then emptySlot = slot break end
+      end
+      if not emptySlot then return false, "no empty slots in inventory" end
+      local moved = peripheral.call(chestName, "pushItems", chestName, 1, nil, emptySlot)
+      if moved == 0 then return false, "failed to clear slot 1" end
+    end
+    -- move target item to slot 1
+    local moved = peripheral.call(chestName, "pushItems", chestName, targetSlot, nil, 1)
+    if moved == 0 then return false, "failed to move item to slot 1" end
+  end
+
+  local succ = turtle.suck(count)
+  send_status_update()
+  return succ
+end
+
 -- drop
 
 function drop(slot)
