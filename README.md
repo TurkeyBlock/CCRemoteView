@@ -24,8 +24,8 @@ A browser-based remote control and live world map for ComputerCraft computers ru
 ## Requirements
 
 - **Node.js** 18+
-- **Minecraft 1.12** with [CC:Tweaked](https://www.curseforge.com/minecraft/mc-mods/cc-tweaked) (or compatible ComputerCraft fork)
-- **[Plethora Peripherals](https://www.curseforge.com/minecraft/mc-mods/plethora-peripherals)** — required for block scanning, entity scanning, minecart computers, and player neural interfaces; basic turtle movement and inventory control work without it
+- **Minecraft 1.12** with [CC:Tweaked](https://tweaked.cc/) (or compatible ComputerCraft fork)
+- **[Plethora Peripherals](https://plethora.madefor.cc/)** — required for block scanning, entity scanning, minecart computers, and player neural interfaces; basic turtle movement and inventory control work without it
 - HTTP access from ComputerCraft to the host machine (see [Minecraft setup](#minecraft-setup))
 
 > **Minecraft version note:** This project targets 1.12 block data structures. Later versions significantly change how block state and metadata are stored. The underlying mechanics (command queue, modem relay, inventory, world rendering) are stable, but texture/block mapping will not work correctly on 1.13+ worlds.
