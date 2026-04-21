@@ -81,7 +81,7 @@ let chatQueue = {};
 let modemServerId = null;
 let modemServerIp = null;
 let modemEnabled = {}; // { [id: string]: boolean } — server-controlled per-computer modem preference
-let lastModemStateUpdate = 0;
+let lastModemLastSeenBroadcast = 0;
 let onlineStatus = {};
 
 // Validate a computer ID: must be a non-negative integer ≤ 1 000 000.
@@ -599,8 +599,7 @@ nextApp.prepare().then(() => {
     }
     modemServerId = id;
     modemServerIp = req.ip;
-    if (isNew || now - lastModemStateUpdate > 20_000) {
-      lastModemStateUpdate = now;
+    if (isNew) {
       const prevLoc = state.computers[String(id)]?.loc;
       const loc = req.body.loc || prevLoc || undefined;
       const modemState = { id: Number(id), type: 'modem', label: `Modem ${id}`, lastSeen: now, ...(loc && { loc }) };
@@ -640,6 +639,18 @@ nextApp.prepare().then(() => {
 
   app.post('/api/poll', express.text({ type: '*/*' }), requireApprovedComputer, (req, res) => {
     if (typeof req.body !== 'string') return res.status(400).json({ error: 'body must be a comma-separated list of ids' });
+    if (modemServerId !== null && state.computers[modemServerId]) {
+      const now = Date.now();
+      state.computers[modemServerId].lastSeen = now;
+      if (now - lastModemLastSeenBroadcast > 15_000) {
+        lastModemLastSeenBroadcast = now;
+        const sid = String(modemServerId);
+        const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [sid]: { ...state.computers[sid], lastSeen: now } } };
+        applyTransaction(transaction, state, transactionCache);
+        state.lastReadyTransactionId++;
+        broadcastTransaction(transaction);
+      }
+    }
     const ids = req.body.length > 0 ? req.body.split(',').map(Number).filter(n => !isNaN(n)) : [];
     const commands = {};
     const stops = {};
