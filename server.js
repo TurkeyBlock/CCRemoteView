@@ -400,9 +400,9 @@ nextApp.prepare().then(() => {
     if (id === null) return res.status(400).json({ error: 'invalid id' });
     req.body.id = Number(id);
     req.body.via_modem = modemServerIp !== null && req.ip === modemServerIp;
+    req.body.lastSeen = Date.now();
     const t = extractState(req.body, state);
     applyTransaction(t, state, transactionCache);
-    if (state.computers[id]) state.computers[id].lastSeen = Date.now();
     markComputerOnline(id);
     broadcastTransaction(t);
     res.sendStatus(200);
@@ -525,12 +525,11 @@ nextApp.prepare().then(() => {
     }
     if (modemEnabled[id] !== undefined) body.modem_enabled = modemEnabled[id];
     const existing = state.computers[id] || {};
-    const merged = { ...existing, ...body };
+    const merged = { ...existing, ...body, lastSeen: Date.now() };
     if (!merged.loc && existing.loc) merged.loc = existing.loc;
     const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: merged } };
     applyTransaction(transaction, state, transactionCache);
     state.lastReadyTransactionId++;
-    if (state.computers[id]) state.computers[id].lastSeen = Date.now();
     markComputerOnline(id);
     broadcastTransaction(transaction);
     res.sendStatus(200);
