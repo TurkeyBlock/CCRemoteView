@@ -39,6 +39,14 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 const DEV_NO_AUTH = true; // ← flip to `true` for local dev without NextAuth — I'll even do it for you.
 
 // ─────────────────────────────────────────────────────────────────────────────
+// BROWSER COMMAND LOGGING
+// When true, every incoming browser command request (setCommand, setSideCommand,
+// setStopSignal, clearCommandQueue) is logged with its computer id, user, and
+// queue depth after insertion. Flip to false to silence.
+// ─────────────────────────────────────────────────────────────────────────────
+const LOG_BROWSER_CMDS = true;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DEV URL CONSTANTS
 // Base URLs used when running locally. Not used in production — set APP_URL
 // and NEXTAUTH_URL in your environment instead.
@@ -707,7 +715,7 @@ nextApp.prepare().then(() => {
     if (s.cmd.length > MAX_CMD_LENGTH) return res.status(400).json({ error: 'cmd too long' });
     if (!cmds[id]) cmds[id] = [];
     cmds[id].push(s.cmd);
-    log.info(`/api/setCommand id=${id} user=${req.token.sub} <${sanitizeForLog(s.cmd)}>`);
+    if (LOG_BROWSER_CMDS) log.info(`/api/setCommand id=${id} user=${req.token.sub} queueDepth=${cmds[id].length} <${sanitizeForLog(s.cmd)}>`);
     userManagement.incrementActionCount(req.token.sub);
     res.send({ response: 'command set' });
   });
@@ -720,7 +728,7 @@ nextApp.prepare().then(() => {
     if (s.cmd.length > MAX_CMD_LENGTH) return res.status(400).json({ error: 'cmd too long' });
     if (!sideCommands[id]) sideCommands[id] = [];
     sideCommands[id].push(s.cmd);
-    log.info(`/api/setSideCommand id=${id} user=${req.token.sub} <${sanitizeForLog(s.cmd)}>`);
+    if (LOG_BROWSER_CMDS) log.info(`/api/setSideCommand id=${id} user=${req.token.sub} queueDepth=${sideCommands[id].length} <${sanitizeForLog(s.cmd)}>`);
     userManagement.incrementActionCount(req.token.sub);
     res.send({ response: 'side command set' });
   });
@@ -730,7 +738,7 @@ nextApp.prepare().then(() => {
     if (id === null) { res.sendStatus(400); return; }
     stopSignal[id] = true;
     clearCommandQueue(id, req.token.sub);
-    log.info(`/api/setStopSignal id=${id} user=${req.token.sub}`);
+    if (LOG_BROWSER_CMDS) log.info(`/api/setStopSignal id=${id} user=${req.token.sub}`);
     userManagement.incrementActionCount(req.token.sub);
     res.sendStatus(200);
   });
@@ -739,6 +747,7 @@ nextApp.prepare().then(() => {
     const id = safeId(req.body.id);
     if (id === null) return res.status(400).json({ error: 'invalid id' });
     clearCommandQueue(id, req.token.sub);
+    if (LOG_BROWSER_CMDS) log.info(`/api/clearCommandQueue id=${id} user=${req.token.sub}`);
     res.send({ response: 'command queue cleared' });
   });
 
