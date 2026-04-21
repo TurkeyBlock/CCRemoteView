@@ -523,8 +523,14 @@ nextApp.prepare().then(() => {
   });
 
   app.post('/api/getCommand', express.text({ type: '*/*' }), requireApprovedComputer, (req, res) => {
-    const id = Number(req.body);
-    console.log(`Computer ${id} requested command from ${req.ip} (size: ${req.body?.length} bytes)`);
+    const rawId = typeof req.body === 'string' ? req.body : (req.body?.id ?? req.body?.computerId);
+    const id = safeId(rawId);
+    const ts = new Date().toISOString();
+    if (id === null) {
+      console.log(`[${ts}] getCommand: invalid id from ${req.ip}`);
+      return res.status(400).json({ error: 'invalid id' });
+    }
+    console.log(`[${ts}] Computer ${id} requested command from ${req.ip}`);
     if (req.query.fc) log.info(`Computer ${id} first contact after reboot`);
     if (!cmds[id] || cmds[id].length === 0) { res.send(''); return; }
     res.send(cmds[id].shift());
@@ -537,7 +543,7 @@ nextApp.prepare().then(() => {
     if (computerId === null) return res.status(400).json({ error: 'invalid computerId' });
     const result = req.body.result;
     if (JSON.stringify(result).length > 100_000) return res.status(400).json({ error: 'result too large' });
-    console.log(`Computer ${computerId} sent command result (size: ${JSON.stringify(req.body).length} bytes):`, result);
+    console.log(`[${new Date().toISOString()}] Computer ${computerId} sent command result:`, result);
     if (!commandResultCache[computerId]) commandResultCache[computerId] = [];
     commandResultCache[computerId].push(result);
     if (commandResultCache[computerId].length > CMD_RESULT_CACHE_MAX) commandResultCache[computerId].shift();
@@ -545,9 +551,14 @@ nextApp.prepare().then(() => {
   });
 
   app.post('/api/getStopSignal', express.text({ type: '*/*' }), requireApprovedComputer, (req, res) => {
-    const id = Number(req.body);
-    console.log(`Computer ${id} checked for stop signal (size: ${req.body?.length} bytes)`);
-    if (isNaN(id)) { res.sendStatus(400); return; }
+    const rawId = typeof req.body === 'string' ? req.body : (req.body?.id ?? req.body?.computerId);
+    const id = safeId(rawId);
+    const ts = new Date().toISOString();
+    if (id === null) {
+      console.log(`[${ts}] getStopSignal: invalid id from ${req.ip}`);
+      return res.sendStatus(400);
+    }
+    console.log(`[${ts}] Computer ${id} checked for stop signal from ${req.ip}`);
     res.send(stopSignal[id] ? true : false);
     delete stopSignal[id];
   });
