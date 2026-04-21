@@ -111,19 +111,22 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
 
   applyTransactions: (transactions) => {
-    let currId = get().lastTransactionId
-    const len = Object.keys(transactions).length
+    let maxId = get().lastTransactionId
     const removes: string[] = []
     const adds: Array<[string, Block]> = []
 
-    for (let i = 0; i < len; i++) {
-      currId++
-      const t = transactions[currId]
-      for (const [locString, block] of Object.entries(t.blocks)) {
+    const sorted = Object.entries(transactions)
+      .map(([k, v]) => [Number(k), v] as [number, any])
+      .sort(([a], [b]) => a - b)
+
+    for (const [id, t] of sorted) {
+      if (!t) continue
+      if (id > maxId) maxId = id
+      for (const [locString, block] of Object.entries(t.blocks ?? {})) {
         if (block) adds.push([locString, block as Block])
         else removes.push(locString)
       }
-      get().transactionSetComputerState(t.computers)
+      get().transactionSetComputerState(t.computers ?? {})
     }
 
     // Single Zustand update for all block changes — avoids O(n²) object spreading
@@ -141,7 +144,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       for (const [loc, block] of adds) wv.addBlock(loc, block)
     }
 
-    set({ lastTransactionId: currId })
+    set({ lastTransactionId: maxId })
   },
 
   sendCommand: (computerId, cmd) => {
