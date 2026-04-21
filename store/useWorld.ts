@@ -25,6 +25,7 @@ interface WorldState {
   transactionAddBlock: (locString: string, block: Block) => void
   transactionSetComputerState: (computerState: Record<string, any>) => void
   applyTransactions: (transactions: Record<string, any>) => void
+  wsSend: ((msg: object) => void) | null
   sendCommand: (computerId: number, cmd: string) => void
   sendSideCommand: (computerId: number, cmd: string) => void
   sendChatMessage: (computerId: number, message: string) => void
@@ -47,6 +48,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   isLoading: true,
   isUnauthorized: false,
   modemServerId: null,
+  wsSend: null,
 
   getComputerIds: () => Object.keys(get().computers).map(Number),
 
@@ -150,19 +152,11 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
 
   sendCommand: (computerId, cmd) => {
-    fetch(get().apiURL + 'setCommand', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: computerId, cmd }),
-    }).catch(console.error)
+    get().wsSend?.({ type: 'setCommand', id: computerId, cmd })
   },
 
   sendSideCommand: (computerId, cmd) => {
-    fetch(get().apiURL + 'setSideCommand', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: computerId, cmd }),
-    }).catch(console.error)
+    get().wsSend?.({ type: 'setSideCommand', id: computerId, cmd })
   },
 
   sendChatMessage: (computerId, message) => {
@@ -174,27 +168,15 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
 
   sendStopSignal: (computerId) => {
-    fetch(get().apiURL + 'setStopSignal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: computerId }),
-    }).catch(console.error)
+    get().wsSend?.({ type: 'setStopSignal', id: computerId })
   },
 
   clearCommandQueue: (computerId) => {
-    fetch(get().apiURL + 'clearCommandQueue', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: computerId }),
-    }).catch(console.error)
+    get().wsSend?.({ type: 'clearCommandQueue', id: computerId })
   },
 
   setModemEnabled: (computerId, enabled) => {
-    fetch(get().apiURL + 'setModemEnabled', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: computerId, enabled }),
-    }).catch(console.error)
+    get().wsSend?.({ type: 'setModemEnabled', id: computerId, enabled })
   },
 
   removeComputer: (id) => {

@@ -560,6 +560,7 @@ nextApp.prepare().then(() => {
     if (!commandResultCache[computerId]) commandResultCache[computerId] = [];
     commandResultCache[computerId].push(result);
     if (commandResultCache[computerId].length > CMD_RESULT_CACHE_MAX) commandResultCache[computerId].shift();
+    broadcastToClients({ commandResult: { computerId, result } });
     res.sendStatus(200);
   });
 
@@ -713,83 +714,15 @@ nextApp.prepare().then(() => {
 
   const MAX_CMD_LENGTH = 10_000;
 
-  app.post('/api/setCommand', requireOperator, (req, res) => {
-    const s = req.body;
-    const id = safeId(s.id);
-    if (id === null) return res.status(400).json({ error: 'invalid id' });
-    if (!s.cmd || typeof s.cmd !== 'string') return res.status(400).json({ error: 'cmd required' });
-    if (s.cmd.length > MAX_CMD_LENGTH) return res.status(400).json({ error: 'cmd too long' });
-    if (!cmds[id]) cmds[id] = [];
-    cmds[id].push(s.cmd);
-    if (LOG_BROWSER_CMDS) log.info(`/api/setCommand id=${id} user=${req.token.sub} queueDepth=${cmds[id].length} <${sanitizeForLog(s.cmd)}>`);
-    userManagement.incrementActionCount(req.token.sub);
-    res.send({ response: 'command set' });
-  });
-
-  app.post('/api/setSideCommand', requireOperator, (req, res) => {
-    const s = req.body;
-    const id = safeId(s.id);
-    if (id === null) return res.status(400).json({ error: 'invalid id' });
-    if (!s.cmd || typeof s.cmd !== 'string') return res.status(400).json({ error: 'cmd required' });
-    if (s.cmd.length > MAX_CMD_LENGTH) return res.status(400).json({ error: 'cmd too long' });
-    if (!sideCommands[id]) sideCommands[id] = [];
-    sideCommands[id].push(s.cmd);
-    if (LOG_BROWSER_CMDS) log.info(`/api/setSideCommand id=${id} user=${req.token.sub} queueDepth=${sideCommands[id].length} <${sanitizeForLog(s.cmd)}>`);
-    userManagement.incrementActionCount(req.token.sub);
-    res.send({ response: 'side command set' });
-  });
-
-  app.post('/api/setStopSignal', requireOperator, (req, res) => {
-    const id = safeId(req.body.id);
-    if (id === null) { res.sendStatus(400); return; }
-    stopSignal[id] = true;
-    clearCommandQueue(id, req.token.sub);
-    if (LOG_BROWSER_CMDS) log.info(`/api/setStopSignal id=${id} user=${req.token.sub}`);
-    userManagement.incrementActionCount(req.token.sub);
-    res.sendStatus(200);
-  });
-
-  app.post('/api/clearCommandQueue', requireOperator, (req, res) => {
-    const id = safeId(req.body.id);
-    if (id === null) return res.status(400).json({ error: 'invalid id' });
-    clearCommandQueue(id, req.token.sub);
-    if (LOG_BROWSER_CMDS) log.info(`/api/clearCommandQueue id=${id} user=${req.token.sub}`);
-    res.send({ response: 'command queue cleared' });
-  });
-
-  app.post('/api/setModemEnabled', requireOperator, (req, res) => {
-    const id = safeId(req.body.id);
-    if (id === null) return res.status(400).json({ error: 'invalid id' });
-    const enabled = !!req.body.enabled;
-    modemEnabled[id] = enabled;
-    if (state.computers[id]) {
-      state.computers[id].modem_enabled = enabled;
-      const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: state.computers[id] } };
-      applyTransaction(transaction, state, transactionCache);
-      state.lastReadyTransactionId++;
-      broadcastTransaction(transaction);
-    }
-    if (!cmds[id]) cmds[id] = [];
-    cmds[id].push('os.reboot()');
-    log.info(`/api/setModemEnabled id=${id} enabled=${enabled} user=${req.token.sub}`);
-    res.json({ ok: true });
-  });
-
-  app.post('/api/getCommandResult', requireAuth, compression(), (req, res) => {
-    const computerId = safeId(req.body.computerId);
-    if (computerId === null) return res.status(400).json({ error: 'invalid computerId' });
-    if (!commandResultCache[computerId]) { res.send({}); return; }
-    if (req.body.getOnlyLatest) {
-      res.send({ computerId, result: commandResultCache[computerId].at(-1) });
-      return;
-    }
-    const rawIdx = req.body.lastReceivedIndex;
-    if (rawIdx != null && (!Number.isInteger(rawIdx) || rawIdx < 0)) {
-      return res.status(400).json({ error: 'invalid lastReceivedIndex' });
-    }
-    const startIndex = rawIdx != null ? rawIdx + 1 : 0;
-    res.send({ computerId, cmdResults: commandResultCache[computerId].slice(startIndex) });
-  });
+  // DEAD CODE — transferred to WebSocket (ws.on('message') handler above).
+  // Browser clients send these as { type, id, cmd/enabled } messages over the existing WS connection.
+  // app.post('/api/setCommand', requireOperator, (req, res) => { ... });
+  // app.post('/api/setSideCommand', requireOperator, (req, res) => { ... });
+  // app.post('/api/setStopSignal', requireOperator, (req, res) => { ... });
+  // app.post('/api/clearCommandQueue', requireOperator, (req, res) => { ... });
+  // app.post('/api/setModemEnabled', requireOperator, (req, res) => { ... });
+  // app.post('/api/getCommandResult', requireAuth, compression(), (req, res) => { ... });
+  //   ^ results are now pushed to browser clients via broadcastToClients({ commandResult }) in /api/commandResult.
 
   app.post('/api/saveState', requireAuth, (_req, res) => {
     saveStateToDisk();
@@ -946,14 +879,78 @@ nextApp.prepare().then(() => {
     // All other upgrades (/_next/webpack-hmr etc.) are left for Next.js to handle.
   });
   wss.on('connection', async (ws, req) => {
-    // DEV_NO_AUTH: admit all connections without a session token.
+    let userSub, userName, wsIsOperator;
     if (!DEV_NO_AUTH || IS_PROD) {
       const token = await getSession(req);
       if (!token) { ws.close(4401, 'Unauthorized'); return; }
+      userSub = token.sub;
+      userName = token.username ?? token.name ?? userSub;
+      wsIsOperator = isOperator(userSub);
+    } else {
+      userSub = DEV_TOKEN.sub;
+      userName = DEV_TOKEN.username;
+      wsIsOperator = true;
     }
     const clientIp = req.socket.remoteAddress;
     console.log(`[ws] Browser client connected from ${clientIp} (total: ${browserClients.size + 1})`);
     browserClients.add(ws);
+    ws.on('message', (raw) => {
+      let msg;
+      try { msg = JSON.parse(raw); } catch { return; }
+      if (!wsIsOperator) return;
+      switch (msg.type) {
+        case 'setCommand': {
+          const id = safeId(msg.id);
+          if (!id || !msg.cmd || typeof msg.cmd !== 'string' || msg.cmd.length > MAX_CMD_LENGTH) return;
+          if (!cmds[id]) cmds[id] = [];
+          cmds[id].push(msg.cmd);
+          if (LOG_BROWSER_CMDS) log.info(`[ws] setCommand id=${id} user=${userSub} queueDepth=${cmds[id].length} <${sanitizeForLog(msg.cmd)}>`);
+          userManagement.incrementActionCount(userSub);
+          break;
+        }
+        case 'setSideCommand': {
+          const id = safeId(msg.id);
+          if (!id || !msg.cmd || typeof msg.cmd !== 'string' || msg.cmd.length > MAX_CMD_LENGTH) return;
+          if (!sideCommands[id]) sideCommands[id] = [];
+          sideCommands[id].push(msg.cmd);
+          if (LOG_BROWSER_CMDS) log.info(`[ws] setSideCommand id=${id} user=${userSub} queueDepth=${sideCommands[id].length} <${sanitizeForLog(msg.cmd)}>`);
+          userManagement.incrementActionCount(userSub);
+          break;
+        }
+        case 'setStopSignal': {
+          const id = safeId(msg.id);
+          if (!id) return;
+          stopSignal[id] = true;
+          clearCommandQueue(id, userSub);
+          if (LOG_BROWSER_CMDS) log.info(`[ws] setStopSignal id=${id} user=${userSub}`);
+          userManagement.incrementActionCount(userSub);
+          break;
+        }
+        case 'clearCommandQueue': {
+          const id = safeId(msg.id);
+          if (!id) return;
+          clearCommandQueue(id, userSub);
+          if (LOG_BROWSER_CMDS) log.info(`[ws] clearCommandQueue id=${id} user=${userSub}`);
+          break;
+        }
+        case 'setModemEnabled': {
+          const id = safeId(msg.id);
+          if (!id || typeof msg.enabled !== 'boolean') return;
+          modemEnabled[id] = msg.enabled;
+          if (state.computers[id]) {
+            state.computers[id].modem_enabled = msg.enabled;
+            const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: state.computers[id] } };
+            applyTransaction(transaction, state, transactionCache);
+            state.lastReadyTransactionId++;
+            broadcastTransaction(transaction);
+          }
+          if (!cmds[id]) cmds[id] = [];
+          cmds[id].push('os.reboot()');
+          log.info(`[ws] setModemEnabled id=${id} enabled=${msg.enabled} user=${userSub}`);
+          break;
+        }
+      }
+    });
     // Register handlers BEFORE sending so errors during send are caught.
     ws.on('close', (code, reason) => {
       console.log(`[ws] Browser client disconnected — code: ${code}, reason: ${reason?.toString() || '(none)'}`);

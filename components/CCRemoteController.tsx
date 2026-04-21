@@ -50,7 +50,6 @@ export default function CCRemoteController() {
   const wsBackoffRef = useRef(1000)
   const wsReconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wsInitialStateLoadedRef = useRef(false)
-  const cmdResultIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const modemStatusIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const guestRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const renderFiltersRef = useRef<{ setOpen: (v: boolean) => void } | null>(null)
@@ -200,28 +199,6 @@ export default function CCRemoteController() {
     wv.regenerateSceneFromBlocks()
   }
 
-  function pollCommandResult() {
-    const view = useWorldViewStore.getState()
-    const w = useWorldStore.getState()
-    if (view.selectedComputerId === -1) return
-    fetch(w.apiURL + 'getCommandResult', {
-      method: 'POST',
-      mode: 'cors',
-      headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ computerId: view.selectedComputerId, getOnlyLatest: true }),
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.result) {
-          const existing = useWorldStore.getState().commandResult[data.computerId]
-          if (existing !== data.result.ret) {
-            useWorldStore.setState(s => ({ commandResult: { ...s.commandResult, [data.computerId]: data.result.ret } }))
-          }
-        }
-      })
-      .catch(() => {})
-  }
-
   async function pollModemStatus() {
     const w = useWorldStore.getState()
     const res = await fetch(w.apiURL + 'modem/id').catch(() => null)
@@ -287,6 +264,7 @@ export default function CCRemoteController() {
     ws.onopen = () => {
       wsBackoffRef.current = 1000
       console.log('[ws] WebSocket connected to', wsUrl)
+      useWorldStore.setState({ wsSend: (msg: object) => ws.send(JSON.stringify(msg)) })
       if (!wsInitialStateLoadedRef.current) {
         wsInitialStateLoadedRef.current = true
         loadGuestState()
@@ -297,6 +275,11 @@ export default function CCRemoteController() {
       const data = JSON.parse(event.data)
       const w = useWorldStore.getState()
       const view = useWorldViewStore.getState()
+      if (data.commandResult) {
+        const { computerId, result } = data.commandResult
+        if (result != null)
+          useWorldStore.setState(s => ({ commandResult: { ...s.commandResult, [computerId]: result.ret } }))
+      }
       if (data.onlineStatus) {
         const current = useWorldStore.getState().onlineStatus
         const updates: Record<string, boolean> = {}
@@ -333,11 +316,11 @@ export default function CCRemoteController() {
 
     ws.onclose = (event) => {
       console.log(`[ws] WebSocket closed — code: ${event.code}, reason: '${event.reason}', wasClean: ${event.wasClean}`)
+      useWorldStore.setState({ wsSend: null })
       if (event.code === 4401) {
         console.log("Guest Mode");
         setIsGuest(true)
         useUserStore.getState().stopPolling()
-        if (cmdResultIntervalRef.current) { clearInterval(cmdResultIntervalRef.current); cmdResultIntervalRef.current = null }
         loadGuestState()
         return
       }
@@ -352,14 +335,12 @@ export default function CCRemoteController() {
   useEffect(() => {
     useUserStore.getState().startPolling()
     connectWebSocket()
-    cmdResultIntervalRef.current = setInterval(pollCommandResult, 1000)
     pollModemStatus()
     modemStatusIntervalRef.current = setInterval(pollModemStatus, 15000)
     return () => {
       useUserStore.getState().stopPolling()
       if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close() }
       if (wsReconnectRef.current) clearTimeout(wsReconnectRef.current)
-      if (cmdResultIntervalRef.current) clearInterval(cmdResultIntervalRef.current)
       if (modemStatusIntervalRef.current) clearInterval(modemStatusIntervalRef.current)
       if (guestRefreshTimerRef.current) clearTimeout(guestRefreshTimerRef.current)
     }
