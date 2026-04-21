@@ -76,6 +76,7 @@ let sideCommands = {};
 let chatQueue = {};
 let modemServerId = null;
 let modemServerIp = null;
+let modemEnabled = {}; // { [id: string]: boolean } — server-controlled per-computer modem preference
 let lastModemStateUpdate = 0;
 let onlineStatus = {};
 
@@ -105,6 +106,9 @@ try {
   state = deserializeState(raw);
   state.lastTransactionId = 0;
   state.lastReadyTransactionId = 0;
+  for (const [id, c] of Object.entries(state.computers || {})) {
+    if (c.modem_enabled !== undefined) modemEnabled[id] = c.modem_enabled;
+  }
 } catch { }
 
 function serializeState(s) {
@@ -510,6 +514,12 @@ nextApp.prepare().then(() => {
     );
     body.id = Number(id);
     body.via_modem = modemServerIp !== null && req.ip === modemServerIp;
+    delete body.modem_enabled; // server-controlled; never trust from computer
+    // Default modem_enabled to true for computers that report a modem peripheral
+    if (body.has_modem_peripheral === true && modemEnabled[id] === undefined) {
+      modemEnabled[id] = true;
+    }
+    if (modemEnabled[id] !== undefined) body.modem_enabled = modemEnabled[id];
     const existing = state.computers[id] || {};
     const merged = { ...existing, ...body };
     if (!merged.loc && existing.loc) merged.loc = existing.loc;
@@ -575,9 +585,10 @@ nextApp.prepare().then(() => {
     const isNew = modemServerId !== id;
     const now = Date.now();
     if (isNew) {
-      log.info(`Modem server registered: ID ${id} — queuing reboot for all computers`);
+      log.info(`Modem server registered: ID ${id} — queuing reboot for modem-enabled computers`);
       for (const computerId of Object.keys(state.computers)) {
         if (String(computerId) === String(id)) continue;
+        if (modemEnabled[computerId] === false) continue; // respect opt-out
         if (!cmds[computerId]) cmds[computerId] = [];
         cmds[computerId].push('os.reboot()');
       }
@@ -598,7 +609,7 @@ nextApp.prepare().then(() => {
   });
 
   const MODEM_STALE_MS = 120_000;
-  app.get('/api/modem/id', (_req, res) => {
+  app.get('/api/modem/id', (req, res) => {
     if (modemServerId !== null) {
       const modem = state.computers[modemServerId];
       if (!modem || Date.now() - (modem.lastSeen ?? 0) > MODEM_STALE_MS) {
@@ -606,11 +617,20 @@ nextApp.prepare().then(() => {
         modemServerIp = null;
       }
     }
-    res.json({ id: modemServerId });
+    const computerId = req.query.computerId ? safeId(req.query.computerId) : null;
+    const enabled = computerId === null ? true : modemEnabled[computerId] !== false;
+    res.json({ id: modemServerId, enabled });
   });
 
   app.get('/api/modem/computers', requireApprovedComputer, (_req, res) => {
-    const ids = Object.keys(state.computers).map(Number).filter(n => !isNaN(n));
+    const ids = Object.keys(state.computers)
+      .map(Number)
+      .filter(n => {
+        if (isNaN(n)) return false;
+        const id = String(n);
+        return state.computers[id]?.has_modem_peripheral === true
+          && modemEnabled[id] !== false;
+      });
     res.json({ ids });
   });
 
@@ -622,20 +642,22 @@ nextApp.prepare().then(() => {
     const sides = {};
     const chats = {};
     for (const id of ids) {
+      const sid = String(id);
+      if (modemEnabled[sid] === false) continue; // computer opted out of modem; it polls HTTP directly
       if (stopSignal[id]) {
-        stops[String(id)] = true;
+        stops[sid] = true;
         delete stopSignal[id];
         log.info(`Modem: delivering stop signal to computer ${id}`);
       } else if (cmds[id] && cmds[id].length > 0) {
-        commands[String(id)] = cmds[id].shift();
+        commands[sid] = cmds[id].shift();
         log.info(`Modem: delivering cmd to computer ${id}`);
       }
       if (sideCommands[id] && sideCommands[id].length > 0) {
-        sides[String(id)] = sideCommands[id].shift();
+        sides[sid] = sideCommands[id].shift();
         log.info(`Modem: delivering side command to computer ${id}`);
       }
       if (chatQueue[id] && chatQueue[id].length > 0) {
-        chats[String(id)] = chatQueue[id].shift();
+        chats[sid] = chatQueue[id].shift();
         log.info(`Modem: delivering chat to computer ${id}`);
       }
     }
@@ -718,6 +740,24 @@ nextApp.prepare().then(() => {
     if (id === null) return res.status(400).json({ error: 'invalid id' });
     clearCommandQueue(id, req.token.sub);
     res.send({ response: 'command queue cleared' });
+  });
+
+  app.post('/api/setModemEnabled', requireOperator, (req, res) => {
+    const id = safeId(req.body.id);
+    if (id === null) return res.status(400).json({ error: 'invalid id' });
+    const enabled = !!req.body.enabled;
+    modemEnabled[id] = enabled;
+    if (state.computers[id]) {
+      state.computers[id].modem_enabled = enabled;
+      const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: state.computers[id] } };
+      applyTransaction(transaction, state, transactionCache);
+      state.lastReadyTransactionId++;
+      broadcastTransaction(transaction);
+    }
+    if (!cmds[id]) cmds[id] = [];
+    cmds[id].push('os.reboot()');
+    log.info(`/api/setModemEnabled id=${id} enabled=${enabled} user=${req.token.sub}`);
+    res.json({ ok: true });
   });
 
   app.post('/api/getCommandResult', requireAuth, compression(), (req, res) => {

@@ -83,11 +83,11 @@ function main()
             modem_check_elapsed = modem_check_elapsed + wait_seconds
             if modem_check_elapsed >= MODEM_CHECK_INTERVAL then
                 modem_check_elapsed = 0
-                local res = http.get(papi.url .. "modem/id")
+                local res = http.get(papi.url .. "modem/id?computerId=" .. os.getComputerID())
                 if res then
                     local data = textutils.unserializeJSON(res.readAll())
                     res.close()
-                    if data and data.id then
+                    if data and data.id and data.enabled ~= false then
                         print("Modem server online — rebooting to connect")
                         os.reboot()
                     end

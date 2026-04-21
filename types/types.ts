@@ -17,6 +17,8 @@ interface ComputerState {
     modified?: number,
     lastSeen?: number,
     via_modem?: boolean,
+    has_modem_peripheral?: boolean,
+    modem_enabled?: boolean,
     entities?: EntitySighting[],
     chatLog?: ChatMessage[],
     peripherals?: string[],

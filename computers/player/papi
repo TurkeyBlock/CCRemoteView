@@ -10,11 +10,11 @@ use_modem   = false
 MODEM_SERVER_ID = 0
 
 local function discover_modem_id()
-    local res = http.get(url .. "modem/id")
+    local res = http.get(url .. "modem/id?computerId=" .. os.getComputerID())
     if res then
         local data = textutils.unserializeJSON(res.readAll())
         res.close()
-        if data and data.id then return data.id end
+        if data and data.id and data.enabled ~= false then return data.id end
     end
     return nil
 end
@@ -54,10 +54,11 @@ end
 function send_status_update()
     local x, y, z = get_location()
     local payload = {
-        id       = os.getComputerID(),
-        type     = "player",
-        sleep    = _sleep_mode,
-        loc      = x and { x = math.floor(x), y = math.floor(y), z = math.floor(z) } or nil,
+        id                   = os.getComputerID(),
+        type                 = "player",
+        sleep                = _sleep_mode,
+        loc                  = x and { x = math.floor(x), y = math.floor(y), z = math.floor(z) } or nil,
+        has_modem_peripheral = _modem_device ~= nil,
     }
     local json = textutils.serializeJSON(payload)
     local res  = http.post(url .. "statusUpdate", json,

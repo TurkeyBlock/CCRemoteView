@@ -30,6 +30,7 @@ interface WorldState {
   sendChatMessage: (computerId: number, message: string) => void
   sendStopSignal: (computerId: number) => void
   clearCommandQueue: (computerId: number) => void
+  setModemEnabled: (computerId: number, enabled: boolean) => void
   removeComputer: (id: string | number) => void
   clearBlocks: () => void
 }
@@ -74,6 +75,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         || existing.type !== computerState.type
         || existing.sleep_mode !== computerState.sleep_mode
         || existing.via_modem !== computerState.via_modem
+        || existing.rot !== computerState.rot
         || locChanged
         || invChanged
         || entitiesChanged
@@ -184,6 +186,14 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: computerId }),
+    }).catch(console.error)
+  },
+
+  setModemEnabled: (computerId, enabled) => {
+    fetch(get().apiURL + 'setModemEnabled', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: computerId, enabled }),
     }).catch(console.error)
   },
 

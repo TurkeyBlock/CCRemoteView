@@ -10,11 +10,11 @@ local headers = { ["Content-Type"] = "application/json" }
 -- Auto-discover the modem server ID from the HTTP server.
 -- If a wireless modem is attached and a modem server is registered, modem mode is enabled.
 local function discover_modem_id()
-  local res = http.get(url .. "modem/id")
+  local res = http.get(url .. "modem/id?computerId=" .. os.getComputerID())
   if res then
     local data = textutils.unserializeJSON(res.readAll())
     res.close()
-    if data and data.id then return data.id end
+    if data and data.id and data.enabled ~= false then return data.id end
   end
   return nil
 end
@@ -33,12 +33,13 @@ if modem_device then
 end
 
 local state = {
-  id      = -1,
-  label   = "",
-  type    = "minecart",
-  loc     = { x = 0, y = 0, z = 0 },
-  sleep_mode = false,
-  peripherals = {}
+  id                   = -1,
+  label                = "",
+  type                 = "minecart",
+  loc                  = { x = 0, y = 0, z = 0 },
+  sleep_mode           = false,
+  peripherals          = {},
+  has_modem_peripheral = modem_device ~= nil,
 }
 
 -- Scan attached peripherals once at startup and store their types in state.
