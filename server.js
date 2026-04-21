@@ -59,11 +59,7 @@ const APP_URL = IS_PROD ? process.env.APP_URL : DEV_APP_URL;
 const SIGNIN_URL = `${IS_PROD ? process.env.NEXTAUTH_URL : DEV_AUTH_URL}/auth/signin?callbackUrl=${encodeURIComponent(APP_URL)}`;
 const PORT = parseInt(process.env.APP_PORT || '8081', 10);
 
-fs.mkdirSync('logs', { recursive: true });
-const log = pino(
-  { level: 'info' },
-  pino.destination({ dest: 'logs/server_log.log', sync: true })
-);
+const log = pino({ level: 'info' }, pino.destination({ dest: 1, sync: true })); // dest: 1 = stdout
 
 const dev = !IS_PROD;
 const nextApp = next({ dev, hostname: 'localhost', port: PORT });
