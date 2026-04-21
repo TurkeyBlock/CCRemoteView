@@ -12,7 +12,7 @@ export default function TurtleInventory({ computerId }: Props) {
 
   return (
     <div style={{ backgroundColor: '#383e42', color: 'darkgray', display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%' }}>
-      <div style={{ height: 256, width: 256, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '3%', backgroundColor: '#383e42' }}>
+      <div style={{ width: '100%', maxWidth: 256, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, backgroundColor: '#383e42' }}>
         {computer.inv.map((slot, index) => (
           <InventorySlot
             key={index + 1}

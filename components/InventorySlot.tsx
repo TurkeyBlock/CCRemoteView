@@ -70,6 +70,7 @@ export default function InventorySlot({ computerId, invSlot, slotNum, isSelected
         display: 'block',
         position: 'relative',
         cursor: 'pointer',
+        aspectRatio: '1',
       }}
     >
       {src && (

@@ -57,14 +57,14 @@ export default function StationaryPanel({ computerId }: Props) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <div style={sectionLabel}>Chat</div>
         {computer.chatLog && computer.chatLog.length > 0 && (
-          <ScrollList>
+          <div style={{ resize: 'vertical', overflow: 'auto', minHeight: 60, height: 120, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 2 }}>
             {[...computer.chatLog].reverse().slice(0, 20).map((msg, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8em', color: colors.text, gap: 8 }}>
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8em', color: colors.text, gap: 8, flexShrink: 0 }}>
                 <span style={{ color: colors.textName, whiteSpace: 'nowrap' }}>{msg.player}:</span>
                 <span style={{ color: colors.textLight, flex: 1 }}>{msg.message}</span>
               </div>
             ))}
-          </ScrollList>
+          </div>
         )}
         <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
           <input

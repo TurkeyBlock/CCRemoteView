@@ -46,6 +46,10 @@ export class ChunkManager {
   /** Whether a flush of pendingResults is already scheduled. */
   private resultFlushPending = false;
 
+  /** Materials for each in-flight build, keyed by buildId. */
+  private readonly _buildMaterials = new Map<number, THREE.Material[]>();
+  private _nextBuildId = 0;
+
   /** Debounce timer for chunk load/unload — avoids thrashing during camera rotation. */
   private _visibilityDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private _lastVisibilityArgs: {
@@ -246,6 +250,7 @@ export class ChunkManager {
     }
     this.pendingResults.length = 0;
     this.resultFlushPending = false;
+    this._buildMaterials.clear();
     for (const chunk of this.chunks.values()) {
       chunk.dispose(this.parent);
     }
@@ -389,11 +394,12 @@ export class ChunkManager {
       serializedBlocks[loc] = { name: block.name, metadata: block.metadata };
     }
 
-    // Store material array on the chunk so we can use it when applying results.
-    (chunk as any).__localMaterials = localMaterials;
+    const buildId = ++this._nextBuildId;
+    this._buildMaterials.set(buildId, localMaterials);
 
     const request: BuildRequest = {
       chunkKey: chunk.key,
+      buildId,
       blocks: serializedBlocks,
       borderBlocks,
       matIndices,
@@ -421,7 +427,10 @@ export class ChunkManager {
     // application is deferred so it doesn't block an in-progress render frame.
     this.drainQueue();
 
-    if (!chunk) return;
+    if (!chunk) {
+      this._buildMaterials.delete(result.buildId);
+      return;
+    }
 
     if (useWorldViewStore.getState().skipLoadYield) {
       this._applyResult(chunk, result);
@@ -451,8 +460,8 @@ export class ChunkManager {
   }
 
   private _applyResult(chunk: WorldChunk, result: BuildResult): void {
-    const localMaterials: THREE.Material[] = (chunk as any).__localMaterials ?? [];
-    delete (chunk as any).__localMaterials;
+    const localMaterials: THREE.Material[] = this._buildMaterials.get(result.buildId) ?? [];
+    this._buildMaterials.delete(result.buildId);
     chunk.dispose(this.parent);
     if (result.opaque) chunk.opaqueMesh = this.buildMesh(result.opaque, localMaterials);
     if (result.transparent) chunk.transparentMesh = this.buildMesh(result.transparent, localMaterials);

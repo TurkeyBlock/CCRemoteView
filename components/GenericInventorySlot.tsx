@@ -48,6 +48,7 @@ export default function GenericInventorySlot({ invSlot, slotNum, computerId, sid
         display: 'block',
         position: 'relative',
         color: 'white',
+        aspectRatio: '1',
       }}
       title={invSlot?.name ?? ''}
     >

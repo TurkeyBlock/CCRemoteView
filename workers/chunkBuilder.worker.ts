@@ -36,6 +36,7 @@ export interface GeometryBuffers {
 
 export interface BuildRequest {
   chunkKey: string;
+  buildId: number;
   /** Blocks that belong to this chunk. */
   blocks: Record<string, SerializedBlock>;
   /** One-block-thick border from each of the 6 neighboring chunks, for cross-chunk face culling. */
@@ -52,6 +53,7 @@ export interface BuildRequest {
 
 export interface BuildResult {
   chunkKey: string;
+  buildId: number;
   opaque: GeometryBuffers | null;
   transparent: GeometryBuffers | null;
 }
@@ -365,6 +367,7 @@ function buildGeometry(req: BuildRequest): BuildResult {
 
   return {
     chunkKey,
+    buildId: req.buildId,
     opaque: finalize(opaqueAccs),
     transparent: finalize(transAccs),
   };
