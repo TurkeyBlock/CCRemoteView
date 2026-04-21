@@ -8,17 +8,17 @@
 
 'use strict';
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const unzipper = require('unzipper');
 const sharp = require('sharp');
 
-if (!process.argv[2]) {
-  console.error('Usage: node build-utils/textureExtractor/textureExtractor.js <mcJarOrZip> [modJarsDir]');
-  process.exit(1);
-}
+const TECHNIC_BASE = path.join(os.homedir(), 'AppData', 'Roaming', '.technic', 'modpacks', 'tekkit-2');
+const DEFAULT_JAR = path.join(TECHNIC_BASE, 'bin', 'minecraft.jar');
+const DEFAULT_MODS = path.join(TECHNIC_BASE, 'mods');
 
-const MC_FILE = process.argv[2].replaceAll('\\\\', '/').replaceAll('\\', '/');
-const MOD_DIR = process.argv[3] ? process.argv[3].replaceAll('\\\\', '/').replaceAll('\\', '/') : null;
+const MC_FILE = (process.argv[2] ?? DEFAULT_JAR).replaceAll('\\\\', '/').replaceAll('\\', '/');
+const MOD_DIR = (process.argv[3] ?? DEFAULT_MODS).replaceAll('\\\\', '/').replaceAll('\\', '/');
 
 // ── Extraction helpers ────────────────────────────────────────────────────────
 
