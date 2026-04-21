@@ -25,7 +25,8 @@ class TextureAnimator {
     this.texture = texture
     this.tileDurationMillis = tileDurationMillis
     this.tilesHorizontal = 1
-    this.tilesVertical = texture.image.height / texture.image.width
+    const img = texture.image as { height: number; width: number }
+    this.tilesVertical = img.height / img.width
     this.numberOfTiles = this.tilesHorizontal * this.tilesVertical
     texture.wrapS = texture.wrapT = THREE.RepeatWrapping
     texture.repeat.set(1 / this.tilesHorizontal, 1 / this.tilesVertical)

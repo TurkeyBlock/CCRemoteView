@@ -69,9 +69,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       const invChanged = JSON.stringify(existing?.inv) !== JSON.stringify(inv)
       const entitiesChanged = JSON.stringify(existing?.entities) !== JSON.stringify(entities)
       const changed = !existing
-        || existing.fuel !== computerState.fuel
+        || existing.fuelLevel !== computerState.fuelLevel
         || existing.label !== computerState.label
-        || existing.status !== computerState.status
         || existing.type !== computerState.type
         || existing.sleep_mode !== computerState.sleep_mode
         || existing.via_modem !== computerState.via_modem

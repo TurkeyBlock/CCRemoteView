@@ -180,7 +180,8 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
         mat.polygonOffsetFactor = -1
         mat.polygonOffsetUnits = -4
       }
-      if (texture.image.width !== texture.image.height) get().addAnimatedTexture(texture)
+      const img = texture.image as { width: number; height: number }
+      if (img.width !== img.height) get().addAnimatedTexture(texture)
       mat.needsUpdate = true
     }
 
