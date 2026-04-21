@@ -79,6 +79,22 @@ let modemServerIp = null;
 let lastModemStateUpdate = 0;
 let onlineStatus = {};
 
+// Validate a computer ID: must be a non-negative integer ≤ 1 000 000.
+// Returns the numeric string form, or null if invalid.
+// Guards against prototype pollution (__proto__, constructor, prototype as keys)
+// and non-numeric junk sneaking into ID-keyed caches.
+function safeId(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0 || n > 1_000_000) return null;
+  return String(n);
+}
+
+// Strip control characters (newlines, ANSI escapes, etc.) from strings before logging
+// to prevent log-injection / audit-trail forgery.
+function sanitizeForLog(val) {
+  return String(val ?? '').replace(/[\r\n\x00-\x1f\x7f]/g, ' ').slice(0, 500);
+}
+
 try {
   let raw;
   try {
@@ -372,11 +388,14 @@ nextApp.prepare().then(() => {
 
   // --- Computer endpoints ---
   app.post('/api/state', requireApprovedComputer, (req, res) => {
+    const id = safeId(req.body.id);
+    if (id === null) return res.status(400).json({ error: 'invalid id' });
+    req.body.id = Number(id);
     req.body.via_modem = modemServerIp !== null && req.ip === modemServerIp;
     const t = extractState(req.body, state);
     applyTransaction(t, state, transactionCache);
-    if (state.computers[req.body.id]) state.computers[req.body.id].lastSeen = Date.now();
-    markComputerOnline(req.body.id);
+    if (state.computers[id]) state.computers[id].lastSeen = Date.now();
+    markComputerOnline(id);
     broadcastTransaction(t);
     res.sendStatus(200);
   });
@@ -385,15 +404,18 @@ nextApp.prepare().then(() => {
   const SCAN_INCLUDE_STATE    = false;
 
   app.post('/api/scan', requireApprovedComputer, (req, res) => {
-    const { id, blocks } = req.body;
+    const { blocks } = req.body;
+    const id = safeId(req.body.id);
+    if (id === null) return res.status(400).json({ error: 'invalid id' });
     if (!Array.isArray(blocks)) return res.status(400).json({ error: 'blocks must be an array' });
+    if (blocks.length > 50_000) return res.status(400).json({ error: 'blocks array too large' });
 
     const now = Date.now();
     if (scanLastTime[id] && now - scanLastTime[id] < SCAN_MIN_INTERVAL_MS)
       return res.status(429).json({ error: 'rate limited' });
     scanLastTime[id] = now;
 
-    const computer = state.computers[String(id)];
+    const computer = state.computers[id];
     const origin = req.body.origin ?? computer?.loc;
     if (!origin) return res.status(400).json({ error: 'computer position unknown — send origin in request or a state update first' });
 
@@ -422,12 +444,15 @@ nextApp.prepare().then(() => {
   });
 
   app.post('/api/sense', requireApprovedComputer, (req, res) => {
-    const { id, entities } = req.body;
+    const { entities } = req.body;
+    const id = safeId(req.body.id);
+    if (id === null) return res.status(400).json({ error: 'invalid id' });
     if (!Array.isArray(entities)) return res.status(400).json({ error: 'entities must be an array' });
-    const computer = state.computers[String(id)];
+    if (entities.length > 1_000) return res.status(400).json({ error: 'entities array too large' });
+    const computer = state.computers[id];
     if (!computer) return res.status(400).json({ error: 'computer unknown — send a state update first' });
-    state.computers[String(id)].entities = entities;
-    const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: state.computers[String(id)] } };
+    state.computers[id].entities = entities;
+    const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: state.computers[id] } };
     applyTransaction(transaction, state, transactionCache);
     state.lastReadyTransactionId++;
     broadcastTransaction(transaction);
@@ -436,45 +461,59 @@ nextApp.prepare().then(() => {
   });
 
   app.post('/api/chat', requireApprovedComputer, (req, res) => {
-    const { id, player, message, uuid } = req.body;
+    const { player, message, uuid } = req.body;
+    const id = safeId(req.body.id);
+    if (id === null) return res.status(400).json({ error: 'invalid id' });
     if (!player || !message) return res.status(400).json({ error: 'player and message required' });
-    const computer = state.computers[String(id)];
+    if (typeof player !== 'string' || player.length > 100) return res.status(400).json({ error: 'player name too long' });
+    if (typeof message !== 'string' || message.length > 2_000) return res.status(400).json({ error: 'message too long' });
+    const computer = state.computers[id];
     if (!computer) return res.status(400).json({ error: 'computer unknown — send a state update first' });
-    if (!state.computers[String(id)].chatLog) state.computers[String(id)].chatLog = [];
-    state.computers[String(id)].chatLog.push({ player, message, uuid: uuid || '', timestamp: Date.now() });
-    if (state.computers[String(id)].chatLog.length > 100) state.computers[String(id)].chatLog.shift();
-    const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: state.computers[String(id)] } };
+    if (!state.computers[id].chatLog) state.computers[id].chatLog = [];
+    state.computers[id].chatLog.push({ player, message, uuid: uuid || '', timestamp: Date.now() });
+    if (state.computers[id].chatLog.length > 100) state.computers[id].chatLog.shift();
+    const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: state.computers[id] } };
     applyTransaction(transaction, state, transactionCache);
     state.lastReadyTransactionId++;
     broadcastTransaction(transaction);
-    log.info(`/api/chat id=${id} player=${player} message=${message}`);
+    log.info(`/api/chat id=${id} player=${sanitizeForLog(player)} message=${sanitizeForLog(message)}`);
     res.json({ ok: true });
   });
 
   app.post('/api/sendChat', requireOperator, (req, res) => {
-    const { id, message } = req.body;
+    const { message } = req.body;
+    const id = safeId(req.body.id);
+    if (id === null) return res.status(400).json({ error: 'invalid id' });
     if (!message) return res.status(400).json({ error: 'message required' });
+    if (typeof message !== 'string' || message.length > 2_000) return res.status(400).json({ error: 'message too long' });
     if (!chatQueue[id]) chatQueue[id] = [];
     chatQueue[id].push(message);
-    log.info(`/api/sendChat id=${id} user=${req.token.sub} <${message}>`);
+    log.info(`/api/sendChat id=${id} user=${req.token.sub} <${sanitizeForLog(message)}>`);
     userManagement.incrementActionCount(req.token.sub);
     res.json({ ok: true });
   });
 
   app.post('/api/getChatMessage', requireApprovedComputer, (req, res) => {
-    const id = req.body.id;
+    const id = safeId(req.body.id);
+    if (id === null) { res.send(''); return; }
     if (!chatQueue[id] || chatQueue[id].length === 0) { res.send(''); return; }
     res.send(chatQueue[id].shift());
   });
 
   app.post('/api/statusUpdate', requireApprovedComputer, (req, res) => {
-    const body = req.body;
+    const id = safeId(req.body.id);
+    if (id === null) return res.status(400).json({ error: 'invalid id' });
+    // Strip prototype-polluting keys before merging into server state.
+    const BLOCKED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+    const body = Object.fromEntries(
+      Object.entries(req.body).filter(([k]) => !BLOCKED_KEYS.has(k))
+    );
+    body.id = Number(id);
     body.via_modem = modemServerIp !== null && req.ip === modemServerIp;
-    const id = String(body.id);
     const existing = state.computers[id] || {};
     const merged = { ...existing, ...body };
     if (!merged.loc && existing.loc) merged.loc = existing.loc;
-    const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [body.id]: merged } };
+    const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: merged } };
     applyTransaction(transaction, state, transactionCache);
     state.lastReadyTransactionId++;
     if (state.computers[id]) state.computers[id].lastSeen = Date.now();
@@ -491,11 +530,17 @@ nextApp.prepare().then(() => {
     res.send(cmds[id].shift());
   });
 
+  const CMD_RESULT_CACHE_MAX = 100;
+
   app.post('/api/commandResult', requireApprovedComputer, (req, res) => {
-    const computerId = req.body.computerId;
-    console.log(`Computer ${computerId} sent command result (size: ${JSON.stringify(req.body).length} bytes):`, req.body.result);
+    const computerId = safeId(req.body.computerId);
+    if (computerId === null) return res.status(400).json({ error: 'invalid computerId' });
+    const result = req.body.result;
+    if (JSON.stringify(result).length > 100_000) return res.status(400).json({ error: 'result too large' });
+    console.log(`Computer ${computerId} sent command result (size: ${JSON.stringify(req.body).length} bytes):`, result);
     if (!commandResultCache[computerId]) commandResultCache[computerId] = [];
-    commandResultCache[computerId].push(req.body.result);
+    commandResultCache[computerId].push(result);
+    if (commandResultCache[computerId].length > CMD_RESULT_CACHE_MAX) commandResultCache[computerId].shift();
     res.sendStatus(200);
   });
 
@@ -619,48 +664,64 @@ nextApp.prepare().then(() => {
   //   res.send(resJson);
   // });
 
+  const MAX_CMD_LENGTH = 10_000;
+
   app.post('/api/setCommand', requireOperator, (req, res) => {
     const s = req.body;
-    if (!cmds[s.id]) cmds[s.id] = [];
-    cmds[s.id].push(s.cmd);
-    log.info(`/api/setCommand id=${s.id} user=${req.token.sub} <${s.cmd}>`);
+    const id = safeId(s.id);
+    if (id === null) return res.status(400).json({ error: 'invalid id' });
+    if (!s.cmd || typeof s.cmd !== 'string') return res.status(400).json({ error: 'cmd required' });
+    if (s.cmd.length > MAX_CMD_LENGTH) return res.status(400).json({ error: 'cmd too long' });
+    if (!cmds[id]) cmds[id] = [];
+    cmds[id].push(s.cmd);
+    log.info(`/api/setCommand id=${id} user=${req.token.sub} <${sanitizeForLog(s.cmd)}>`);
     userManagement.incrementActionCount(req.token.sub);
     res.send({ response: 'command set' });
   });
 
   app.post('/api/setSideCommand', requireOperator, (req, res) => {
     const s = req.body;
-    if (!sideCommands[s.id]) sideCommands[s.id] = [];
-    sideCommands[s.id].push(s.cmd);
-    log.info(`/api/setSideCommand id=${s.id} user=${req.token.sub} <${s.cmd}>`);
+    const id = safeId(s.id);
+    if (id === null) return res.status(400).json({ error: 'invalid id' });
+    if (!s.cmd || typeof s.cmd !== 'string') return res.status(400).json({ error: 'cmd required' });
+    if (s.cmd.length > MAX_CMD_LENGTH) return res.status(400).json({ error: 'cmd too long' });
+    if (!sideCommands[id]) sideCommands[id] = [];
+    sideCommands[id].push(s.cmd);
+    log.info(`/api/setSideCommand id=${id} user=${req.token.sub} <${sanitizeForLog(s.cmd)}>`);
     userManagement.incrementActionCount(req.token.sub);
     res.send({ response: 'side command set' });
   });
 
   app.post('/api/setStopSignal', requireOperator, (req, res) => {
-    const json = req.body;
-    if (isNaN(json.id)) { res.sendStatus(400); return; }
-    stopSignal[json.id] = true;
-    clearCommandQueue(json.id, req.token.sub);
-    log.info(`/api/setStopSignal id=${json.id} user=${req.token.sub}`);
+    const id = safeId(req.body.id);
+    if (id === null) { res.sendStatus(400); return; }
+    stopSignal[id] = true;
+    clearCommandQueue(id, req.token.sub);
+    log.info(`/api/setStopSignal id=${id} user=${req.token.sub}`);
     userManagement.incrementActionCount(req.token.sub);
     res.sendStatus(200);
   });
 
   app.post('/api/clearCommandQueue', requireOperator, (req, res) => {
-    const s = req.body;
-    clearCommandQueue(s.id, req.token.sub);
+    const id = safeId(req.body.id);
+    if (id === null) return res.status(400).json({ error: 'invalid id' });
+    clearCommandQueue(id, req.token.sub);
     res.send({ response: 'command queue cleared' });
   });
 
   app.post('/api/getCommandResult', requireAuth, compression(), (req, res) => {
-    const computerId = req.body.computerId;
+    const computerId = safeId(req.body.computerId);
+    if (computerId === null) return res.status(400).json({ error: 'invalid computerId' });
     if (!commandResultCache[computerId]) { res.send({}); return; }
     if (req.body.getOnlyLatest) {
       res.send({ computerId, result: commandResultCache[computerId].at(-1) });
       return;
     }
-    const startIndex = req.body.lastReceivedIndex ? req.body.lastReceivedIndex + 1 : 0;
+    const rawIdx = req.body.lastReceivedIndex;
+    if (rawIdx != null && (!Number.isInteger(rawIdx) || rawIdx < 0)) {
+      return res.status(400).json({ error: 'invalid lastReceivedIndex' });
+    }
+    const startIndex = rawIdx != null ? rawIdx + 1 : 0;
     res.send({ computerId, cmdResults: commandResultCache[computerId].slice(startIndex) });
   });
 

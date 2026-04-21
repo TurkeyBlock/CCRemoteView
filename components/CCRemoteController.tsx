@@ -336,6 +336,7 @@ export default function CCRemoteController() {
       if (event.code === 4401) {
         console.log("Guest Mode");
         setIsGuest(true)
+        useUserStore.getState().stopPolling()
         if (cmdResultIntervalRef.current) { clearInterval(cmdResultIntervalRef.current); cmdResultIntervalRef.current = null }
         loadGuestState()
         return
