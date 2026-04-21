@@ -80,6 +80,7 @@ let sideCommands = {};
 let chatQueue = {};
 let modemServerId = null;
 let modemServerIp = null;
+let lastKnownModemId = null; // persists through stale-clears so same modem reconnecting isn't treated as new
 let modemEnabled = {}; // { [id: string]: boolean } — server-controlled per-computer modem preference
 let lastModemLastSeenBroadcast = 0;
 let onlineStatus = {};
@@ -546,7 +547,9 @@ nextApp.prepare().then(() => {
     console.log(`[${ts}] Computer ${id} requested command from ${req.ip}`);
     if (req.query.fc) log.info(`Computer ${id} first contact after reboot`);
     if (!cmds[id] || cmds[id].length === 0) { res.send(''); return; }
-    res.send(cmds[id].shift());
+    const cmd = cmds[id].shift();
+    console.log(`[${ts}] Sending command to ${id}: ${sanitizeForLog(cmd)}`);
+    res.send(cmd);
   });
 
   const CMD_RESULT_CACHE_MAX = 100;
@@ -586,7 +589,7 @@ nextApp.prepare().then(() => {
   app.post('/api/modem/register', requireApprovedComputer, (req, res) => {
     const { id } = req.body;
     if (id === undefined) return res.status(400).json({ error: 'id required' });
-    const isNew = modemServerId !== id;
+    const isNew = String(lastKnownModemId) !== String(id);
     const now = Date.now();
     if (isNew) {
       log.info(`Modem server registered: ID ${id} — queuing reboot for modem-enabled computers`);
@@ -599,6 +602,7 @@ nextApp.prepare().then(() => {
     }
     modemServerId = id;
     modemServerIp = req.ip;
+    lastKnownModemId = id;
     if (isNew) {
       const prevLoc = state.computers[String(id)]?.loc;
       const loc = req.body.loc || prevLoc || undefined;
