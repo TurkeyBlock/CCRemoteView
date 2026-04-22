@@ -393,7 +393,6 @@ nextApp.prepare().then(() => {
     req.body.lastSeen = Date.now();
     const t = extractState(req.body, state);
     applyTransaction(t, state, transactionCache);
-    markComputerOnline(id);
     broadcastTransaction(t);
     res.sendStatus(200);
   });
