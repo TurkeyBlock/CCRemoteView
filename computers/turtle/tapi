@@ -53,7 +53,8 @@ local state = {
   },
   fuelLevel = -1,
   fuelLimit = -1,
-  sleep_mode = false,
+  sleep_mode    = false,
+  poll_interval = 1,  -- current HTTP poll interval in seconds
   has_modem_peripheral = modem_device ~= nil,
 }
 -- semaphore implementation
@@ -220,6 +221,10 @@ end
 
 function set_sleep_mode(mode)
   state.sleep_mode = mode
+end
+
+function set_poll_interval(seconds)
+  state.poll_interval = seconds
 end
 
 function save_loc_to_file()

@@ -65,6 +65,7 @@ function main()
     tapi.send_status_update()
     while true do
         local wait_seconds = sleep_level == 2 and 30 or sleep_level == 1 and 15 or 1
+        tapi.set_poll_interval(wait_seconds)
         os.sleep(wait_seconds)
         get_command()
 

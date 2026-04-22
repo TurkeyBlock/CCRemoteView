@@ -21,7 +21,6 @@ export default function CCRemoteController() {
   const isLoading = useWorldStore(s => s.isLoading)
   const computers = useWorldStore(s => s.computers)
   const modemServerId = useWorldStore(s => s.modemServerId)
-  const onlineStatus = useWorldStore(s => s.onlineStatus)
   const selectedInventory = useWorldViewStore(s => s.selectedInventory)
   const selectedInventorySize = useWorldViewStore(s => s.selectedInventorySize)
   const selectedInventoryPos = useWorldViewStore(s => s.selectedInventoryPos)
@@ -280,15 +279,6 @@ export default function CCRemoteController() {
         if (result != null)
           useWorldStore.setState(s => ({ commandResult: { ...s.commandResult, [computerId]: result.ret } }))
       }
-      if (data.onlineStatus) {
-        const current = useWorldStore.getState().onlineStatus
-        const updates: Record<string, boolean> = {}
-        for (const [id, online] of Object.entries(data.onlineStatus as Record<string, boolean>)) {
-          if (current[id] !== online) updates[id] = online
-        }
-        if (Object.keys(updates).length > 0)
-          useWorldStore.setState(s => ({ onlineStatus: { ...s.onlineStatus, ...updates } }))
-      }
       if (data.state) {
         const alreadyCurrent = data.state.lastTransactionId === w.lastTransactionId
         if (!alreadyCurrent) {
@@ -353,7 +343,7 @@ export default function CCRemoteController() {
     if (!c) return String(id)
     const typeLabel = c.type === 'minecart' ? 'Minecart' : c.type === 'modem' ? 'Modem' : 'Turtle'
     const modemSuffix = c.type === 'modem' ? (modemOnline ? ' [online]' : ' [offline]') : ''
-    const statusSuffix = c.type !== 'modem' ? `${c.via_modem ? ' 📡' : ''}${c.sleep_mode ? ' 💤' : ''}${onlineStatus[id] ? ' [online]' : ' [offline]'}` : ''
+    const statusSuffix = c.type !== 'modem' ? `${c.via_modem ? ' 📡' : ''}${c.sleep_mode ? ' 💤' : ''}` : ''
     return `${typeLabel} ${id}${modemSuffix}${statusSuffix} : ${c.label ?? ''}`
   }
 
@@ -361,10 +351,8 @@ export default function CCRemoteController() {
     const c = computers[id]
     if (!c) return `#${id}`
     const typeLabel = c.type === 'minecart' ? 'MC' : c.type === 'modem' ? 'Mdm' : 'T'
-    const online = c.type === 'modem' ? modemOnline : !!onlineStatus[id]
-    const statusDot = online ? '●' : '○'
     const name = c.label ? ` ${c.label}` : ` #${id}`
-    return `${statusDot} ${typeLabel}${name}`
+    return `${typeLabel}${name}`
   }
 
   const floatingIds = new Set(floatingPanels.map(p => p.id))
@@ -530,7 +518,7 @@ export default function CCRemoteController() {
       </div>
 
       {selectedInventory && (
-        <div>
+        <div style={{ position: 'relative', zIndex: 1, pointerEvents: 'auto' }}>
           <InventoryView
             inventory={selectedInventory}
             inventorySize={selectedInventorySize}

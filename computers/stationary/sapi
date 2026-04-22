@@ -16,9 +16,10 @@ locSemaphore = {
     count      = 0,
 }
 
-local headers = { ["Content-Type"] = "application/json" }
-local modem_device = nil
-local _sleep_mode  = false
+local headers        = { ["Content-Type"] = "application/json" }
+local modem_device   = nil
+local _sleep_mode    = false
+local _poll_interval = 1  -- current HTTP poll interval in seconds
 
 -- ─── Boot-time location capture ──────────────────────────────
 
@@ -68,7 +69,8 @@ function send_status_update()
     local payload = {
         id                   = os.getComputerID(),
         type                 = "stationary",
-        sleep                = _sleep_mode,
+        sleep_mode           = _sleep_mode,
+        poll_interval        = _poll_interval,
         loc                  = loc,
         has_modem_peripheral = modem_device ~= nil,
     }
@@ -93,6 +95,10 @@ end
 
 function set_sleep_mode(enabled)
     _sleep_mode = enabled
+end
+
+function set_poll_interval(seconds)
+    _poll_interval = seconds
 end
 
 -- ─── Chat helper ─────────────────────────────────────────────

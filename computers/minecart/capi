@@ -38,6 +38,7 @@ local state = {
   type                 = "minecart",
   loc                  = { x = 0, y = 0, z = 0 },
   sleep_mode           = false,
+  poll_interval        = 1,  -- current HTTP poll interval in seconds
   peripherals          = {},
   has_modem_peripheral = modem_device ~= nil,
 }
@@ -231,4 +232,8 @@ end
 
 function set_sleep_mode(mode)
   state.sleep_mode = mode
+end
+
+function set_poll_interval(seconds)
+  state.poll_interval = seconds
 end

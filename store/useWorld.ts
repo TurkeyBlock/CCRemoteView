@@ -11,7 +11,6 @@ interface WorldState {
   computers: Record<string, ComputerState>
   blocks: Record<string, Block>
   commandResult: Record<string, string>
-  onlineStatus: Record<string, boolean>
   URL: string
   apiURL: string
   textureURL: string
@@ -31,7 +30,6 @@ interface WorldState {
   sendChatMessage: (computerId: number, message: string) => void
   sendStopSignal: (computerId: number) => void
   clearCommandQueue: (computerId: number) => void
-  setModemEnabled: (computerId: number, enabled: boolean) => void
   removeComputer: (id: string | number) => void
   clearBlocks: () => void
 }
@@ -40,7 +38,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   computers: {},
   blocks: {},
   commandResult: {},
-  onlineStatus: {},
   URL: '',
   apiURL: 'api/',
   textureURL: 'textures/',
@@ -78,6 +75,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         || existing.sleep_mode !== computerState.sleep_mode
         || existing.via_modem !== computerState.via_modem
         || existing.rot !== computerState.rot
+        || existing.selectedSlot !== computerState.selectedSlot
         || locChanged
         || invChanged
         || entitiesChanged
@@ -173,10 +171,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
 
   clearCommandQueue: (computerId) => {
     get().wsSend?.({ type: 'clearCommandQueue', id: computerId })
-  },
-
-  setModemEnabled: (computerId, enabled) => {
-    get().wsSend?.({ type: 'setModemEnabled', id: computerId, enabled })
   },
 
   removeComputer: (id) => {

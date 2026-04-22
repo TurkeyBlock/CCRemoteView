@@ -90,13 +90,14 @@ end
 -- HTTP-based main loop with idle/sleep backoff.
 function main()
   local idle_seconds  = 0
-  local sleep_level   = 0  -- 0: active (5s), 1: light sleep (15s), 2: deep sleep (30s)
+  local sleep_level   = 0  -- 0: active (1s), 1: light sleep (15s), 2: deep sleep (30s)
   local prev_sleep_level = 0
   local modem_check_elapsed = 0
   local MODEM_CHECK_INTERVAL = 60
   capi.send_status_update()
   while true do
-    local wait_seconds = sleep_level == 2 and 30 or sleep_level == 1 and 15 or 5
+    local wait_seconds = sleep_level == 2 and 30 or sleep_level == 1 and 15 or 1
+    capi.set_poll_interval(wait_seconds)
     os.sleep(wait_seconds)
     get_command()
 
@@ -135,7 +136,7 @@ function main()
       elseif sleep_level == 1 then
         print("Entering light sleep - polling every 15 seconds")
       else
-        print("Exiting sleep mode - resuming normal polling every 5 seconds")
+        print("Exiting sleep mode - resuming normal polling every 1 second")
       end
       prev_sleep_level = sleep_level
       capi.set_sleep_mode(sleep_level > 0)

@@ -35,8 +35,6 @@ else
   print("GPS unavailable — modem will appear without location")
 end
 
-local register_json = textutils.serializeJSON({ id = MODEM_ID, loc = modem_loc })
-
 local REGISTER_URL  = BASE_URL .. "modem/register"
 local POLL_URL      = BASE_URL .. "poll"
 local COMPUTERS_URL = BASE_URL .. "modem/computers"
@@ -53,9 +51,10 @@ local function get_poll_interval()
   else return 1 end
 end
 
--- Fire-and-forget: notify the HTTP server this modem is alive.
+-- Fire-and-forget: notify the HTTP server this modem is alive, including current poll interval.
 local function register()
-  http.request(REGISTER_URL, register_json, headers)
+  local payload = textutils.serializeJSON({ id = MODEM_ID, loc = modem_loc, poll_interval = get_poll_interval() })
+  http.request(REGISTER_URL, payload, headers)
 end
 
 -- Synchronous seed at startup only — safe because the event loop hasn't started yet,

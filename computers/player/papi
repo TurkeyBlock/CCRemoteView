@@ -37,8 +37,8 @@ locSemaphore = {
     count      = 0,
 }
 
--- Cached sleep-mode flag (sent in status updates)
-local _sleep_mode = false
+local _sleep_mode    = false
+local _poll_interval = 1  -- current HTTP poll interval in seconds
 
 -- ─── GPS helpers ─────────────────────────────────────────────
 
@@ -56,7 +56,8 @@ function send_status_update()
     local payload = {
         id                   = os.getComputerID(),
         type                 = "player",
-        sleep                = _sleep_mode,
+        sleep_mode           = _sleep_mode,
+        poll_interval        = _poll_interval,
         loc                  = x and { x = math.floor(x), y = math.floor(y), z = math.floor(z) } or nil,
         has_modem_peripheral = _modem_device ~= nil,
     }
@@ -83,6 +84,10 @@ end
 
 function set_sleep_mode(enabled)
     _sleep_mode = enabled
+end
+
+function set_poll_interval(seconds)
+    _poll_interval = seconds
 end
 
 -- ─── Scan helper ─────────────────────────────────────────────

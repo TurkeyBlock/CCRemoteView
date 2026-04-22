@@ -23,7 +23,6 @@ const ComputerIdManager = require('./src/server/utils/computerIdManager.js');
 const CommandLineInterface = require('./src/server/utils/cmdLineInterface.js');
 
 const AUTOSAVE_INTERVAL_MIN = 5;
-const COMPUTER_STALE_MS = 30_000;
 const TRANSACTION_CACHE_COUNT = 10000;
 const GUEST_STATE_MIN_INTERVAL_MS = 30_000;
 const IS_PROD = process.env.NODE_ENV === 'production';
@@ -81,9 +80,8 @@ let chatQueue = {};
 let modemServerId = null;
 let modemServerIp = null;
 let lastKnownModemId = null; // persists through stale-clears so same modem reconnecting isn't treated as new
-let modemEnabled = {}; // { [id: string]: boolean } — server-controlled per-computer modem preference
+let modemEnabled = {}; // { [id: string]: boolean } — auto-enabled when modem peripheral detected
 let lastModemLastSeenBroadcast = 0;
-let onlineStatus = {};
 
 // Validate a computer ID: must be a non-negative integer ≤ 1 000 000.
 // Returns the numeric string form, or null if invalid.
@@ -112,7 +110,7 @@ try {
   state.lastTransactionId = 0;
   state.lastReadyTransactionId = 0;
   for (const [id, c] of Object.entries(state.computers || {})) {
-    if (c.modem_enabled !== undefined) modemEnabled[id] = c.modem_enabled;
+    if (c.has_modem_peripheral === true) modemEnabled[id] = true;
   }
 } catch { }
 
@@ -293,31 +291,6 @@ function broadcastTransaction(transaction) {
   broadcastToClients({ transactions: { [transaction.id]: transaction } });
 }
 
-function markComputerOnline(id) {
-  const sid = String(id);
-  if (onlineStatus[sid] !== true) {
-    onlineStatus[sid] = true;
-    broadcastToClients({ onlineStatus: { [sid]: true } });
-  }
-}
-
-function updateOnlineStatus() {
-  const now = Date.now();
-  const changes = {};
-  for (const [id, computer] of Object.entries(state.computers)) {
-    const online = computer.lastSeen !== undefined && (now - computer.lastSeen) < COMPUTER_STALE_MS;
-    if (onlineStatus[id] !== online) {
-      onlineStatus[id] = online;
-      changes[id] = online;
-    }
-  }
-  if (Object.keys(changes).length > 0) broadcastToClients({ onlineStatus: changes });
-}
-
-function checkStaleness() {
-  updateOnlineStatus();
-  setTimeout(checkStaleness, 5000);
-}
 
 // --- Core logic ---
 function applyTransaction(transaction, state, transactionCache) {
@@ -338,6 +311,22 @@ function extractState(computerState, state) {
   const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: {} };
 
   if (computerState.view) {
+    // Null out old adjacent positions that had inventory so stale indicators clear when the turtle moves/rotates.
+    const prev = state.computers[computerState.id];
+    if (prev?.loc) {
+      const { x: px, y: py, z: pz } = prev.loc;
+      let oldFrontKey;
+      switch (prev.rot) {
+        case 3: oldFrontKey = `${px},${py},${pz+1}`; break;
+        case 2: oldFrontKey = `${px+1},${py},${pz}`; break;
+        case 1: oldFrontKey = `${px},${py},${pz-1}`; break;
+        case 0: oldFrontKey = `${px-1},${py},${pz}`; break;
+      }
+      for (const oldKey of [`${px},${py+1},${pz}`, `${px},${py-1},${pz}`, oldFrontKey]) {
+        if (oldKey && state.world.blocks[oldKey]?.inventory) transaction.blocks[oldKey] = null;
+      }
+    }
+
     transaction.blocks[`${x},${y+1},${z}`] = computerState.view.top || null;
     transaction.blocks[`${x},${y-1},${z}`] = computerState.view.bottom || null;
 
@@ -531,7 +520,6 @@ nextApp.prepare().then(() => {
     const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: merged } };
     applyTransaction(transaction, state, transactionCache);
     state.lastReadyTransactionId++;
-    markComputerOnline(id);
     broadcastTransaction(transaction);
     res.sendStatus(200);
   });
@@ -603,14 +591,24 @@ nextApp.prepare().then(() => {
     modemServerId = id;
     modemServerIp = req.ip;
     lastKnownModemId = id;
+    const pollInterval = typeof req.body.poll_interval === 'number' ? req.body.poll_interval : undefined;
     if (isNew) {
       const prevLoc = state.computers[String(id)]?.loc;
       const loc = req.body.loc || prevLoc || undefined;
-      const modemState = { id: Number(id), type: 'modem', label: `Modem ${id}`, lastSeen: now, ...(loc && { loc }) };
+      const modemState = { id: Number(id), type: 'modem', label: `Modem ${id}`, lastSeen: now, ...(loc && { loc }), ...(pollInterval !== undefined && { poll_interval: pollInterval }) };
       const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: modemState } };
       applyTransaction(transaction, state, transactionCache);
       state.lastReadyTransactionId++;
       broadcastTransaction(transaction);
+    } else if (pollInterval !== undefined && state.computers[String(id)]) {
+      const sid = String(id);
+      if (state.computers[sid].poll_interval !== pollInterval) {
+        state.computers[sid].poll_interval = pollInterval;
+        const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [sid]: { ...state.computers[sid] } } };
+        applyTransaction(transaction, state, transactionCache);
+        state.lastReadyTransactionId++;
+        broadcastTransaction(transaction);
+      }
     }
     res.json({ ok: true });
   });
@@ -867,7 +865,6 @@ nextApp.prepare().then(() => {
     console.log(`[server] Listening on port ${PORT}${DEV_NO_AUTH && !IS_PROD ? ' (DEV_NO_AUTH — no auth enforced)' : ''}`);
   });
   autoSave();
-  checkStaleness();
 
   // --- Browser WebSocket server ---
   // Use noServer mode so we can filter out Next.js HMR upgrade requests
@@ -937,22 +934,6 @@ nextApp.prepare().then(() => {
           if (LOG_BROWSER_CMDS) log.info(`[ws] clearCommandQueue id=${id} user=${userSub}`);
           break;
         }
-        case 'setModemEnabled': {
-          const id = safeId(msg.id);
-          if (!id || typeof msg.enabled !== 'boolean') return;
-          modemEnabled[id] = msg.enabled;
-          if (state.computers[id]) {
-            state.computers[id].modem_enabled = msg.enabled;
-            const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: state.computers[id] } };
-            applyTransaction(transaction, state, transactionCache);
-            state.lastReadyTransactionId++;
-            broadcastTransaction(transaction);
-          }
-          if (!cmds[id]) cmds[id] = [];
-          cmds[id].push('os.reboot()');
-          log.info(`[ws] setModemEnabled id=${id} enabled=${msg.enabled} user=${userSub}`);
-          break;
-        }
       }
     });
     // Register handlers BEFORE sending so errors during send are caught.
@@ -965,7 +946,6 @@ nextApp.prepare().then(() => {
       browserClients.delete(ws);
       ws.terminate();
     });
-    ws.send(JSON.stringify({ onlineStatus }));
   });
 
   const terminator = httpTerminator.createHttpTerminator({ gracefulTerminationTimeout: 200, server });

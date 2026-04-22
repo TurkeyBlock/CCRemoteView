@@ -13,7 +13,6 @@ const TYPE_LABEL: Record<string, string> = {
 export default function ModemPanel({ computerId }: Props) {
   const computers = useWorldStore(s => s.computers)
   const modemServerId = useWorldStore(s => s.modemServerId)
-  const setModemEnabled = useWorldStore(s => s.setModemEnabled)
   const setSelectedComputerId = useWorldViewStore(s => s.setSelectedComputerId)
   const followComputer = useWorldViewStore(s => s.followComputer)
 
@@ -46,22 +45,19 @@ export default function ModemPanel({ computerId }: Props) {
           <div style={{ fontSize: '0.8em', color: 'gray', fontStyle: 'italic' }}>No computers registered.</div>
         ) : (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: '65px 30px 1fr 36px 28px', fontSize: '0.7em', color: 'gray', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 6px 3px', borderBottom: '1px solid #444', marginBottom: 2 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '65px 30px 1fr 36px', fontSize: '0.7em', color: 'gray', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 6px 3px', borderBottom: '1px solid #444', marginBottom: 2 }}>
               <span>Type</span>
               <span>ID</span>
               <span>Name</span>
-              <span>Modem</span>
-              <span></span>
+              <span>Via</span>
             </div>
             {clients.map(id => {
               const c = computers[id]
-              const hasPeripheral = c?.has_modem_peripheral === true
-              const modemEnabled = c?.modem_enabled !== false
               return (
                 <div
                   key={id}
                   onClick={() => selectComputer(id)}
-                  style={{ display: 'grid', gridTemplateColumns: '65px 30px 1fr 36px 28px', alignItems: 'center', fontSize: '0.85em', padding: '2px 6px', borderRadius: 3, cursor: 'pointer' }}
+                  style={{ display: 'grid', gridTemplateColumns: '65px 30px 1fr 36px', alignItems: 'center', fontSize: '0.85em', padding: '2px 6px', borderRadius: 3, cursor: 'pointer' }}
                 >
                   <span style={{ color: 'gray', fontSize: '0.9em' }}>{TYPE_LABEL[c?.type ?? ''] ?? 'Unknown'}</span>
                   <span style={{ color: 'rgb(120,180,240)', fontWeight: 'bold' }}>{id}</span>
@@ -69,19 +65,6 @@ export default function ModemPanel({ computerId }: Props) {
                   <span style={{ fontSize: '0.85em', color: c?.via_modem ? 'rgb(80,200,80)' : 'rgb(80,80,80)' }}>
                     {c?.via_modem ? '📡' : '⟳'}
                   </span>
-                  <label
-                    onClick={e => e.stopPropagation()}
-                    title={hasPeripheral ? 'Toggle modem mode (queues reboot)' : 'No modem peripheral detected'}
-                    style={{ display: 'flex', justifyContent: 'center', cursor: hasPeripheral ? 'pointer' : 'not-allowed' }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={modemEnabled}
-                      disabled={!hasPeripheral}
-                      onChange={e => setModemEnabled(id, e.target.checked)}
-                      style={{ cursor: hasPeripheral ? 'pointer' : 'not-allowed', accentColor: 'rgb(120,180,240)' }}
-                    />
-                  </label>
                 </div>
               )
             })}
