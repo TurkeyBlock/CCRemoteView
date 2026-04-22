@@ -66,6 +66,10 @@ function SceneSetup() {
   const exclMat = useRef<THREE.SpriteMaterial | null>(null)
   const entityGeom = useRef(new THREE.OctahedronGeometry(0.35))
   const prevViewMatrix = useRef(new THREE.Matrix4())
+  const computerAnimTargets = useRef<Record<string, { pos: THREE.Vector3; rot: number }>>({})
+
+  const MOVE_SPEED = 10  // blocks per second
+  const ROT_SPEED  = Math.PI * 4  // radians per second (~0.125 s per 90°)
 
   // ─── Camera / chunk helpers ────────────────────────────────────────────────
 
@@ -267,6 +271,7 @@ function SceneSetup() {
     const computerData = useWorldStore.getState().computers[computerId]
     if (!computerData?.loc) return
     if (computerData.type === 'minecart') {
+      // Minecarts swap world blocks at integer positions, so move them immediately.
       const oldX = Math.round(model.position.x)
       const oldY = Math.round(model.position.y)
       const oldZ = Math.round(model.position.z)
@@ -278,11 +283,15 @@ function SceneSetup() {
         chunkManager.current?.removeBlock(`${newX},${newY},${newZ}`)
       }
       model.rotation.set(0, 0, 0)
+      model.position.set(newX, newY, newZ)
+      model.updateMatrix()
     } else {
-      model.rotation.set(Math.PI / 2, 0, ((computerData.rot + 1) * Math.PI) / 2)
+      // For turtles/stationary computers, animate position and rotation smoothly.
+      const { x, y, z } = computerData.loc
+      const targetRot = ((computerData.rot + 1) * Math.PI) / 2
+      computerAnimTargets.current[computerId] = { pos: new THREE.Vector3(x, y, z), rot: targetRot }
+      invalidate()
     }
-    model.position.set(computerData.loc.x, computerData.loc.y, computerData.loc.z)
-    model.updateMatrix()
   }
 
   function removeComputerModel(computerId: string) {
@@ -318,6 +327,7 @@ function SceneSetup() {
     invGroup.current.remove(...[...invGroup.current.children])
     invSprites.current.clear()
     entityMeshes.current = {}
+    computerAnimTargets.current = {}
     useWorldViewStore.setState({ computerModels: {} })
 
     // Lighting
@@ -505,6 +515,38 @@ function SceneSetup() {
       }
       state.invalidate()
     }
+
+    // Smooth computer movement: lerp each model toward its target pos/rot.
+    const targets = computerAnimTargets.current
+    const models = wv.computerModels
+    let anyMoving = false
+    for (const id of Object.keys(targets)) {
+      const model = models[id]
+      if (!model) { delete targets[id]; continue }
+      const { pos, rot } = targets[id]
+
+      const dist = model.position.distanceTo(pos)
+      let diff = rot - model.rotation.z
+      // Take the shortest angular path.
+      if (diff >  Math.PI) diff -= 2 * Math.PI
+      if (diff < -Math.PI) diff += 2 * Math.PI
+
+      const posClose = dist   < 0.005
+      const rotClose = Math.abs(diff) < 0.005
+
+      if (posClose && rotClose) {
+        model.position.copy(pos)
+        model.rotation.z = rot
+        model.updateMatrix()
+        delete targets[id]
+      } else {
+        if (!posClose) model.position.lerp(pos, Math.min(dist, MOVE_SPEED * delta) / dist)
+        if (!rotClose) model.rotation.z += Math.min(Math.abs(diff), ROT_SPEED * delta) * Math.sign(diff)
+        model.updateMatrix()
+        anyMoving = true
+      }
+    }
+    if (anyMoving) state.invalidate()
 
     // Only recalculate chunk visibility when the camera has actually moved.
     state.camera.updateMatrixWorld()

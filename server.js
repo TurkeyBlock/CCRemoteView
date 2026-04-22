@@ -546,11 +546,14 @@ nextApp.prepare().then(() => {
     if (computerId === null) return res.status(400).json({ error: 'invalid computerId' });
     const result = req.body.result;
     if (JSON.stringify(result).length > 100_000) return res.status(400).json({ error: 'result too large' });
-    console.log(`[${new Date().toISOString()}] Computer ${computerId} sent command result:`, result);
+    const actionSeq = typeof req.body.actionSeq === 'number' ? req.body.actionSeq : undefined;
+    console.log(`[${new Date().toISOString()}] Computer ${computerId} sent command result (seq=${actionSeq ?? '?'}):`, result);
     if (!commandResultCache[computerId]) commandResultCache[computerId] = [];
     commandResultCache[computerId].push(result);
     if (commandResultCache[computerId].length > CMD_RESULT_CACHE_MAX) commandResultCache[computerId].shift();
-    broadcastToClients({ commandResult: { computerId, result } });
+    const broadcast = { computerId, result };
+    if (actionSeq !== undefined) broadcast.actionSeq = actionSeq;
+    broadcastToClients({ commandResult: broadcast });
     res.sendStatus(200);
   });
 

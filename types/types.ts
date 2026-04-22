@@ -22,6 +22,7 @@ interface ComputerState {
     entities?: EntitySighting[],
     chatLog?: ChatMessage[],
     peripherals?: string[],
+    actionSeq?: number,
 }
 
 interface EntitySighting {

@@ -56,6 +56,7 @@ local state = {
   sleep_mode    = false,
   poll_interval = 1,  -- current HTTP poll interval in seconds
   has_modem_peripheral = modem_device ~= nil,
+  actionSeq = 0,  -- monotonic counter incremented on each completed command; lets the browser discard late-arriving state updates
 }
 -- semaphore implementation
 local lmetatable = {
@@ -121,13 +122,15 @@ end
 
 -- Send a command result to the server.
 function send_command_result(succ, ret)
+  state.actionSeq = state.actionSeq + 1  -- advance before sending so the matching state update carries the same seq
+  local seq = state.actionSeq
   local data
   local ok = pcall(function()
     textutils.serializeJSON({ result = { succ = succ, ret = ret } })  -- test serializability
-    data = { computerId = os.getComputerID(), result = { succ = succ, ret = ret } }
+    data = { computerId = os.getComputerID(), result = { succ = succ, ret = ret }, actionSeq = seq }
   end)
   if not ok then
-    data = { computerId = os.getComputerID(), result = { succ = false, ret = "error: result not serializable" } }
+    data = { computerId = os.getComputerID(), result = { succ = false, ret = "error: result not serializable" }, actionSeq = seq }
   end
   local json = textutils.serializeJSON(data)
   local res = http.post(url .. "commandResult", json, headers)

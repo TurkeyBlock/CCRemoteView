@@ -28,6 +28,7 @@ export default function ComputerPanel({ computerId }: Props) {
   if (computer?.type === 'modem') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <PollTimers computerId={computerId} />
         <ModemPanel computerId={computerId} />
       </div>
     )

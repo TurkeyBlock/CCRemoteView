@@ -7,6 +7,13 @@ function worldView() {
   return (require('./useWorldView') as typeof import('./useWorldView')).useWorldViewStore.getState()
 }
 
+// Per-computer high-water mark for actionSeq numbers.
+// Module-level (not Zustand) so updates never cause re-renders.
+// Exported so CCRemoteController can advance it from commandResult broadcasts
+// before the matching state transaction arrives, preventing even a brief flash
+// of the stale position.
+export const maxActionSeqPerComputer: Record<string, number> = {}
+
 interface WorldState {
   computers: Record<string, ComputerState>
   blocks: Record<string, Block>
@@ -58,6 +65,26 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       const computerState = remoteComputerState[id]
       const existing = state.computers[id]
       if (!existing) firstNewId = parseInt(id)
+
+      // Out-of-order state filtering: discard state updates whose actionSeq is
+      // below the highest we have already applied for this computer.
+      const incomingSeq = typeof computerState.actionSeq === 'number' ? computerState.actionSeq : undefined
+      if (incomingSeq !== undefined) {
+        if (incomingSeq === 0) {
+          delete maxActionSeqPerComputer[id]  // computer rebooted — reset tracking
+        } else {
+          const maxSeq = maxActionSeqPerComputer[id] ?? 0
+          if (incomingSeq < maxSeq) {
+            console.warn(
+              `[actionSeq] Discarding out-of-order state for computer ${id}: ` +
+              `seq=${incomingSeq} arrived after seq=${maxSeq}`,
+              { loc: computerState.loc, rot: computerState.rot, actionSeq: incomingSeq }
+            )
+            continue
+          }
+          maxActionSeqPerComputer[id] = incomingSeq
+        }
+      }
 
       const inv = computerState.inv ? [...computerState.inv] : undefined
       if (inv) for (let i = 0; i < inv.length; i++) if (inv[i] === 0) inv[i] = undefined

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { useWorldStore } from '@/store/useWorld'
+import { useWorldStore, maxActionSeqPerComputer } from '@/store/useWorld'
 import { useWorldViewStore } from '@/store/useWorldView'
 import { useUserStore } from '@/store/useUser'
 import ComputerPanel from './computers/ComputerPanel'
@@ -275,7 +275,14 @@ export default function CCRemoteController() {
       const w = useWorldStore.getState()
       const view = useWorldViewStore.getState()
       if (data.commandResult) {
-        const { computerId, result } = data.commandResult
+        const { computerId, result, actionSeq } = data.commandResult
+        // Advance the high-water mark immediately so any state transaction that
+        // arrives between now and the matching /api/state update is already
+        // recognised as stale before setComputerStatus sees it.
+        if (typeof actionSeq === 'number' && actionSeq > 0) {
+          const cid = String(computerId)
+          if ((maxActionSeqPerComputer[cid] ?? 0) < actionSeq) maxActionSeqPerComputer[cid] = actionSeq
+        }
         if (result != null)
           useWorldStore.setState(s => ({ commandResult: { ...s.commandResult, [computerId]: result.ret } }))
       }

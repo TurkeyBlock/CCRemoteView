@@ -41,7 +41,22 @@ export default function PollTimers({ computerId }: Props) {
     return () => clearInterval(id)
   }, [])
 
-  if (!computer || computer.type === 'modem') return null
+  if (!computer) return null
+
+  // ── Modem device: only show its own HTTP poll countdown ──────────────────
+  if (computer.type === 'modem') {
+    const interval = computer.poll_interval ?? 1
+    const lastSeen = computer.lastSeen ?? 0
+    const pollLabel = interval <= 1 ? '~1s' : fmtCountdown((lastSeen + interval * 1000) - now)
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 2 }}>
+        <div style={ROW}>
+          <span style={LABEL}>Next poll</span>
+          <span style={VALUE}>{pollLabel}</span>
+        </div>
+      </div>
+    )
+  }
 
   const lastSeen      = computer.lastSeen ?? 0
   const viaModem      = !!computer.via_modem
@@ -56,20 +71,10 @@ export default function PollTimers({ computerId }: Props) {
   let pollLabel: string
   if (viaModem) {
     // Poll is driven by the modem server's own HTTP poll cycle
-    if (modemPollInterval <= 1) {
-      pollLabel = '~1s'
-    } else {
-      const ms = (modemLastSeen + modemPollInterval * 1000) - now
-      pollLabel = fmtCountdown(ms)
-    }
+    pollLabel = modemPollInterval <= 1 ? '~1s' : fmtCountdown((modemLastSeen + modemPollInterval * 1000) - now)
   } else {
     const interval = computer.poll_interval ?? 1
-    if (interval <= 1) {
-      pollLabel = '~1s'
-    } else {
-      const ms = (lastSeen + interval * 1000) - now
-      pollLabel = fmtCountdown(ms)
-    }
+    pollLabel = interval <= 1 ? '~1s' : fmtCountdown((lastSeen + interval * 1000) - now)
   }
 
   // ── Timer 2: modem check ─────────────────────────────────────────────────
@@ -87,12 +92,8 @@ export default function PollTimers({ computerId }: Props) {
       </div>
     )
   } else if (viaModem) {
-    // Case B: time until next heartbeat expected from modem server
-    // The heartbeat resets the HEARTBEAT_WINDOW timer on the computer side.
-    // We approximate from modemLastSeen: the modem sends heartbeats every MODEM_HEARTBEAT_INTERVAL_S.
+    // Case B: time until next heartbeat from modem server (approximated from modem's lastSeen)
     const msToNextHB = (modemLastSeen + MODEM_HEARTBEAT_INTERVAL_S * 1000) - now
-    const windowMs   = MODEM_HEARTBEAT_WINDOW_S * 1000
-    const missMs     = windowMs * MODEM_MAX_MISSES
     modemCheckRow = (
       <div style={ROW}>
         <span style={LABEL}>Next heartbeat</span>
