@@ -4,10 +4,7 @@ import { useState } from 'react'
 import { useWorldStore } from '@/store/useWorld'
 import { useWorldViewStore } from '@/store/useWorldView'
 import LuaTerminal from '../LuaTerminal'
-import ComputerLocation from '../ComputerLocation'
-import ButtonGrid from '../ButtonGrid'
-import ScrollList from '../ScrollList'
-import { btn, activeBtn, missingBtn, colors, inputStyle } from '../computerStyles'
+import { Section } from '@/components/ui'
 
 interface Props { computerId: number }
 
@@ -40,49 +37,75 @@ export default function MinecartPanel({ computerId }: Props) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <ComputerLocation loc={computer.loc} />
-      <ButtonGrid columns={3}>
-        <input
-          type="number" min={-2} max={2}
-          value={propelPower}
-          onChange={e => setPropelPower(Number(e.target.value))}
-          style={{ ...inputStyle, padding: '8px 4px', textAlign: 'center' }}
-        />
-        <button style={hasKinetic ? btn : missingBtn} onClick={() => sendCommand(computerId, `return capi.propel(${propelPower})`)}>Propel</button>
-        <button style={hasKinetic ? (loopPropelActive ? activeBtn : btn) : missingBtn} onClick={toggleLoopPropel}>
-          Loop Propel: {loopPropelActive ? 'ON' : 'OFF'}
-        </button>
-        <button style={hasScanner ? btn : missingBtn} onClick={() => loopPropelActive ? sendSideCommand(computerId, 'return capi.scan()') : sendCommand(computerId, 'return capi.scan()')}>Block Scan</button>
-        <button style={hasSensor ? btn : missingBtn} onClick={() => loopPropelActive ? sendSideCommand(computerId, 'return capi.sense()') : sendCommand(computerId, 'return capi.sense()')}>Entity Scan</button>
-        <button style={btn} onClick={() => focusOnComputer(computerId)}>Focus Camera</button>
-        <button style={isFollowing ? activeBtn : btn} onClick={() => followComputer(computerId)}>Toggle Follow</button>
-        <button style={btn} onClick={() => sendStopSignal(computerId)}>🛑 Stop 🛑</button>
-      </ButtonGrid>
+    <div className="group">
+      <Section label="Propulsion">
+        <div className="btn-row-3">
+          <input
+            type="number" min={-2} max={2}
+            value={propelPower}
+            onChange={e => setPropelPower(Number(e.target.value))}
+            className="input"
+            style={{ textAlign: 'center', padding: '4px' }}
+          />
+          <button
+            className={`btn btn-compact${hasKinetic ? '' : ' btn-disabled'}`}
+            onClick={() => sendCommand(computerId, `return capi.propel(${propelPower})`)}
+          >Propel</button>
+          <button
+            className={`btn btn-compact${hasKinetic ? (loopPropelActive ? ' btn-toggled' : '') : ' btn-disabled'}`}
+            onClick={toggleLoopPropel}
+          >Loop: {loopPropelActive ? 'ON' : 'OFF'}</button>
+        </div>
+      </Section>
+
+      <Section label="Actions">
+        <div className="btn-row-2">
+          <button
+            className={`btn btn-compact${hasScanner ? '' : ' btn-disabled'}`}
+            onClick={() => loopPropelActive ? sendSideCommand(computerId, 'return capi.scan()') : sendCommand(computerId, 'return capi.scan()')}
+          >Block Scan</button>
+          <button
+            className={`btn btn-compact${hasSensor ? '' : ' btn-disabled'}`}
+            onClick={() => loopPropelActive ? sendSideCommand(computerId, 'return capi.sense()') : sendCommand(computerId, 'return capi.sense()')}
+          >Entity Scan</button>
+          <button className="btn btn-compact" onClick={() => focusOnComputer(computerId)}>Focus</button>
+          <button
+            className={`btn btn-compact${isFollowing ? ' btn-toggled' : ''}`}
+            onClick={() => followComputer(computerId)}
+          >{isFollowing ? 'Unfollow' : 'Follow'}</button>
+          <button className="btn btn-compact btn-danger" onClick={() => sendStopSignal(computerId)}>Stop</button>
+        </div>
+      </Section>
 
       {computer.entities && computer.entities.length > 0 && (
-        <ScrollList label="Nearby Entities" count={computer.entities.length}>
-          {computer.entities.map(e => (
-            <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8em', color: colors.text, gap: 8 }}>
-              <span style={{ color: colors.textName, whiteSpace: 'nowrap' }}>{e.name}</span>
-              <span style={{ color: 'gray', fontSize: '0.9em' }}>{e.x.toFixed(1)}, {e.y.toFixed(1)}, {e.z.toFixed(1)}</span>
-            </div>
-          ))}
-        </ScrollList>
+        <Section label={`Entities (${computer.entities.length})`}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 160, overflowY: 'auto' }}>
+            {computer.entities.map(e => (
+              <div key={e.id} className="row-between" style={{ fontSize: 12 }}>
+                <span style={{ color: 'var(--cyan)', whiteSpace: 'nowrap' }}>{e.name}</span>
+                <span className="muted" style={{ fontSize: 11 }}>{e.x.toFixed(1)}, {e.y.toFixed(1)}, {e.z.toFixed(1)}</span>
+              </div>
+            ))}
+          </div>
+        </Section>
       )}
 
       {computer.chatLog && computer.chatLog.length > 0 && (
-        <ScrollList label="Chat Log">
-          {[...computer.chatLog].reverse().slice(0, 20).map((msg, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8em', color: colors.text, gap: 8 }}>
-              <span style={{ color: colors.textName, whiteSpace: 'nowrap' }}>{msg.player}:</span>
-              <span style={{ color: colors.textLight, flex: 1 }}>{msg.message}</span>
-            </div>
-          ))}
-        </ScrollList>
+        <Section label="Chat Log">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 120, overflowY: 'auto' }}>
+            {[...computer.chatLog].reverse().slice(0, 20).map((msg, i) => (
+              <div key={i} className="row-between" style={{ fontSize: 12 }}>
+                <span style={{ color: 'var(--cyan)', whiteSpace: 'nowrap' }}>{msg.player}:</span>
+                <span className="muted" style={{ flex: 1 }}>{msg.message}</span>
+              </div>
+            ))}
+          </div>
+        </Section>
       )}
 
-      <LuaTerminal computerId={computerId} />
+      <Section label="Terminal">
+        <LuaTerminal computerId={computerId} />
+      </Section>
     </div>
   )
 }

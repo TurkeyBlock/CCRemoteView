@@ -570,7 +570,7 @@ export default function Scene() {
   return (
     <Canvas
       frameloop="demand"
-      style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 0 }}
+      style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
       camera={{ fov: 45, near: 1, far: 10000, position: [-4, 5, -10] }}
     >
       <SceneSetup />

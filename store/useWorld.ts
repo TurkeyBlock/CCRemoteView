@@ -99,7 +99,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         || existing.fuelLevel !== computerState.fuelLevel
         || existing.label !== computerState.label
         || existing.type !== computerState.type
-        || existing.sleep_mode !== computerState.sleep_mode
+        || existing.ws_connected !== computerState.ws_connected
         || existing.via_modem !== computerState.via_modem
         || existing.rot !== computerState.rot
         || existing.selectedSlot !== computerState.selectedSlot

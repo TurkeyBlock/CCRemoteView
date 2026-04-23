@@ -14,8 +14,13 @@ import AdminPanel from './staticGui/AdminPanel'
 import OperatorRequest from './staticGui/OperatorRequest'
 import BlockTransparency from './staticGui/BlockTransparency'
 import RenderFilters from './staticGui/RenderFilters'
+import { Led } from './ui'
 
 interface FloatingPanel { id: number; x: number; y: number }
+
+const TYPE_SHORT: Record<string, string> = {
+  minecart: 'MC', modem: 'Mdm', turtle: 'T', player: 'Ply', stationary: 'Sta',
+}
 
 export default function CCRemoteController() {
   const isLoading = useWorldStore(s => s.isLoading)
@@ -29,11 +34,10 @@ export default function CCRemoteController() {
   const isOperator = useUserStore(s => s.isOperator)
   const isAdmin = useUserStore(s => s.isAdmin)
 
-  const [manualX, setManualX] = useState<number | null>(null)
-  const [manualZ, setManualZ] = useState<number | null>(null)
   const [isGuest, setIsGuest] = useState(false)
   const [guestRefreshDisabled, setGuestRefreshDisabled] = useState(false)
-
+  const [wsConnected, setWsConnected] = useState(false)
+  const [dockCollapsed, setDockCollapsed] = useState(false)
   const [tabOrder, setTabOrder] = useState<number[]>([])
   const [floatingPanels, setFloatingPanels] = useState<FloatingPanel[]>([])
   const [panelZIndexes, setPanelZIndexes] = useState<Record<number, number>>({})
@@ -42,6 +46,8 @@ export default function CCRemoteController() {
   const [addOpen, setAddOpen] = useState(false)
   const [addSearch, setAddSearch] = useState('')
   const addRef = useRef<HTMLDivElement>(null)
+  const addBtnRef = useRef<HTMLButtonElement>(null)
+  const [addPos, setAddPos] = useState({ top: 0, left: 0 })
   const [contextMenu, setContextMenu] = useState<{ id: number; x: number; y: number } | null>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
 
@@ -72,48 +78,35 @@ export default function CCRemoteController() {
 
   const computerIds = Object.keys(computers).map(Number).sort((a, b) => a - b)
 
-  // Keep tabOrder in sync with computerIds: remove stale only, never auto-add
   useEffect(() => {
     const currSet = new Set(computerIds)
     setTabOrder(prev => prev.filter(id => currSet.has(id)))
     setFloatingPanels(prev => prev.filter(p => computerIds.includes(p.id)))
   }, [JSON.stringify(computerIds)]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Close add-dropdown on outside click
   useEffect(() => {
     if (!addOpen) return
     function handleClick(e: MouseEvent) {
       if (addRef.current && !addRef.current.contains(e.target as Node)) {
-        setAddOpen(false)
-        setAddSearch('')
+        setAddOpen(false); setAddSearch('')
       }
     }
     window.addEventListener('mousedown', handleClick)
     return () => window.removeEventListener('mousedown', handleClick)
   }, [addOpen])
 
-  // Close context menu on outside click or Escape
   useEffect(() => {
     if (!contextMenu) return
     function handleClick(e: MouseEvent) {
-      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node))
-        setContextMenu(null)
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) setContextMenu(null)
     }
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setContextMenu(null)
-    }
+    function handleKey(e: KeyboardEvent) { if (e.key === 'Escape') setContextMenu(null) }
     window.addEventListener('mousedown', handleClick)
     window.addEventListener('keydown', handleKey)
-    return () => {
-      window.removeEventListener('mousedown', handleClick)
-      window.removeEventListener('keydown', handleKey)
-    }
+    return () => { window.removeEventListener('mousedown', handleClick); window.removeEventListener('keydown', handleKey) }
   }, [contextMenu])
 
-  function onTabDragStart(idx: number) {
-    draggedIdxRef.current = idx
-  }
-
+  function onTabDragStart(idx: number) { draggedIdxRef.current = idx }
   function onTabDragOver(e: React.DragEvent, idx: number) {
     e.preventDefault()
     if (draggedIdxRef.current === null || draggedIdxRef.current === idx) return
@@ -125,27 +118,20 @@ export default function CCRemoteController() {
       return next
     })
   }
-
-  function onTabDragEnd() {
-    draggedIdxRef.current = null
-  }
+  function onTabDragEnd() { draggedIdxRef.current = null }
 
   function detachTab(id: number) {
     setFloatingPanels(prev => {
       if (prev.some(p => p.id === id)) return prev
       const offset = prev.length * 24
-      return [...prev, { id, x: 320 + offset, y: 60 + offset }]
+      return [...prev, { id, x: 380 + offset, y: 60 + offset }]
     })
     topZRef.current += 1
     setPanelZIndexes(prev => ({ ...prev, [id]: topZRef.current }))
-    if (selectedComputerId === id) {
-      useWorldViewStore.setState({ selectedComputerId: -1 })
-    }
+    if (selectedComputerId === id) useWorldViewStore.setState({ selectedComputerId: -1 })
   }
 
-  function dockPanel(id: number) {
-    setFloatingPanels(prev => prev.filter(p => p.id !== id))
-  }
+  function dockPanel(id: number) { setFloatingPanels(prev => prev.filter(p => p.id !== id)) }
 
   function bringToFront(id: number) {
     topZRef.current += 1
@@ -155,8 +141,7 @@ export default function CCRemoteController() {
 
   function addTab(id: number) {
     setTabOrder(prev => prev.includes(id) ? prev : [...prev, id])
-    setAddOpen(false)
-    setAddSearch('')
+    setAddOpen(false); setAddSearch('')
     useWorldViewStore.setState({ selectedComputerId: id })
   }
 
@@ -168,34 +153,17 @@ export default function CCRemoteController() {
 
   function startPanelDrag(e: React.MouseEvent, panelId: number) {
     e.preventDefault()
-    const startX = e.clientX
-    const startY = e.clientY
+    const startX = e.clientX; const startY = e.clientY
     const panel = floatingPanels.find(p => p.id === panelId)
     if (!panel) return
-    const initX = panel.x
-    const initY = panel.y
+    const initX = panel.x; const initY = panel.y
     function onMove(ev: MouseEvent) {
       setFloatingPanels(prev => prev.map(p =>
         p.id === panelId ? { ...p, x: initX + ev.clientX - startX, y: initY + ev.clientY - startY } : p
       ))
     }
-    function onUp() {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }
-
-  function applyManualCenter() {
-    const wv = useWorldViewStore.getState()
-    if (manualX !== null && manualZ !== null) {
-      useWorldViewStore.setState({ manualCenter: { x: manualX, z: manualZ } })
-      wv.setCameraFocus(new THREE.Vector3(manualX, 64, manualZ))
-    } else {
-      useWorldViewStore.setState({ manualCenter: null })
-    }
-    wv.regenerateSceneFromBlocks()
+    function onUp() { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+    window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
   }
 
   async function pollModemStatus() {
@@ -212,10 +180,7 @@ export default function CCRemoteController() {
   function startGuestCooldown(seconds: number) {
     setGuestRefreshDisabled(true)
     if (guestRefreshTimerRef.current) clearTimeout(guestRefreshTimerRef.current)
-    guestRefreshTimerRef.current = setTimeout(() => {
-      setGuestRefreshDisabled(false)
-      guestRefreshTimerRef.current = null
-    }, seconds * 1000)
+    guestRefreshTimerRef.current = setTimeout(() => { setGuestRefreshDisabled(false); guestRefreshTimerRef.current = null }, seconds * 1000)
   }
 
   async function loadGuestState() {
@@ -224,8 +189,7 @@ export default function CCRemoteController() {
     if (!res) return
     if (res.status === 429) {
       const data = await res.json().catch(() => ({}))
-      startGuestCooldown(data.retryAfter ?? 30)
-      return
+      startGuestCooldown(data.retryAfter ?? 30); return
     }
     const data = await res.json().catch(() => null)
     if (!data) return
@@ -243,10 +207,8 @@ export default function CCRemoteController() {
         setTabOrder(prev => prev.includes(autoId) ? prev : [...prev, autoId])
       }
     }
-    // Get a fresh reference so we call the real Scene callbacks, not the initial no-ops.
     const view = useWorldViewStore.getState()
-    view.regenerateSceneFromBlocks()
-    view.render()
+    view.regenerateSceneFromBlocks(); view.render()
     useWorldStore.setState({ isLoading: false })
     startGuestCooldown(30)
   }
@@ -256,35 +218,26 @@ export default function CCRemoteController() {
     const wsUrl = w.URL
       ? w.URL.replace(/^http/, 'ws')
       : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
-
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
     ws.onopen = () => {
       wsBackoffRef.current = 1000
-      console.log('[ws] WebSocket connected to', wsUrl)
+      setWsConnected(true)
       useWorldStore.setState({ wsSend: (msg: object) => ws.send(JSON.stringify(msg)) })
-      if (!wsInitialStateLoadedRef.current) {
-        wsInitialStateLoadedRef.current = true
-        loadGuestState()
-      }
+      if (!wsInitialStateLoadedRef.current) { wsInitialStateLoadedRef.current = true; loadGuestState() }
     }
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data)
-      const w = useWorldStore.getState()
-      const view = useWorldViewStore.getState()
+      const w = useWorldStore.getState(); const view = useWorldViewStore.getState()
       if (data.commandResult) {
         const { computerId, result, actionSeq } = data.commandResult
-        // Advance the high-water mark immediately so any state transaction that
-        // arrives between now and the matching /api/state update is already
-        // recognised as stale before setComputerStatus sees it.
         if (typeof actionSeq === 'number' && actionSeq > 0) {
           const cid = String(computerId)
           if ((maxActionSeqPerComputer[cid] ?? 0) < actionSeq) maxActionSeqPerComputer[cid] = actionSeq
         }
-        if (result != null)
-          useWorldStore.setState(s => ({ commandResult: { ...s.commandResult, [computerId]: result.ret } }))
+        if (result != null) useWorldStore.setState(s => ({ commandResult: { ...s.commandResult, [computerId]: result.ret } }))
       }
       if (data.state) {
         const alreadyCurrent = data.state.lastTransactionId === w.lastTransactionId
@@ -297,29 +250,23 @@ export default function CCRemoteController() {
           if (!hasCoords(freshComputers[view.selectedComputerId])) {
             const entry = Object.entries(freshComputers).find(([, c]) => hasCoords(c))
             if (entry) {
-        const autoId = Number(entry[0])
-        useWorldViewStore.setState({ selectedComputerId: autoId })
-        setTabOrder(prev => prev.includes(autoId) ? prev : [...prev, autoId])
-      }
+              const autoId = Number(entry[0])
+              useWorldViewStore.setState({ selectedComputerId: autoId })
+              setTabOrder(prev => prev.includes(autoId) ? prev : [...prev, autoId])
+            }
           }
           view.regenerateSceneFromBlocks()
         }
-      } else if (data.transactions) {
-        w.applyTransactions(data.transactions)
-      }
+      } else if (data.transactions) { w.applyTransactions(data.transactions) }
       view.render()
       if (w.isLoading) useWorldStore.setState({ isLoading: false })
     }
 
     ws.onclose = (event) => {
-      console.log(`[ws] WebSocket closed — code: ${event.code}, reason: '${event.reason}', wasClean: ${event.wasClean}`)
+      setWsConnected(false)
       useWorldStore.setState({ wsSend: null })
       if (event.code === 4401) {
-        console.log("Guest Mode");
-        setIsGuest(true)
-        useUserStore.getState().stopPolling()
-        loadGuestState()
-        return
+        setIsGuest(true); useUserStore.getState().stopPolling(); loadGuestState(); return
       }
       const delay = wsBackoffRef.current
       wsBackoffRef.current = Math.min(wsBackoffRef.current * 2, 10000)
@@ -344,269 +291,298 @@ export default function CCRemoteController() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const modemOnline = modemServerId !== null
-
-  function computerLabel(id: number) {
-    const c = computers[id]
-    if (!c) return String(id)
-    const typeLabel = c.type === 'minecart' ? 'Minecart' : c.type === 'modem' ? 'Modem' : 'Turtle'
-    const modemSuffix = c.type === 'modem' ? (modemOnline ? ' [online]' : ' [offline]') : ''
-    const statusSuffix = c.type !== 'modem' ? `${c.via_modem ? ' 📡' : ''}${c.sleep_mode ? ' 💤' : ''}` : ''
-    return `${typeLabel} ${id}${modemSuffix}${statusSuffix} : ${c.label ?? ''}`
-  }
-
-  function tabLabel(id: number) {
-    const c = computers[id]
-    if (!c) return `#${id}`
-    const typeLabel = c.type === 'minecart' ? 'MC' : c.type === 'modem' ? 'Mdm' : 'T'
-    const name = c.label ? ` ${c.label}` : ` #${id}`
-    return `${typeLabel}${name}`
-  }
-
   const floatingIds = new Set(floatingPanels.map(p => p.id))
   const dockedSelectedId = floatingIds.has(selectedComputerId) ? -1 : selectedComputerId
+  const tabComputers = tabOrder.map(id => computers[id]).filter(Boolean)
+  const nonModemCount = Object.values(computers).filter(c => c?.type !== 'modem').length
+  const viaModemCount = Object.values(computers).filter(c => c?.via_modem).length
+
+  function computerName(id: number) {
+    const c = computers[id]
+    return c?.label ? c.label : `#${id}`
+  }
+
+  function computerTitle(id: number) {
+    const c = computers[id]
+    if (!c) return `#${id}`
+    const type = c.type ?? 'turtle'
+    return `${type.charAt(0).toUpperCase()}${type.slice(1)} #${id}${c.label ? ` · ${c.label}` : ''}`
+  }
 
   return (
-    <div style={{ position: 'absolute', display: 'grid', userSelect: 'none', pointerEvents: 'none' }}>
-      {isLoading && (
-        <h1 style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', color: 'white' }}>
-          LOADING ... (depending on the number of blocks this might take some seconds)
-        </h1>
-      )}
+    <div className="app">
+      {/* ── Top bar ───────────────────────────────────────── */}
+      <div className="panel topbar">
+        <a className="brand" href="/api/home" title="turkeyblock.org">
+          <span className="brand-mark">T</span>
+          <span className="brand-text">
+            <span className="brand-text-primary">turkeyblock.org</span>
+            <span className="brand-text-secondary">CC Remote</span>
+          </span>
+        </a>
 
-      <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 10, position: 'relative', zIndex: 1 }}>
-        {/* Panel Left */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 240, background: 'rgb(30,30,30)', border: '1px solid rgb(70,70,70)', borderRadius: 6, padding: '8px 12px', pointerEvents: 'auto' }}>
-          <a href="/api/home" style={{ color: 'darkgray', fontSize: '0.85em', textDecoration: 'none' }}>← turkeyblock.org</a>
-          <div style={{ fontSize: '0.75em', letterSpacing: '0.03em', color: modemOnline ? 'rgb(80,200,80)' : 'rgb(120,120,120)' }}>
-            📡 Modem: {modemOnline ? `online (id ${modemServerId})` : 'offline'}
+        <button
+          onClick={() => setDockCollapsed(d => !d)}
+          title={dockCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+          style={{
+            background: 'none', border: 'none', borderRight: 'var(--border)',
+            color: 'var(--fg-dim)', cursor: 'pointer', padding: '0 8px',
+            fontSize: 13, lineHeight: 1, alignSelf: 'stretch',
+            display: 'flex', alignItems: 'center',
+          }}
+        >{dockCollapsed ? '›' : '‹'}</button>
+
+        <div className="topbar-section sys-stats">
+          <div className="sys-stat">
+            <Led kind={modemOnline ? 'on' : 'off'} />
+            <span className="sys-stat-k">Modem</span>
+            <span className="sys-stat-v">{modemOnline ? `online · #${modemServerId}` : 'offline'}</span>
           </div>
-
-          {/* Tab strip */}
-          <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 2, marginBottom: 2, alignItems: 'flex-start' }}>
-            {tabOrder.map((id, idx) => {
-              const isFloating = floatingIds.has(id)
-              const isSelected = selectedComputerId === id && !isFloating
-              return (
-                <div
-                  key={id}
-                  draggable
-                  onDragStart={() => onTabDragStart(idx)}
-                  onDragOver={e => onTabDragOver(e, idx)}
-                  onDragEnd={onTabDragEnd}
-                  onClick={() => {
-                    if (isFloating) {
-                      bringToFront(id)
-                    } else {
-                      useWorldViewStore.setState({ selectedComputerId: isSelected ? -1 : id })
-                    }
-                  }}
-                  onContextMenu={e => { e.preventDefault(); setContextMenu({ id, x: e.clientX, y: e.clientY }) }}
-                  title={computerLabel(id)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 3,
-                    padding: '0 7px', borderRadius: 4, height: 22, boxSizing: 'border-box',
-                    background: isSelected ? 'rgb(60,60,60)' : isFloating ? 'rgb(35,45,55)' : 'rgb(42,42,42)',
-                    border: isSelected
-                      ? '1px solid rgb(100,100,100)'
-                      : isFloating
-                        ? '1px solid rgb(60,90,120)'
-                        : '1px solid rgb(58,58,58)',
-                    cursor: 'pointer', fontSize: '0.72em',
-                    color: isSelected ? 'rgb(220,220,220)' : isFloating ? 'rgb(100,150,200)' : 'rgb(140,140,140)',
-                    whiteSpace: 'nowrap', userSelect: 'none',
-                    maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis',
-                  }}
-                >
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{tabLabel(id)}</span>
-                  {isFloating && <span style={{ flexShrink: 0, opacity: 0.7, fontSize: '0.85em' }}>↗</span>}
-                </div>
-              )
-            })}
-
-            {/* Add-tab button + searchable dropdown */}
-            {(() => {
-              const tabSet = new Set(tabOrder)
-              const available = computerIds.filter(id => !tabSet.has(id))
-              const filtered = available.filter(id => {
-                if (!addSearch) return true
-                return computerLabel(id).toLowerCase().includes(addSearch.toLowerCase()) || String(id).includes(addSearch)
-              })
-              return (
-                <div ref={addRef} style={{ position: 'relative', flexShrink: 0 }}>
-                  <div
-                    onClick={() => setAddOpen(o => !o)}
-                    style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      width: 22, height: 22, boxSizing: 'border-box', borderRadius: 4,
-                      background: addOpen ? 'rgb(55,55,55)' : 'rgb(42,42,42)',
-                      border: '1px solid rgb(58,58,58)',
-                      cursor: 'pointer', fontSize: '1em', color: 'rgb(140,140,140)', userSelect: 'none',
-                    }}
-                    title="Add computer tab"
-                  >+</div>
-                  {addOpen && (
-                    <div style={{
-                      position: 'absolute', top: '100%', left: 0, marginTop: 2,
-                      background: 'rgb(35,35,35)', border: '1px solid rgb(70,70,70)',
-                      borderRadius: 4, zIndex: 500, minWidth: 210,
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
-                    }}>
-                      <input
-                        autoFocus
-                        value={addSearch}
-                        onChange={e => setAddSearch(e.target.value)}
-                        placeholder="Search computers..."
-                        style={{
-                          width: '100%', padding: '5px 8px', boxSizing: 'border-box',
-                          background: 'rgb(42,42,42)', border: 'none',
-                          borderBottom: '1px solid rgb(55,55,55)',
-                          color: 'darkgray', fontSize: '0.78em', outline: 'none',
-                          borderRadius: '4px 4px 0 0',
-                        }}
-                      />
-                      <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-                        {filtered.length === 0 && (
-                          <div style={{ padding: '6px 8px', fontSize: '0.75em', color: 'gray' }}>
-                            {available.length === 0 ? 'All computers added' : 'No matches'}
-                          </div>
-                        )}
-                        {filtered.map(id => (
-                          <div
-                            key={id}
-                            onClick={() => addTab(id)}
-                            style={{ padding: '5px 8px', fontSize: '0.78em', color: 'darkgray', cursor: 'pointer', borderBottom: '1px solid rgb(45,45,45)' }}
-                            onMouseOver={e => (e.currentTarget.style.background = 'rgb(50,50,50)')}
-                            onMouseOut={e => (e.currentTarget.style.background = '')}
-                          >{computerLabel(id)}</div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )
-            })()}
+          <div className="sys-stat">
+            <Led kind={wsConnected ? 'on' : 'amber'} />
+            <span className="sys-stat-k">WebSocket</span>
+            <span className="sys-stat-v">{wsConnected ? 'connected' : 'reconnecting…'}</span>
           </div>
-
-          {dockedSelectedId === -1 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontSize: '0.75em', color: 'gray', textTransform: 'uppercase', letterSpacing: '0.04em', flexShrink: 0 }}>Center</span>
-              <input type="number" placeholder="X" value={manualX ?? ''} onChange={e => setManualX(e.target.value ? Number(e.target.value) : null)} onBlur={applyManualCenter}
-                style={{ width: 64, padding: '2px 4px', borderRadius: 4, border: '1px solid rgb(70,70,70)', background: 'rgb(40,40,40)', color: 'darkgray', fontSize: '0.85em', textAlign: 'center' }} />
-              <input type="number" placeholder="Z" value={manualZ ?? ''} onChange={e => setManualZ(e.target.value ? Number(e.target.value) : null)} onBlur={applyManualCenter}
-                style={{ width: 64, padding: '2px 4px', borderRadius: 4, border: '1px solid rgb(70,70,70)', background: 'rgb(40,40,40)', color: 'darkgray', fontSize: '0.85em', textAlign: 'center' }} />
+          {nonModemCount > 0 && (
+            <div className="sys-stat">
+              <span className="sys-stat-k">Modem relay</span>
+              <span className="sys-stat-v">{viaModemCount} / {nonModemCount}</span>
             </div>
           )}
-
-          {dockedSelectedId !== -1 && <ComputerPanel computerId={dockedSelectedId} />}
-        </div>
-
-        {/* Panel Right */}
-        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}>
-          <RenderFilters ref={renderFiltersRef} onOpened={() => { blockTransparencyRef.current?.setOpen(false); adminPanelRef.current?.setOpen(false) }} />
-          <BlockTransparency ref={blockTransparencyRef} onOpened={() => { renderFiltersRef.current?.setOpen(false); adminPanelRef.current?.setOpen(false) }} />
           {isGuest && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgb(30,30,30)', border: '1px solid rgb(70,70,70)', borderRadius: 6, padding: '6px 10px' }}>
-              <a href="/api/signin" style={{ color: 'darkgray', fontSize: '0.85em', textDecoration: 'none' }}>Sign in</a>
-              <button
-                disabled={guestRefreshDisabled}
-                onClick={() => !guestRefreshDisabled && loadGuestState()}
-                style={{ padding: '3px 10px', borderRadius: 4, border: 'none', background: 'rgb(52,52,52)', color: 'darkgray', cursor: 'pointer', fontSize: '0.85em', opacity: guestRefreshDisabled ? 0.5 : 1 }}
-              >
-                {guestRefreshDisabled ? 'Refreshed ✓' : 'Refresh'}
-              </button>
+            <div className="sys-stat">
+              <Led kind="amber" />
+              <span className="sys-stat-k">Guest</span>
+              <a href="/api/signin" style={{ color: 'var(--accent)', fontSize: 12, textDecoration: 'none' }}>Sign in</a>
             </div>
           )}
           {userLoaded && isOperator && !isAdmin && (
-            <span style={{ fontSize: '0.75em', color: 'rgb(80,180,80)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Operator</span>
+            <div className="sys-stat">
+              <Led kind="info" />
+              <span className="sys-stat-v" style={{ color: 'var(--cyan)' }}>Operator</span>
+            </div>
+          )}
+        </div>
+
+        <div className="topbar-actions">
+          {isGuest && (
+            <button
+              className={`btn btn-compact${guestRefreshDisabled ? ' btn-toggled' : ''}`}
+              disabled={guestRefreshDisabled}
+              onClick={() => !guestRefreshDisabled && loadGuestState()}
+            >
+              {guestRefreshDisabled ? 'Refreshed ✓' : 'Refresh'}
+            </button>
           )}
           {userLoaded && !isOperator && !isGuest && <OperatorRequest />}
+          <RenderFilters ref={renderFiltersRef} onOpened={() => { blockTransparencyRef.current?.setOpen(false); adminPanelRef.current?.setOpen(false) }} />
+          <BlockTransparency ref={blockTransparencyRef} onOpened={() => { renderFiltersRef.current?.setOpen(false); adminPanelRef.current?.setOpen(false) }} />
           {isAdmin && <AdminPanel ref={adminPanelRef} onOpened={() => { renderFiltersRef.current?.setOpen(false); blockTransparencyRef.current?.setOpen(false) }} />}
         </div>
       </div>
 
-      {selectedInventory && (
-        <div style={{ position: 'relative', zIndex: 1, pointerEvents: 'auto' }}>
-          <InventoryView
-            inventory={selectedInventory}
-            inventorySize={selectedInventorySize}
-            computerId={selectedComputerId}
-            blockPos={selectedInventoryPos}
-          />
-        </div>
-      )}
+      {/* ── Main ─────────────────────────────────────────── */}
+      <div className="main" style={dockCollapsed ? { gridTemplateColumns: '0 1fr', columnGap: 0 } : undefined}>
 
-      <Scene />
-      <KeyboardBindings />
-      <BlockNameDisplay />
+        {/* Left dock */}
+        <div className="dock" style={dockCollapsed ? { overflow: 'hidden', minWidth: 0 } : undefined}>
+          {/* Connected computers panel */}
+          <div className="panel">
+            <div className="panel-header">
+              <div className="panel-header-title">
+                <Led kind="on" />
+                <span>Connected Computers</span>
+              </div>
+              <span style={{ fontSize: 11, color: 'var(--fg-mute)' }}>{computerIds.length} online</span>
+            </div>
+            <div style={{ padding: 10, position: 'relative' }}>
+              {/* Tab strip */}
+              <div className="tab-strip">
+                {tabOrder.map((id, idx) => {
+                  const c = computers[id]
+                  const isFloating = floatingIds.has(id)
+                  const isSelected = selectedComputerId === id && !isFloating
+                  const wsOn = c?.ws_connected
+                  return (
+                    <div
+                      key={id}
+                      draggable
+                      onDragStart={() => onTabDragStart(idx)}
+                      onDragOver={e => onTabDragOver(e, idx)}
+                      onDragEnd={onTabDragEnd}
+                      className={`tab ${isSelected ? 'tab-active' : ''} ${isFloating ? 'tab-floating' : ''}`}
+                      onClick={() => {
+                        if (isFloating) { bringToFront(id) }
+                        else { useWorldViewStore.setState({ selectedComputerId: isSelected ? -1 : id }) }
+                      }}
+                      onContextMenu={e => { e.preventDefault(); setContextMenu({ id, x: e.clientX, y: e.clientY }) }}
+                      title={`${computerTitle(id)} · right-click for options`}
+                    >
+                      <Led kind={wsOn ? 'on' : c?.via_modem ? 'amber' : 'off'} />
+                      <span className="tab-type">{TYPE_SHORT[c?.type ?? ''] ?? '?'}</span>
+                      <span className="tab-label">{computerName(id)}</span>
+                      {isFloating && <span className="tab-float-mark">↗</span>}
+                    </div>
+                  )
+                })}
 
-      {/* Tab right-click context menu */}
-      {contextMenu && (
-        <div
-          ref={contextMenuRef}
-          style={{
-            position: 'fixed', left: contextMenu.x, top: contextMenu.y,
-            background: 'rgb(35,35,35)', border: '1px solid rgb(70,70,70)',
-            borderRadius: 4, zIndex: 1000, minWidth: 150,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.5)', pointerEvents: 'auto',
-          }}
-        >
-          {(() => {
-            const isFloating = floatingIds.has(contextMenu.id)
-            const menuItem = (label: string, onClick: () => void, danger = false) => (
-              <div
-                onClick={onClick}
-                style={{ padding: '6px 10px', fontSize: '0.78em', cursor: 'pointer', color: danger ? 'rgb(200,100,100)' : 'darkgray', borderBottom: '1px solid rgb(45,45,45)' }}
-                onMouseOver={e => (e.currentTarget.style.background = 'rgb(50,50,50)')}
-                onMouseOut={e => (e.currentTarget.style.background = '')}
-              >{label}</div>
-            )
-            return <>
-              {!isFloating && menuItem('↗ Detach to float', () => { detachTab(contextMenu.id); setContextMenu(null) })}
-              {isFloating && menuItem('↙ Dock panel', () => { dockPanel(contextMenu.id); setContextMenu(null) })}
-              {menuItem('× Close tab', () => { closeTab(contextMenu.id); setContextMenu(null) }, true)}
-            </>
-          })()}
-        </div>
-      )}
+                {/* Add tab button */}
+                <div ref={addRef} style={{ position: 'relative', flexShrink: 0 }}>
+                  <button
+                    ref={addBtnRef}
+                    className="btn tab-add"
+                    onClick={() => {
+                      if (addBtnRef.current) {
+                        const r = addBtnRef.current.getBoundingClientRect()
+                        setAddPos({ top: r.bottom + 4, left: r.left })
+                      }
+                      setAddOpen(o => !o)
+                    }}
+                    title="Add computer tab"
+                  >+</button>
+                  {addOpen && (
+                    <>
+                      <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => { setAddOpen(false); setAddSearch('') }} />
+                      <div className="dropdown" style={{ position: 'fixed', top: addPos.top, left: addPos.left, minWidth: 220, zIndex: 500 }}>
+                        <input
+                          autoFocus
+                          className="input input-mono"
+                          style={{ fontSize: 12 }}
+                          value={addSearch}
+                          onChange={e => setAddSearch(e.target.value)}
+                          placeholder="Search computers…"
+                        />
+                        <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                          {(() => {
+                            const tabSet = new Set(tabOrder)
+                            const available = computerIds.filter(id => !tabSet.has(id))
+                            const filtered = available.filter(id =>
+                              !addSearch || computerTitle(id).toLowerCase().includes(addSearch.toLowerCase()) || String(id).includes(addSearch)
+                            )
+                            if (available.length === 0) return <div className="explainer" style={{ padding: '4px 0' }}>All computers added.</div>
+                            if (filtered.length === 0) return <div className="explainer" style={{ padding: '4px 0' }}>No matches.</div>
+                            return filtered.map(id => (
+                              <div key={id} className="ctx-item" onClick={() => addTab(id)}>
+                                <Led kind="on" />
+                                <span className="mono" style={{ color: 'var(--fg-mute)', fontSize: 11 }}>#{id}</span>
+                                <span>{computerName(id)}</span>
+                              </div>
+                            ))
+                          })()}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
 
-      {/* Floating panels */}
-      {floatingPanels.map(panel => (
-        <div
-          key={panel.id}
-          onMouseDown={() => bringToFront(panel.id)}
-          style={{
-            position: 'fixed', left: panel.x, top: panel.y,
-            background: 'rgb(30,30,30)', border: '1px solid rgb(70,70,70)',
-            borderRadius: 6, padding: '0 12px 10px',
-            zIndex: panelZIndexes[panel.id] ?? 200,
-            pointerEvents: 'auto', userSelect: 'none',
-            minWidth: 240, maxHeight: '90vh', overflowY: 'auto',
-            boxShadow: '0 4px 24px rgba(0,0,0,0.6)',
-          }}
-        >
-          {/* Drag handle / title bar */}
-          <div
-            onMouseDown={e => startPanelDrag(e, panel.id)}
-            style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '8px 0 6px', marginBottom: 6,
-              borderBottom: '1px solid rgb(50,50,50)',
-              cursor: 'grab',
-            }}
-          >
-            <span style={{ fontSize: '0.75em', color: 'darkgray', fontWeight: 'bold', pointerEvents: 'none' }}>
-              {computerLabel(panel.id)}
-            </span>
-            <span
-              onMouseDown={e => e.stopPropagation()}
-              onClick={() => dockPanel(panel.id)}
-              title="Dock (close floating panel)"
-              style={{ fontSize: '1.1em', color: 'gray', cursor: 'pointer', lineHeight: 1, paddingLeft: 10, flexShrink: 0 }}
-            >×</span>
+              <div className="explainer" style={{ marginTop: 8 }}>
+                Click to view · <b>right-click</b> to detach or close.
+              </div>
+            </div>
           </div>
-          <ComputerPanel computerId={panel.id} />
+
+          {/* Active computer panel */}
+          {dockedSelectedId !== -1 ? (
+            <div className="panel">
+              <div className="panel-header">
+                <div className="panel-header-title">
+                  <Led kind={computers[dockedSelectedId]?.ws_connected ? 'on' : computers[dockedSelectedId]?.via_modem ? 'amber' : 'off'} />
+                  <span>{computerTitle(dockedSelectedId)}</span>
+                </div>
+              </div>
+              <div className="panel-body">
+                <ComputerPanel computerId={dockedSelectedId} />
+              </div>
+            </div>
+          ) : (
+            <div className="panel" style={{ padding: 14, color: 'var(--fg-mute)', fontSize: 12 }}>
+              Select a tab above to open its control panel.
+            </div>
+          )}
         </div>
-      ))}
+
+        {/* World canvas */}
+        <div className="panel canvas">
+          <Scene />
+
+          {/* Canvas overlays */}
+          <div className="canvas-overlay" style={{ top: 12, left: 12 }}>
+            <div className="overlay-title">Focus</div>
+            <div className="overlay-body">
+              <div className="overlay-value">
+                {dockedSelectedId !== -1 ? computerTitle(dockedSelectedId) : '—'}
+              </div>
+            </div>
+          </div>
+
+          <BlockNameDisplay />
+
+          {selectedInventory && (
+            <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 5 }}>
+              <InventoryView
+                inventory={selectedInventory}
+                inventorySize={selectedInventorySize}
+                computerId={selectedComputerId}
+                blockPos={selectedInventoryPos}
+              />
+            </div>
+          )}
+
+          {isLoading && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', zIndex: 20 }}>
+              <div className="canvas-overlay" style={{ minWidth: 'unset', padding: '14px 24px' }}>
+                <div className="overlay-value">Loading world…</div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Floating panels ───────────────────────────────── */}
+      {floatingPanels.map(panel => {
+        const c = computers[panel.id]
+        if (!c) return null
+        return (
+          <div
+            key={panel.id}
+            className="floating-panel"
+            style={{ left: panel.x, top: panel.y, zIndex: panelZIndexes[panel.id] ?? 200 }}
+            onMouseDown={() => bringToFront(panel.id)}
+          >
+            <div className="floating-titlebar" onMouseDown={e => startPanelDrag(e, panel.id)}>
+              <span className="floating-title">
+                <Led kind={c.ws_connected ? 'on' : c.via_modem ? 'amber' : 'off'} />
+                {computerTitle(panel.id)}
+              </span>
+              <button className="floating-close" onMouseDown={e => e.stopPropagation()} onClick={() => dockPanel(panel.id)} title="Dock">×</button>
+            </div>
+            <div className="floating-body">
+              <ComputerPanel computerId={panel.id} />
+            </div>
+          </div>
+        )
+      })}
+
+      {/* ── Context menu ─────────────────────────────────── */}
+      {contextMenu && (
+        <div ref={contextMenuRef} className="ctx-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
+          {floatingIds.has(contextMenu.id) ? (
+            <div className="ctx-item" onClick={() => { dockPanel(contextMenu.id); setContextMenu(null) }}>
+              ↙ Dock panel
+            </div>
+          ) : (
+            <div className="ctx-item" onClick={() => { detachTab(contextMenu.id); setContextMenu(null) }}>
+              ↗ Detach to float
+            </div>
+          )}
+          <div className="ctx-item ctx-item-danger" onClick={() => { closeTab(contextMenu.id); setContextMenu(null) }}>
+            × Close tab
+          </div>
+        </div>
+      )}
+
+      <KeyboardBindings />
     </div>
   )
 }

@@ -2,18 +2,12 @@
 
 import { useEffect, useState } from 'react'
 import { useWorldStore } from '@/store/useWorld'
+import { MeterRow } from '@/components/ui'
 
-// ── Timing constants (mirror the Lua rc files) ───────────────────────────────
-// rcTurtle/rcMinecart/rcPlayer/rcStationary main():
-const HTTP_MODEM_CHECK_INTERVAL_S = 60   // MODEM_CHECK_INTERVAL — HTTP computers check if a modem came online
-
-// rcXxx modem_main():
-const MODEM_HEARTBEAT_WINDOW_S    = 65   // HEARTBEAT_WINDOW — time before a missed heartbeat is declared
-const MODEM_MAX_MISSES            = 3    // MAX_MISSES — reboots after this many consecutive misses
-
-// modemServer.lua:
-const MODEM_HEARTBEAT_INTERVAL_S  = 60   // HEARTBEAT_INTERVAL — how often the modem broadcasts a heartbeat
-// ────────────────────────────────────────────────────────────────────────────
+const MODEM_HEARTBEAT_INTERVAL_S = 60
+const MODEM_MAX_MISSES           = 3
+const MODEM_HEARTBEAT_WINDOW_S   = 65
+const HTTP_MODEM_CHECK_INTERVAL_S = 60
 
 interface Props { computerId: number }
 
@@ -24,16 +18,9 @@ function fmtCountdown(ms: number): string {
   return `${s}s`
 }
 
-const ROW: React.CSSProperties = {
-  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-  fontSize: '0.72em', color: 'gray',
-}
-const LABEL: React.CSSProperties = { textTransform: 'uppercase', letterSpacing: '0.05em' }
-const VALUE: React.CSSProperties = { color: 'rgb(160,160,160)', fontFamily: 'monospace' }
-
 export default function PollTimers({ computerId }: Props) {
-  const computers  = useWorldStore(s => s.computers)
-  const computer   = computers[computerId]
+  const computers = useWorldStore(s => s.computers)
+  const computer  = computers[computerId]
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -43,74 +30,78 @@ export default function PollTimers({ computerId }: Props) {
 
   if (!computer) return null
 
-  // ── Modem device: only show its own HTTP poll countdown ──────────────────
+  // ── Modem device ──────────────────────────────────────────
   if (computer.type === 'modem') {
-    const interval = computer.poll_interval ?? 1
-    const lastSeen = computer.lastSeen ?? 0
-    const pollLabel = interval <= 1 ? '~1s' : fmtCountdown((lastSeen + interval * 1000) - now)
+    const interval  = computer.poll_interval ?? 1
+    const lastSeen  = computer.lastSeen ?? 0
+    const elapsed   = now - lastSeen
+    const remaining = Math.max(0, interval * 1000 - elapsed)
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 2 }}>
-        <div style={ROW}>
-          <span style={LABEL}>Next poll</span>
-          <span style={VALUE}>{pollLabel}</span>
-        </div>
+      <div className="group-tight">
+        <MeterRow label="Next poll" value={remaining / 1000} max={interval} />
       </div>
     )
   }
 
-  const lastSeen      = computer.lastSeen ?? 0
-  const viaModem      = !!computer.via_modem
+  const lastSeen          = computer.lastSeen ?? 0
+  const viaModem          = !!computer.via_modem
   const hasModemPeripheral = !!computer.has_modem_peripheral
+  const wsConnected       = !!computer.ws_connected
 
-  // Find the modem server computer entry (type === 'modem')
-  const modemEntry = Object.values(computers).find(c => c?.type === 'modem')
+  const modemEntry        = Object.values(computers).find(c => c?.type === 'modem')
   const modemLastSeen     = modemEntry?.lastSeen ?? 0
-  const modemPollInterval = modemEntry?.poll_interval ?? 1  // seconds
+  const modemPollInterval = modemEntry?.poll_interval ?? 1
 
-  // ── Timer 1: next command poll ───────────────────────────────────────────
-  let pollLabel: string
+  // ── WebSocket connected: solid bar, no countdown ──────────
+  if (wsConnected) {
+    return (
+      <div className="group-tight">
+        <MeterRow label="WebSocket" value={1} max={1} solid solidLabel="active" />
+        {viaModem && (() => {
+          const msToNextHB = (modemLastSeen + MODEM_HEARTBEAT_INTERVAL_S * 1000) - now
+          const elapsed = Math.max(0, MODEM_HEARTBEAT_INTERVAL_S * 1000 - Math.max(0, msToNextHB))
+          return (
+            <MeterRow
+              label="Heartbeat"
+              value={elapsed / 1000}
+              max={MODEM_HEARTBEAT_INTERVAL_S}
+              amber
+              title={`Reboots after ${MODEM_MAX_MISSES} misses (~${MODEM_HEARTBEAT_WINDOW_S * MODEM_MAX_MISSES}s)`}
+            />
+          )
+        })()}
+      </div>
+    )
+  }
+
+  // ── Via modem (no WS): heartbeat countdown ────────────────
   if (viaModem) {
-    // Poll is driven by the modem server's own HTTP poll cycle
-    pollLabel = modemPollInterval <= 1 ? '~1s' : fmtCountdown((modemLastSeen + modemPollInterval * 1000) - now)
-  } else {
-    const interval = computer.poll_interval ?? 1
-    pollLabel = interval <= 1 ? '~1s' : fmtCountdown((lastSeen + interval * 1000) - now)
-  }
-
-  // ── Timer 2: modem check ─────────────────────────────────────────────────
-  // Case A — HTTP mode with a modem peripheral: checks every 60s if a modem server came online
-  // Case B — Modem mode: heartbeat window countdown; reboots after MAX_MISSES misses
-  let modemCheckRow: React.ReactNode = null
-
-  if (!viaModem && hasModemPeripheral) {
-    // Case A: time until next "is modem online?" check
-    const ms = (lastSeen + HTTP_MODEM_CHECK_INTERVAL_S * 1000) - now
-    modemCheckRow = (
-      <div style={ROW}>
-        <span style={LABEL}>Modem check</span>
-        <span style={VALUE}>{fmtCountdown(ms)}</span>
-      </div>
-    )
-  } else if (viaModem) {
-    // Case B: time until next heartbeat from modem server (approximated from modem's lastSeen)
     const msToNextHB = (modemLastSeen + MODEM_HEARTBEAT_INTERVAL_S * 1000) - now
-    modemCheckRow = (
-      <div style={ROW}>
-        <span style={LABEL}>Next heartbeat</span>
-        <span style={VALUE} title={`Reboots after ${MODEM_MAX_MISSES} misses (~${MODEM_HEARTBEAT_WINDOW_S * MODEM_MAX_MISSES}s)`}>
-          {fmtCountdown(msToNextHB)}
-        </span>
+    const elapsed = Math.max(0, MODEM_HEARTBEAT_INTERVAL_S * 1000 - Math.max(0, msToNextHB))
+    return (
+      <div className="group-tight">
+        <MeterRow label="Poll" value={Math.max(0, (modemLastSeen + modemPollInterval * 1000) - now) / 1000} max={modemPollInterval} />
+        <MeterRow
+          label="Heartbeat"
+          value={elapsed / 1000}
+          max={MODEM_HEARTBEAT_INTERVAL_S}
+          amber
+          title={`Reboots after ${MODEM_MAX_MISSES} misses (~${MODEM_HEARTBEAT_WINDOW_S * MODEM_MAX_MISSES}s)`}
+        />
       </div>
     )
   }
+
+  // ── Direct HTTP ───────────────────────────────────────────
+  const wsCheckMs = (lastSeen + 30 * 1000) - now   // getWsRequest poll every 30s
+  const modemCheckMs = hasModemPeripheral ? (lastSeen + HTTP_MODEM_CHECK_INTERVAL_S * 1000) - now : null
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 2 }}>
-      <div style={ROW}>
-        <span style={LABEL}>Next poll</span>
-        <span style={VALUE}>{pollLabel}</span>
-      </div>
-      {modemCheckRow}
+    <div className="group-tight">
+      <MeterRow label="WS check" value={Math.max(0, wsCheckMs) / 1000} max={30} />
+      {modemCheckMs !== null && (
+        <MeterRow label="Modem check" value={Math.max(0, modemCheckMs) / 1000} max={HTTP_MODEM_CHECK_INTERVAL_S} amber />
+      )}
     </div>
   )
 }

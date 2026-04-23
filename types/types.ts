@@ -13,7 +13,7 @@ interface ComputerState {
     },
     fuelLevel: number,
     fuelLimit: number,
-    sleep_mode?: boolean,
+    ws_connected?: boolean,
     modified?: number,
     lastSeen?: number,
     via_modem?: boolean,

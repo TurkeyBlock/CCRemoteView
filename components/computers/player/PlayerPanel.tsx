@@ -3,10 +3,7 @@
 import { useWorldStore } from '@/store/useWorld'
 import { useWorldViewStore } from '@/store/useWorldView'
 import LuaTerminal from '../LuaTerminal'
-import ComputerLocation from '../ComputerLocation'
-import ButtonGrid from '../ButtonGrid'
-import ScrollList from '../ScrollList'
-import { btn, activeBtn, missingBtn, colors } from '../computerStyles'
+import { Section } from '@/components/ui'
 
 interface Props { computerId: number }
 
@@ -24,27 +21,38 @@ export default function PlayerPanel({ computerId }: Props) {
   const isFollowing = followedComputer.computerId === computerId
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <ComputerLocation loc={computer.loc ?? null} showUnavailable />
-      <ButtonGrid>
-        <button style={hasScanner ? btn : missingBtn} onClick={() => sendCommand(computerId, 'return papi.scan()')}>Block Scan</button>
-        <button style={btn} onClick={() => focusOnComputer(computerId)}>Focus Camera</button>
-        <button style={isFollowing ? activeBtn : btn} onClick={() => followComputer(computerId)}>Toggle Follow</button>
-        <button style={btn} onClick={() => sendStopSignal(computerId)}>🛑 Stop 🛑</button>
-      </ButtonGrid>
+    <div className="group">
+      <Section label="Actions">
+        <div className="btn-row-2">
+          <button
+            className={`btn btn-compact${hasScanner ? '' : ' btn-disabled'}`}
+            onClick={() => sendCommand(computerId, 'return papi.scan()')}
+          >Block Scan</button>
+          <button className="btn btn-compact" onClick={() => focusOnComputer(computerId)}>Focus</button>
+          <button
+            className={`btn btn-compact${isFollowing ? ' btn-toggled' : ''}`}
+            onClick={() => followComputer(computerId)}
+          >{isFollowing ? 'Unfollow' : 'Follow'}</button>
+          <button className="btn btn-compact btn-danger" onClick={() => sendStopSignal(computerId)}>Stop</button>
+        </div>
+      </Section>
 
       {computer.entities && computer.entities.length > 0 && (
-        <ScrollList label="Nearby Entities" count={computer.entities.length}>
-          {computer.entities.map(e => (
-            <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8em', color: colors.text, gap: 8 }}>
-              <span style={{ color: colors.textName, whiteSpace: 'nowrap' }}>{e.name}</span>
-              <span style={{ color: 'gray', fontSize: '0.9em' }}>{e.x.toFixed(1)}, {e.y.toFixed(1)}, {e.z.toFixed(1)}</span>
-            </div>
-          ))}
-        </ScrollList>
+        <Section label={`Entities (${computer.entities.length})`}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 160, overflowY: 'auto' }}>
+            {computer.entities.map(e => (
+              <div key={e.id} className="row-between" style={{ fontSize: 12 }}>
+                <span style={{ color: 'var(--cyan)', whiteSpace: 'nowrap' }}>{e.name}</span>
+                <span className="muted" style={{ fontSize: 11 }}>{e.x.toFixed(1)}, {e.y.toFixed(1)}, {e.z.toFixed(1)}</span>
+              </div>
+            ))}
+          </div>
+        </Section>
       )}
 
-      <LuaTerminal computerId={computerId} />
+      <Section label="Terminal">
+        <LuaTerminal computerId={computerId} />
+      </Section>
     </div>
   )
 }

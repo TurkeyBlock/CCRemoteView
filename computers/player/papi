@@ -3,31 +3,17 @@
 -- Provides shared state, HTTP/modem helpers, and the stop-signal semaphore.
 
 -- !MUST END WITH '/'
+-- %%APP_URL%% is replaced by the server before this file is served; not valid Lua as-is.
 url = "%%APP_URL%%/api/"
 
 -- Modem config
 use_modem   = false
 MODEM_SERVER_ID = 0
 
-local function discover_modem_id()
-    local res = http.get(url .. "modem/id?computerId=" .. os.getComputerID())
-    if res then
-        local data = textutils.unserializeJSON(res.readAll())
-        res.close()
-        if data and data.id and data.enabled ~= false then return data.id end
-    end
-    return nil
-end
-
-local _modem_device = peripheral.find("modem")
-if _modem_device then
-    MODEM_SERVER_ID = discover_modem_id()
-    if MODEM_SERVER_ID then
-        _modem_device.open(os.getComputerID())
-        use_modem = true
-        print("Modem mode: server ID " .. MODEM_SERVER_ID)
-    end
-end
+local api_common = require("api_common")  -- shared library downloaded to disk during startup
+local _m = api_common.make_modem(url)
+use_modem = _m.use_modem
+local _modem_device = _m.modem_device
 
 -- Stop-signal semaphore (mirrors tapi)
 -- Commands that run loops should check locSemaphore.stopSignal and
@@ -37,8 +23,6 @@ locSemaphore = {
     count      = 0,
 }
 
-local _sleep_mode    = false
-local _poll_interval = 1  -- current HTTP poll interval in seconds
 
 -- ─── GPS helpers ─────────────────────────────────────────────
 
@@ -56,8 +40,6 @@ function send_status_update()
     local payload = {
         id                   = os.getComputerID(),
         type                 = "player",
-        sleep_mode           = _sleep_mode,
-        poll_interval        = _poll_interval,
         loc                  = x and { x = math.floor(x), y = math.floor(y), z = math.floor(z) } or nil,
         has_modem_peripheral = _modem_device ~= nil,
     }
@@ -67,28 +49,10 @@ function send_status_update()
     if res then res.close() end
 end
 
-function send_command_result(succ, ret)
-    local data
-    local ok = pcall(function()
-        textutils.serializeJSON({ result = { succ = succ, ret = ret } })
-        data = { computerId = os.getComputerID(), result = { succ = succ, ret = ret } }
-    end)
-    if not ok then
-        data = { computerId = os.getComputerID(), result = { succ = false, ret = "error: result not serializable" } }
-    end
-    local json = textutils.serializeJSON(data)
-    local res  = http.post(url .. "commandResult", json,
-                           { ["Content-Type"] = "application/json" })
-    if res then res.close() end
-end
+local _ws = api_common.make_ws_sender(url, { ["Content-Type"] = "application/json" })
+set_ws              = _ws.set_ws
+send_command_result = _ws.send_command_result
 
-function set_sleep_mode(enabled)
-    _sleep_mode = enabled
-end
-
-function set_poll_interval(seconds)
-    _poll_interval = seconds
-end
 
 -- ─── Scan helper ─────────────────────────────────────────────
 

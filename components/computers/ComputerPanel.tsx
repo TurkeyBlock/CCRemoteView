@@ -9,6 +9,7 @@ import ModemPanel from './modem/ModemPanel'
 import PlayerPanel from './player/PlayerPanel'
 import StationaryPanel from './stationary/StationaryPanel'
 import PollTimers from './PollTimers'
+import { Led, Section } from '@/components/ui'
 
 interface Props { computerId: number }
 
@@ -21,27 +22,43 @@ export default function ComputerPanel({ computerId }: Props) {
   }, [computerId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const viaModem = computer?.via_modem
+  const wsOn = computer?.ws_connected
+
   const badge = viaModem
-    ? { label: '📡 via Modem', bg: 'rgba(80,140,200,0.2)', color: 'rgb(120,180,240)', border: '1px solid rgba(80,140,200,0.3)' }
-    : { label: '⟳ Direct HTTP', bg: 'rgba(80,80,80,0.2)', color: 'gray', border: '1px solid rgba(80,80,80,0.3)' }
+    ? 'badge-pill badge-pill-info'
+    : wsOn
+      ? 'badge-pill badge-pill-accent'
+      : 'badge-pill'
+
+  const badgeLabel = viaModem ? 'via Modem' : wsOn ? 'WebSocket' : 'HTTP'
 
   if (computer?.type === 'modem') {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <PollTimers computerId={computerId} />
+      <div className="group">
+        <Section label="Connection">
+          <PollTimers computerId={computerId} />
+        </Section>
         <ModemPanel computerId={computerId} />
       </div>
     )
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ fontSize: '0.75em', padding: '2px 6px', borderRadius: 3, letterSpacing: '0.04em', backgroundColor: badge.bg, color: badge.color, border: badge.border }}>
-          {badge.label}
-        </div>
+    <div className="group">
+      <div className="row-between">
+        <span className={badge}>{badgeLabel}</span>
+        {computer?.loc && (
+          <span className="coord">
+            <span><span className="coord-ax">X</span>{computer.loc.x}</span>
+            <span><span className="coord-ax">Y</span>{computer.loc.y}</span>
+            <span><span className="coord-ax">Z</span>{computer.loc.z}</span>
+          </span>
+        )}
       </div>
-      <PollTimers computerId={computerId} />
+
+      <Section label="Connection">
+        <PollTimers computerId={computerId} />
+      </Section>
 
       {computer?.type === 'minecart' && <MinecartPanel computerId={computerId} />}
       {computer?.type === 'player' && <PlayerPanel computerId={computerId} />}

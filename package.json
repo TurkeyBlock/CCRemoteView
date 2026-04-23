@@ -7,8 +7,7 @@
     "build": "next build",
     "start": "NODE_ENV=production node server.js",
     "build-textures": "node build-utils/textureExtractor/textureExtractor.js",
-    "pkg": "npm run build && node build-utils/buildSea.js",
-    "test:turtle": "node build-utils/testTurtle.js"
+    "pkg": "npm run build && node build-utils/buildSea.js"
   },
   "dependencies": {
     "@auth/core": "^0.37.4",

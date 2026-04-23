@@ -4,6 +4,7 @@ import { useState, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { useWorldViewStore } from '@/store/useWorldView'
 import { useUserStore } from '@/store/useUser'
 import { useWorldStore } from '@/store/useWorld'
+import { HeaderMenu, Checkbox } from '@/components/ui'
 
 interface Props { onOpened?: () => void }
 export interface PanelHandle { setOpen: (v: boolean) => void }
@@ -30,19 +31,12 @@ const RenderFilters = forwardRef<PanelHandle, Props>(function RenderFilters({ on
 
   const fileSizeDisplay = savedFileSizeBytes === null ? 'unknown' : formatBytes(savedFileSizeBytes)
 
-  // Re-run scene when tracked computer moves (only when XZ range active)
   useEffect(() => {
     if (computerRangeXZ === null) return
     const computer = computers[selectedComputerId]
     if (!computer?.loc) return
     worldView.regenerateSceneFromBlocks()
   }, [computers[selectedComputerId]?.loc?.x, computers[selectedComputerId]?.loc?.z]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  function toggle() {
-    const next = !open
-    setOpen(next)
-    if (next) onOpened?.()
-  }
 
   function applyY() {
     const lo = Math.max(0, Math.min(255, yMinLocal))
@@ -82,92 +76,73 @@ const RenderFilters = forwardRef<PanelHandle, Props>(function RenderFilters({ on
     worldView.updateChunkVisibility()
   }
 
-  const panelStyle: React.CSSProperties = { position: 'relative', background: 'rgb(30,30,30)', border: '1px solid rgb(70,70,70)', borderRadius: 6, padding: '8px 12px', fontSize: '0.85em' }
-  const dropdownStyle: React.CSSProperties = { position: 'absolute', top: '100%', left: 0, zIndex: 100, background: 'rgb(30,30,30)', border: '1px solid rgb(70,70,70)', borderRadius: 6, padding: '8px 12px', minWidth: 180, marginTop: 2 }
-  const toggleBtnStyle: React.CSSProperties = { background: 'none', border: 'none', color: 'gray', cursor: 'pointer', fontSize: '0.85em', padding: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }
-  const numInputStyle: React.CSSProperties = { width: 56, padding: '2px 4px', borderRadius: 4, border: '1px solid rgb(70,70,70)', background: 'rgb(40,40,40)', color: 'darkgray', fontSize: '0.9em', textAlign: 'center' }
-  const resetBtnStyle: React.CSSProperties = { padding: '2px 6px', borderRadius: 4, border: 'none', background: 'rgb(52,52,52)', color: 'darkgray', cursor: 'pointer', fontSize: '0.8em', marginLeft: 2 }
-  const sectionStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 6 }
-  const checkboxLabelStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, color: 'darkgray', cursor: 'pointer', fontSize: '0.85em' }
+  const numInput: React.CSSProperties = { width: 58, padding: '5px 6px', fontSize: 12 }
 
   return (
-    <div style={panelStyle}>
-      <button onClick={toggle} style={toggleBtnStyle}>{open ? '▾' : '▸'} Render Filters</button>
-      {open && (
-        <div style={dropdownStyle}>
-          <p style={{ margin: '6px 0 8px 0', color: 'gray', fontSize: '0.85em' }}>World file: {fileSizeDisplay}</p>
-
-          <div style={sectionStyle}>
-            <span style={{ fontSize: '0.8em', color: 'gray', whiteSpace: 'nowrap', flexShrink: 0 }}>Y</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <input type="number" style={numInputStyle} value={yMinLocal} min={0} max={255} onChange={e => setYMinLocal(Number(e.target.value))} onBlur={applyY} />
-              <span style={{ color: 'gray' }}>–</span>
-              <input type="number" style={numInputStyle} value={yMaxLocal} min={0} max={255} onChange={e => setYMaxLocal(Number(e.target.value))} onBlur={applyY} />
-              <button style={resetBtnStyle} onClick={resetY}>Full</button>
-            </div>
-          </div>
-
-          <div style={sectionStyle}>
-            <span style={{ fontSize: '0.8em', color: 'gray', whiteSpace: 'nowrap', flexShrink: 0 }}>View dist</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <input type="number" style={numInputStyle} value={renderDistLocal} min={1} max={128} onChange={e => setRenderDistLocal(Number(e.target.value))} onBlur={applyRenderDist} />
-              <span style={{ color: 'gray', fontSize: '0.85em' }}>chunks</span>
-              <button style={resetBtnStyle} onClick={resetRenderDist}>Reset</button>
-            </div>
-          </div>
-
-          <div style={{ ...sectionStyle, flexDirection: 'column', alignItems: 'flex-start' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: '0.8em', color: 'gray', whiteSpace: 'nowrap', flexShrink: 0 }}>XZ ±</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <input type="number" style={numInputStyle} value={xzRangeLocal ?? ''} min={1} placeholder="∞" onChange={e => setXzRangeLocal(e.target.value ? Number(e.target.value) : null)} onBlur={applyXZ} />
-                <span style={{ color: 'gray', fontSize: '0.85em' }}>blocks</span>
-                <button style={resetBtnStyle} onClick={clearXZ}>Clear</button>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ ...sectionStyle, flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-            <label style={checkboxLabelStyle}>
-              <input type="checkbox" checked={worldView.fastRender} onChange={e => { useWorldViewStore.setState({ fastRender: e.target.checked }); worldView.regenerateSceneFromBlocks() }} />
-              Multiworker
-            </label>
-            <p style={{ margin: '3px 0 0 0', color: 'gray', fontSize: '0.78em', fontStyle: 'italic' }}>Builds chunks on all CPU cores in parallel.</p>
-          </div>
-
-          <div style={{ ...sectionStyle, flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-            <label style={checkboxLabelStyle}>
-              <input type="checkbox" checked={worldView.skipLoadYield} onChange={e => { useWorldViewStore.setState({ skipLoadYield: e.target.checked }); worldView.regenerateSceneFromBlocks() }} />
-              Skip load pauses
-            </label>
-            <p style={{ margin: '3px 0 0 0', color: 'gray', fontSize: '0.78em', fontStyle: 'italic' }}>Apply chunk geometry immediately. Loads faster but the UI may stutter while chunks build; unchecked caps chunk application to 5 ms/tick.</p>
-          </div>
-
-          <div style={{ ...sectionStyle, flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-            <label style={checkboxLabelStyle}>
-              <input type="checkbox" checked={worldView.lockChunks} onChange={e => { useWorldViewStore.setState({ lockChunks: e.target.checked }); worldView.updateChunkVisibility() }} />
-              Lock chunks
-            </label>
-            <p style={{ margin: '3px 0 0 0', color: 'gray', fontSize: '0.78em', fontStyle: 'italic' }}>Keeps loaded chunks in memory permanently. Disabling sweeps out-of-range chunks.</p>
-          </div>
-
-          <div style={{ ...sectionStyle, flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-            <label style={checkboxLabelStyle}>
-              <input type="checkbox" checked={!worldView.lockBlockInfo} onChange={e => useWorldViewStore.setState({ lockBlockInfo: !e.target.checked })} />
-              Block hover info
-            </label>
-            <p style={{ margin: '3px 0 0 0', color: 'gray', fontSize: '0.78em', fontStyle: 'italic' }}>Show block name under cursor on mouse move. Requires raycasting each frame.</p>
-          </div>
-
-          <div style={{ ...sectionStyle, flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-            <label style={checkboxLabelStyle}>
-              <input type="checkbox" checked={worldView.showOrbitMarker} onChange={e => { useWorldViewStore.setState({ showOrbitMarker: e.target.checked }); worldView.updateChunkVisibility() }} />
-              Show orbit center
-            </label>
-          </div>
+    <HeaderMenu label="Render Filters" compact align="right">
+      <div className="dropdown-section">
+        <div className="dropdown-row">
+          <span className="dropdown-row-label">World file</span>
+          <span className="dropdown-hint mono">{fileSizeDisplay}</span>
         </div>
-      )}
-    </div>
+        <div className="dropdown-divider" />
+
+        <div className="dropdown-row">
+          <span className="dropdown-row-label" style={{ flex: '0 0 28px' }}>Y</span>
+          <input className="input input-mono" style={numInput} type="number" value={yMinLocal} min={0} max={255} onChange={e => setYMinLocal(Number(e.target.value))} onBlur={applyY} />
+          <input className="input input-mono" style={numInput} type="number" value={yMaxLocal} min={0} max={255} onChange={e => setYMaxLocal(Number(e.target.value))} onBlur={applyY} />
+          <button className="btn btn-compact" onClick={resetY}>Full</button>
+        </div>
+
+        <div className="dropdown-row">
+          <span className="dropdown-row-label" style={{ flex: '0 0 64px' }}>View dist</span>
+          <input className="input input-mono" style={numInput} type="number" value={renderDistLocal} min={1} max={128} onChange={e => setRenderDistLocal(Number(e.target.value))} onBlur={applyRenderDist} />
+          <span className="dropdown-hint">chunks</span>
+          <button className="btn btn-compact" onClick={resetRenderDist}>Reset</button>
+        </div>
+
+        <div className="dropdown-row">
+          <span className="dropdown-row-label" style={{ flex: '0 0 64px' }}>XZ ±</span>
+          <input className="input input-mono" style={numInput} value={xzRangeLocal ?? ''} min={1} placeholder="∞" onChange={e => setXzRangeLocal(e.target.value ? Number(e.target.value) : null)} onBlur={applyXZ} />
+          <span className="dropdown-hint">blocks</span>
+          <button className="btn btn-compact" onClick={clearXZ}>Clear</button>
+        </div>
+      </div>
+
+      <div className="dropdown-divider" />
+
+      <div className="dropdown-section">
+        <Checkbox
+          label="Multiworker"
+          desc="Builds chunks on all CPU cores in parallel."
+          checked={worldView.fastRender}
+          onChange={v => { useWorldViewStore.setState({ fastRender: v }); worldView.regenerateSceneFromBlocks() }}
+        />
+        <Checkbox
+          label="Skip load pauses"
+          desc="Apply chunk geometry immediately. Loads faster but the UI may stutter; unchecked caps to 5ms/tick."
+          checked={worldView.skipLoadYield}
+          onChange={v => { useWorldViewStore.setState({ skipLoadYield: v }); worldView.regenerateSceneFromBlocks() }}
+        />
+        <Checkbox
+          label="Lock chunks"
+          desc="Keeps loaded chunks in memory permanently. Disabling sweeps out-of-range chunks."
+          checked={worldView.lockChunks}
+          onChange={v => { useWorldViewStore.setState({ lockChunks: v }); worldView.updateChunkVisibility() }}
+        />
+        <Checkbox
+          label="Block hover info"
+          desc="Show block name under cursor on mouse move. Requires raycasting each frame."
+          checked={!worldView.lockBlockInfo}
+          onChange={v => useWorldViewStore.setState({ lockBlockInfo: !v })}
+        />
+        <Checkbox
+          label="Show orbit center"
+          checked={worldView.showOrbitMarker}
+          onChange={v => { useWorldViewStore.setState({ showOrbitMarker: v }); worldView.updateChunkVisibility() }}
+        />
+      </div>
+    </HeaderMenu>
   )
 })
 

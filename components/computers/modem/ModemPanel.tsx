@@ -3,6 +3,7 @@
 import { useWorldStore } from '@/store/useWorld'
 import { useWorldViewStore } from '@/store/useWorldView'
 import LuaTerminal from '../LuaTerminal'
+import { Section, Led } from '@/components/ui'
 
 interface Props { computerId: number }
 
@@ -29,50 +30,47 @@ export default function ModemPanel({ computerId }: Props) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ fontSize: '0.9em', fontWeight: 'bold', color: 'rgb(120,180,240)', display: 'flex', alignItems: 'baseline', gap: 6 }}>
-        📡 Modem Server {computerId}
-        <span style={{ fontSize: '0.8em', fontWeight: 'normal', letterSpacing: '0.04em', textTransform: 'uppercase', color: modemServerId !== null ? 'rgb(80,200,80)' : 'rgb(120,120,120)' }}>
-          {modemServerId !== null ? 'online' : 'offline'}
-        </span>
-      </div>
-
-      <div>
-        <div style={{ fontSize: '0.75em', color: 'gray', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+    <div className="group">
+      <Section
+        label="Modem Server"
+        right={<Led kind={modemServerId !== null ? 'on' : 'off'} title={modemServerId !== null ? 'online' : 'offline'} />}
+      >
+        <span className="muted" style={{ fontSize: 12 }}>
           Routing {routing.length} / {clients.length} computer{clients.length !== 1 ? 's' : ''}
-        </div>
-        {clients.length === 0 ? (
-          <div style={{ fontSize: '0.8em', color: 'gray', fontStyle: 'italic' }}>No computers registered.</div>
-        ) : (
-          <>
-            <div style={{ display: 'grid', gridTemplateColumns: '65px 30px 1fr 36px', fontSize: '0.7em', color: 'gray', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 6px 3px', borderBottom: '1px solid #444', marginBottom: 2 }}>
-              <span>Type</span>
-              <span>ID</span>
-              <span>Name</span>
-              <span>Via</span>
-            </div>
+        </span>
+      </Section>
+
+      {clients.length === 0 ? (
+        <span className="muted" style={{ fontSize: 12, fontStyle: 'italic', padding: '0 12px' }}>No computers registered.</span>
+      ) : (
+        <table className="data-table" style={{ width: '100%' }}>
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Via</th>
+            </tr>
+          </thead>
+          <tbody>
             {clients.map(id => {
               const c = computers[id]
               return (
-                <div
-                  key={id}
-                  onClick={() => selectComputer(id)}
-                  style={{ display: 'grid', gridTemplateColumns: '65px 30px 1fr 36px', alignItems: 'center', fontSize: '0.85em', padding: '2px 6px', borderRadius: 3, cursor: 'pointer' }}
-                >
-                  <span style={{ color: 'gray', fontSize: '0.9em' }}>{TYPE_LABEL[c?.type ?? ''] ?? 'Unknown'}</span>
-                  <span style={{ color: 'rgb(120,180,240)', fontWeight: 'bold' }}>{id}</span>
-                  <span style={{ color: 'darkgray', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c?.label}</span>
-                  <span style={{ fontSize: '0.85em', color: c?.via_modem ? 'rgb(80,200,80)' : 'rgb(80,80,80)' }}>
-                    {c?.via_modem ? '📡' : '⟳'}
-                  </span>
-                </div>
+                <tr key={id} onClick={() => selectComputer(id)}>
+                  <td className="muted">{TYPE_LABEL[c?.type ?? ''] ?? 'Unknown'}</td>
+                  <td style={{ color: 'var(--cyan)', fontWeight: 600 }}>{id}</td>
+                  <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100 }}>{c?.label}</td>
+                  <td><Led kind={c?.via_modem ? 'on' : 'off'} title={c?.via_modem ? 'modem' : 'direct'} /></td>
+                </tr>
               )
             })}
-          </>
-        )}
-      </div>
+          </tbody>
+        </table>
+      )}
 
-      <LuaTerminal computerId={computerId} />
+      <Section label="Terminal">
+        <LuaTerminal computerId={computerId} />
+      </Section>
     </div>
   )
 }

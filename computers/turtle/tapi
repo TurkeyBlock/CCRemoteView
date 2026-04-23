@@ -4,36 +4,17 @@
 os.loadAPI("location")
 
 -- !MUST END WITH '/api/'
+-- %%APP_URL%% is replaced by the server before this file is served; not valid Lua as-is.
 url = "%%APP_URL%%/api/"
 state_url = url .. "state/"
 local headers = {
   ["Content-Type"] = "application/json"
 }
 
--- Auto-discover the modem server ID from the HTTP server.
--- If a wireless modem is attached and a modem server is registered, modem mode is enabled.
-local function discover_modem_id()
-  local res = http.get(url .. "modem/id?computerId=" .. os.getComputerID())
-  if res then
-    local data = textutils.unserializeJSON(res.readAll())
-    res.close()
-    if data and data.id and data.enabled ~= false then return data.id end
-  end
-  return nil
-end
-
-local modem_device = peripheral.find("modem") or nil
-local MODEM_SERVER_ID = nil
-use_modem = false
-
-if modem_device then
-  MODEM_SERVER_ID = discover_modem_id()
-  if MODEM_SERVER_ID then
-    modem_device.open(os.getComputerID())
-    use_modem = true
-    print("Modem mode: server ID " .. MODEM_SERVER_ID)
-  end
-end
+local api_common = require("api_common")  -- shared library downloaded to disk during startup
+local _m = api_common.make_modem(url)
+use_modem = _m.use_modem
+local modem_device = _m.modem_device
 local state = {
   id = -1,
   label = "",
@@ -53,8 +34,6 @@ local state = {
   },
   fuelLevel = -1,
   fuelLimit = -1,
-  sleep_mode    = false,
-  poll_interval = 1,  -- current HTTP poll interval in seconds
   has_modem_peripheral = modem_device ~= nil,
   actionSeq = 0,  -- monotonic counter incremented on each completed command; lets the browser discard late-arriving state updates
 }
@@ -120,21 +99,27 @@ function send_status_update()
   http.request(state_url, json, headers)
 end
 
+-- WebSocket connection for result delivery; nil = use HTTP (set by rcTurtle startup)
+local ws_conn = nil
+function set_ws(ws) ws_conn = ws end
+
 -- Send a command result to the server.
 function send_command_result(succ, ret)
   state.actionSeq = state.actionSeq + 1  -- advance before sending so the matching state update carries the same seq
   local seq = state.actionSeq
-  local data
-  local ok = pcall(function()
-    textutils.serializeJSON({ result = { succ = succ, ret = ret } })  -- test serializability
-    data = { computerId = os.getComputerID(), result = { succ = succ, ret = ret }, actionSeq = seq }
-  end)
-  if not ok then
-    data = { computerId = os.getComputerID(), result = { succ = false, ret = "error: result not serializable" }, actionSeq = seq }
+  local result
+  if pcall(textutils.serializeJSON, { succ = succ, ret = ret }) then
+    result = { succ = succ, ret = ret }
+  else
+    result = { succ = false, ret = "error: result not serializable" }
   end
-  local json = textutils.serializeJSON(data)
-  local res = http.post(url .. "commandResult", json, headers)
-  if res then res.close() end
+  local json = textutils.serializeJSON({ type = "commandResult", computerId = os.getComputerID(), result = result, actionSeq = seq })
+  if ws_conn then
+    ws_conn.send(json)
+  else
+    local res = http.post(url .. "commandResult", json, headers)
+    if res then res.close() end
+  end
 end
 
 local function does_side_have_inventory(side)
@@ -222,13 +207,6 @@ function setLoc(loc_in)
   loc_internal = loc_in
 end
 
-function set_sleep_mode(mode)
-  state.sleep_mode = mode
-end
-
-function set_poll_interval(seconds)
-  state.poll_interval = seconds
-end
 
 function save_loc_to_file()
   send_status_update()

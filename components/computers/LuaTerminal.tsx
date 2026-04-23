@@ -13,23 +13,24 @@ export default function LuaTerminal({ computerId }: Props) {
   const selectedComputerId = useWorldViewStore(s => s.selectedComputerId)
 
   return (
-    <>
+    <div className="code-pad">
       <textarea
-        style={{ height: 24, backgroundColor: '#383e42', color: 'darkgray', width: '100%', boxSizing: 'border-box' }}
+        className="code-pad-ta"
         value={cmd}
         onChange={e => setCmd(e.target.value)}
-        onKeyDown={e => e.stopPropagation()}
-        placeholder="write lua code here, e.g. return 42"
+        onKeyDown={e => {
+          e.stopPropagation()
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') sendCommand(computerId, cmd)
+        }}
+        placeholder="-- write lua here, e.g. return 42"
       />
-      <button
-        style={{ backgroundColor: '#383e42', color: 'darkgray' }}
-        onClick={() => sendCommand(computerId, cmd)}
-      >
-        Execute
-      </button>
-      <div style={{ backgroundColor: '#383e42', color: 'darkgray', wordWrap: 'break-word', width: 300 }}>
-        {commandResult[selectedComputerId]}
+      <div className="code-pad-foot">
+        <span className="muted" style={{ fontSize: 11 }}><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">↵</kbd> to run</span>
+        <button className="btn btn-compact btn-primary" onClick={() => sendCommand(computerId, cmd)}>Execute</button>
       </div>
-    </>
+      {commandResult[selectedComputerId] && (
+        <div className="code-pad-result">{commandResult[selectedComputerId]}</div>
+      )}
+    </div>
   )
 }

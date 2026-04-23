@@ -82,6 +82,9 @@ let modemServerIp = null;
 let lastKnownModemId = null; // persists through stale-clears so same modem reconnecting isn't treated as new
 let modemEnabled = {}; // { [id: string]: boolean } — auto-enabled when modem peripheral detected
 let lastModemLastSeenBroadcast = 0;
+let wsRequests = {};      // { [id]: true } — computer should open a WebSocket
+let computerWs = {};      // { [id]: WebSocket } — live computer WebSocket connections
+const commandInFlight = new Set(); // computer IDs with a command currently in flight over WS
 
 // Validate a computer ID: must be a non-negative integer ≤ 1 000 000.
 // Returns the numeric string form, or null if invalid.
@@ -289,6 +292,17 @@ function broadcastToClients(data) {
 
 function broadcastTransaction(transaction) {
   broadcastToClients({ transactions: { [transaction.id]: transaction } });
+}
+
+function sendNextCommandToWs(id) {
+  if (commandInFlight.has(id)) return;
+  const ws = computerWs[id];
+  if (!ws || ws.readyState !== 1) return; // 1 = OPEN
+  if (!cmds[id] || cmds[id].length === 0) return;
+  const cmd = cmds[id].shift();
+  commandInFlight.add(id);
+  ws.send(JSON.stringify({ type: 'command', command: cmd }));
+  if (LOG_BROWSER_CMDS) log.info(`[ws/computer] sent cmd to ${id} <${sanitizeForLog(cmd)}>`);
 }
 
 
@@ -523,22 +537,6 @@ nextApp.prepare().then(() => {
     res.sendStatus(200);
   });
 
-  app.post('/api/getCommand', express.text({ type: '*/*' }), requireApprovedComputer, (req, res) => {
-    const rawId = typeof req.body === 'string' ? req.body : (req.body?.id ?? req.body?.computerId);
-    const id = safeId(rawId);
-    const ts = new Date().toISOString();
-    if (id === null) {
-      console.log(`[${ts}] getCommand: invalid id from ${req.ip}`);
-      return res.status(400).json({ error: 'invalid id' });
-    }
-    console.log(`[${ts}] Computer ${id} requested command from ${req.ip}`);
-    if (req.query.fc) log.info(`Computer ${id} first contact after reboot`);
-    if (!cmds[id] || cmds[id].length === 0) { res.send(''); return; }
-    const cmd = cmds[id].shift();
-    console.log(`[${ts}] Sending command to ${id}: ${sanitizeForLog(cmd)}`);
-    res.send(cmd);
-  });
-
   const CMD_RESULT_CACHE_MAX = 100;
 
   app.post('/api/commandResult', requireApprovedComputer, (req, res) => {
@@ -568,6 +566,13 @@ nextApp.prepare().then(() => {
     console.log(`[${ts}] Computer ${id} checked for stop signal from ${req.ip}`);
     res.send(stopSignal[id] ? true : false);
     delete stopSignal[id];
+  });
+
+  app.post('/api/getWsRequest', express.text({ type: '*/*' }), requireApprovedComputer, (req, res) => {
+    const rawId = typeof req.body === 'string' ? req.body : (req.body?.id ?? req.body?.computerId);
+    const id = safeId(rawId);
+    if (id === null) return res.status(400).json({ error: 'invalid id' });
+    res.json({ open: wsRequests[id] === true });
   });
 
   app.post('/api/getSideCommand', requireApprovedComputer, (req, res) => {
@@ -680,8 +685,13 @@ nextApp.prepare().then(() => {
         log.info(`Modem: delivering chat to computer ${id}`);
       }
     }
-    log.info(`Modem: poll (${ids.length} computers, ${Object.keys(commands).length} cmds, ${Object.keys(stops).length} stops, ${Object.keys(sides).length} sides, ${Object.keys(chats).length} chats, size: ${req.body.length} bytes)`);
-    res.json({ commands, stops, sides, chats });
+    const wsReqs = {};
+    for (const id of ids) {
+      const sid = String(id);
+      if (wsRequests[sid] && !computerWs[sid]) wsReqs[sid] = true;
+    }
+    log.info(`Modem: poll (${ids.length} computers, ${Object.keys(commands).length} cmds, ${Object.keys(stops).length} stops, ${Object.keys(sides).length} sides, ${Object.keys(chats).length} chats, ${Object.keys(wsReqs).length} wsReqs, size: ${req.body.length} bytes)`);
+    res.json({ commands, stops, sides, chats, wsRequests: wsReqs });
   });
 
   // --- Browser endpoints ---
@@ -875,9 +885,95 @@ nextApp.prepare().then(() => {
     noServer: true,
     perMessageDeflate: { threshold: 1024 }, // compress messages > 1 KB
   });
+  // --- Computer WebSocket server ---
+  const computerWss = new WebSocketServer({ noServer: true });
+  computerWss.on('connection', (ws, req) => {
+    const ip = req.socket.remoteAddress;
+    if (IS_PROD || !DEV_NO_AUTH) {
+      if (!computerIpManager.isApproved(ip)) {
+        if (!computerIpManager.isPending(ip)) computerIpManager.addPending(ip);
+        ws.close(4403, 'Forbidden');
+        return;
+      }
+    }
+    const urlObj = new URL(req.url, 'http://localhost');
+    const id = safeId(urlObj.searchParams.get('id'));
+    if (!id) { ws.close(4400, 'Bad Request'); return; }
+    if ((IS_PROD || !DEV_NO_AUTH) && !computerIdManager.allowByIp && !computerIdManager.isApproved(Number(id))) {
+      if (!computerIdManager.isPending(Number(id))) computerIdManager.addPending(Number(id), ip);
+      ws.close(4403, 'Forbidden');
+      return;
+    }
+    console.log(`[ws/computer] Computer ${id} connected from ${ip}`);
+    if (computerWs[id] && computerWs[id] !== ws) computerWs[id].terminate();
+    commandInFlight.delete(id);
+    delete wsRequests[id];
+    computerWs[id] = ws;
+    if (state.computers[id]) {
+      state.computers[id].ws_connected = true;
+      const t = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: { ...state.computers[id] } } };
+      applyTransaction(t, state, transactionCache);
+      state.lastReadyTransactionId++;
+      broadcastTransaction(t);
+    }
+    sendNextCommandToWs(id);
+    ws.on('message', (raw) => {
+      let msg;
+      try { msg = JSON.parse(raw); } catch { return; }
+      if (msg.type === 'commandResult') {
+        const cid = safeId(msg.computerId) ?? id;
+        commandInFlight.delete(id);
+        const result = msg.result;
+        if (result !== undefined) {
+          console.log(`[ws/computer] Computer ${cid} result (seq=${msg.actionSeq ?? '?'}):`, result);
+          if (!commandResultCache[cid]) commandResultCache[cid] = [];
+          commandResultCache[cid].push(result);
+          if (commandResultCache[cid].length > CMD_RESULT_CACHE_MAX) commandResultCache[cid].shift();
+          const broadcast = { computerId: cid, result };
+          if (msg.actionSeq !== undefined) broadcast.actionSeq = msg.actionSeq;
+          broadcastToClients({ commandResult: broadcast });
+        }
+        sendNextCommandToWs(id);
+      }
+    });
+    ws.on('close', (code) => {
+      console.log(`[ws/computer] Computer ${id} disconnected — code: ${code}`);
+      if (computerWs[id] === ws) {
+        delete computerWs[id];
+        commandInFlight.delete(id);
+        if (cmds[id] && cmds[id].length > 0) wsRequests[id] = true;
+        if (state.computers[id]) {
+          state.computers[id].ws_connected = false;
+          const t = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: { ...state.computers[id] } } };
+          applyTransaction(t, state, transactionCache);
+          state.lastReadyTransactionId++;
+          broadcastTransaction(t);
+        }
+      }
+    });
+    ws.on('error', (err) => {
+      console.log(`[ws/computer] Computer ${id} error: ${err.message}`);
+      if (computerWs[id] === ws) {
+        delete computerWs[id];
+        commandInFlight.delete(id);
+        if (cmds[id] && cmds[id].length > 0) wsRequests[id] = true;
+        if (state.computers[id]) {
+          state.computers[id].ws_connected = false;
+          const t = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: { ...state.computers[id] } } };
+          applyTransaction(t, state, transactionCache);
+          state.lastReadyTransactionId++;
+          broadcastTransaction(t);
+        }
+      }
+      ws.terminate();
+    });
+  });
+
   server.on('upgrade', (req, socket, head) => {
     if (req.url === '/ws') {
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+    } else if (req.url.startsWith('/ws/computer')) {
+      computerWss.handleUpgrade(req, socket, head, (ws) => computerWss.emit('connection', ws, req));
     }
     // All other upgrades (/_next/webpack-hmr etc.) are left for Next.js to handle.
   });
@@ -909,24 +1005,38 @@ nextApp.prepare().then(() => {
           cmds[id].push(msg.cmd);
           if (LOG_BROWSER_CMDS) log.info(`[ws] setCommand id=${id} user=${userSub} queueDepth=${cmds[id].length} <${sanitizeForLog(msg.cmd)}>`);
           userManagement.incrementActionCount(userSub);
+          if (computerWs[id]?.readyState === 1) {
+            sendNextCommandToWs(id);
+          } else {
+            wsRequests[id] = true;
+          }
           break;
         }
         case 'setSideCommand': {
           const id = safeId(msg.id);
           if (!id || !msg.cmd || typeof msg.cmd !== 'string' || msg.cmd.length > MAX_CMD_LENGTH) return;
-          if (!sideCommands[id]) sideCommands[id] = [];
-          sideCommands[id].push(msg.cmd);
-          if (LOG_BROWSER_CMDS) log.info(`[ws] setSideCommand id=${id} user=${userSub} queueDepth=${sideCommands[id].length} <${sanitizeForLog(msg.cmd)}>`);
+          if (LOG_BROWSER_CMDS) log.info(`[ws] setSideCommand id=${id} user=${userSub} <${sanitizeForLog(msg.cmd)}>`);
           userManagement.incrementActionCount(userSub);
+          if (computerWs[id]?.readyState === 1) {
+            computerWs[id].send(JSON.stringify({ type: 'sideCommand', command: msg.cmd }));
+          } else {
+            if (!sideCommands[id]) sideCommands[id] = [];
+            sideCommands[id].push(msg.cmd);
+          }
           break;
         }
         case 'setStopSignal': {
           const id = safeId(msg.id);
           if (!id) return;
-          stopSignal[id] = true;
           clearCommandQueue(id, userSub);
+          commandInFlight.delete(id);
           if (LOG_BROWSER_CMDS) log.info(`[ws] setStopSignal id=${id} user=${userSub}`);
           userManagement.incrementActionCount(userSub);
+          if (computerWs[id]?.readyState === 1) {
+            computerWs[id].send(JSON.stringify({ type: 'stopSignal' }));
+          } else {
+            stopSignal[id] = true;
+          }
           break;
         }
         case 'clearCommandQueue': {

@@ -4,10 +4,7 @@ import { useState } from 'react'
 import { useWorldStore } from '@/store/useWorld'
 import { useWorldViewStore } from '@/store/useWorldView'
 import LuaTerminal from '../LuaTerminal'
-import ComputerLocation from '../ComputerLocation'
-import ButtonGrid from '../ButtonGrid'
-import ScrollList from '../ScrollList'
-import { btn, activeBtn, missingBtn, colors, inputStyle, sectionLabel } from '../computerStyles'
+import { Section } from '@/components/ui'
 
 interface Props { computerId: number }
 
@@ -34,51 +31,64 @@ export default function StationaryPanel({ computerId }: Props) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <ComputerLocation loc={computer.loc ?? null} showUnavailable />
-      <ButtonGrid>
-        <button style={hasSensor ? btn : missingBtn} onClick={() => sendCommand(computerId, 'return sapi.sense()')}>Entity Scan</button>
-        <button style={btn} onClick={() => focusOnComputer(computerId)}>Focus Camera</button>
-        <button style={isFollowing ? activeBtn : btn} onClick={() => followComputer(computerId)}>Toggle Follow</button>
-        <button style={btn} onClick={() => sendStopSignal(computerId)}>🛑 Stop 🛑</button>
-      </ButtonGrid>
+    <div className="group">
+      <Section label="Actions">
+        <div className="btn-row-2">
+          <button
+            className={`btn btn-compact${hasSensor ? '' : ' btn-disabled'}`}
+            onClick={() => sendCommand(computerId, 'return sapi.sense()')}
+          >Entity Scan</button>
+          <button className="btn btn-compact" onClick={() => focusOnComputer(computerId)}>Focus</button>
+          <button
+            className={`btn btn-compact${isFollowing ? ' btn-toggled' : ''}`}
+            onClick={() => followComputer(computerId)}
+          >{isFollowing ? 'Unfollow' : 'Follow'}</button>
+          <button className="btn btn-compact btn-danger" onClick={() => sendStopSignal(computerId)}>Stop</button>
+        </div>
+      </Section>
 
       {computer.entities && computer.entities.length > 0 && (
-        <ScrollList label="Nearby Entities" count={computer.entities.length}>
-          {computer.entities.map(e => (
-            <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8em', color: colors.text, gap: 8 }}>
-              <span style={{ color: colors.textName, whiteSpace: 'nowrap' }}>{e.name}</span>
-              <span style={{ color: 'gray', fontSize: '0.9em' }}>{e.x.toFixed(1)}, {e.y.toFixed(1)}, {e.z.toFixed(1)}</span>
-            </div>
-          ))}
-        </ScrollList>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <div style={sectionLabel}>Chat</div>
-        {computer.chatLog && computer.chatLog.length > 0 && (
-          <div style={{ resize: 'vertical', overflow: 'auto', minHeight: 60, height: 120, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {[...computer.chatLog].reverse().slice(0, 20).map((msg, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8em', color: colors.text, gap: 8, flexShrink: 0 }}>
-                <span style={{ color: colors.textName, whiteSpace: 'nowrap' }}>{msg.player}:</span>
-                <span style={{ color: colors.textLight, flex: 1 }}>{msg.message}</span>
+        <Section label={`Entities (${computer.entities.length})`}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 160, overflowY: 'auto' }}>
+            {computer.entities.map(e => (
+              <div key={e.id} className="row-between" style={{ fontSize: 12 }}>
+                <span style={{ color: 'var(--cyan)', whiteSpace: 'nowrap' }}>{e.name}</span>
+                <span className="muted" style={{ fontSize: 11 }}>{e.x.toFixed(1)}, {e.y.toFixed(1)}, {e.z.toFixed(1)}</span>
               </div>
             ))}
           </div>
-        )}
-        <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
-          <input
-            style={{ ...inputStyle, flex: 1, width: 'auto', fontSize: '0.8em' }}
-            placeholder="Send message..."
-            value={chatInput}
-            onChange={e => setChatInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') sendChat() }}
-          />
-          <button style={{ ...btn, padding: '4px 10px', fontSize: '0.8em' }} onClick={sendChat}>Send</button>
-        </div>
-      </div>
+        </Section>
+      )}
 
-      <LuaTerminal computerId={computerId} />
+      <Section label="Chat">
+        <div className="chat">
+          {computer.chatLog && computer.chatLog.length > 0 && (
+            <div className="chat-log">
+              {[...computer.chatLog].reverse().slice(0, 20).map((msg, i) => (
+                <span key={i} className="chat-line">
+                  <span className="chat-line-user">{msg.player}</span>
+                  <span className="chat-line-msg">{msg.message}</span>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="chat-input-row">
+            <input
+              className="input"
+              style={{ flex: 1 }}
+              placeholder="Send message..."
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') sendChat() }}
+            />
+            <button className="btn" onClick={sendChat}>Send</button>
+          </div>
+        </div>
+      </Section>
+
+      <Section label="Terminal">
+        <LuaTerminal computerId={computerId} />
+      </Section>
     </div>
   )
 }

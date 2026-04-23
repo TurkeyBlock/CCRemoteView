@@ -61,34 +61,18 @@ export default function InventorySlot({ computerId, invSlot, slotNum, isSelected
       onDragEnter={e => e.preventDefault()}
       onClick={onClick}
       title={invSlot?.name ?? ''}
-      style={{
-        backgroundColor: isSelected ? 'rgb(49,172,1)' : '#666666',
-        color: 'darkgray',
-        minWidth: 0,
-        minHeight: 0,
-        padding: '10%',
-        display: 'block',
-        position: 'relative',
-        cursor: 'pointer',
-        aspectRatio: '1',
-      }}
+      className={`inv-slot${isSelected ? ' inv-slot-selected' : ''}`}
     >
       {src && (
         <img
-          style={{ maxWidth: '100%', width: '100%', imageRendering: 'pixelated' }}
+          style={{ width: '80%', imageRendering: 'pixelated' }}
           src={src}
           alt={invSlot?.name ?? ''}
           onError={e => { (e.target as HTMLImageElement).src = '/favicon-32x32.png' }}
         />
       )}
       {invSlot && (
-        <div style={{
-          position: 'absolute', bottom: '10%', right: '15%',
-          fontWeight: 'bold', fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif',
-          userSelect: 'none',
-        }}>
-          {invSlot.count}
-        </div>
+        <div className="inv-slot-count">{invSlot.count}</div>
       )}
     </div>
   )

@@ -1,98 +1,39 @@
 -- Turtle Computer startup
--- Downloads the latest turtle computer files and launches the remote control loop.
 
 -- !MUST END WITH '/'
+-- %%APP_URL%% is replaced by the server before this file is served; not valid Lua as-is.
 base_url = "%%APP_URL%%/"
 
-function Split(s, delimiter)
-  result = {}
-  for match in (s..delimiter):gmatch("(.-)"..delimiter) do
-    table.insert(result, match)
-  end
-  return result
-end
-
-local function get_files_from_server()
-  local files = { "tapi", "location", "setLocRot", "rcTurtle.lua", "startup" }
-  term.write("autoupdate...")
-  for _, name in ipairs(files) do
-    local url = base_url .. "computers/turtle/" .. name
+-- boot.lua is not on disk yet on first boot, so we must fetch it inline before require() can work.
+local function bootstrap_download(url, dest)
     local res = http.get(url, nil)
     while not res do
-      print("Error on GET " .. url .. " - retrying in 5 seconds")
-      sleep(5)
-      res = http.get(url, nil)
+        print("Error: " .. url .. " - retrying in 5s")
+        sleep(5)
+        res = http.get(url, nil)
     end
-    local f = fs.open(name, "w")
+    local f = fs.open(dest, "w")
     f.write(res.readAll())
     f.close()
     res.close()
-    if name == "startup" then
-      if fs.exists("backup") then
-        fs.delete("backup/startup")
-      else
-        fs.makeDir("backup")
-      end
-      if fs.exists("startup") then
-        fs.copy("startup", "backup/startup")
-      end
-    end
-  end
-  term.write("complete\n")
 end
 
-function check_approved()
-  while true do
-    local res = http.post(
-      base_url .. "api/getCommand",
-      textutils.serialiseJSON({ id = os.getComputerID() }),
-      {["Content-Type"] = "application/json"}
-    )
-    if res then
-      local code = res.getResponseCode()
-      local body = textutils.unserialiseJSON(res.readAll()) or {}
-      res.close()
-      if code == 200 then
-        return true
-      elseif code == 403 then
-        term.clear()
-        term.setCursorPos(1,1)
-        if body.status == "pending_ip" then
-          print("Waiting for IP approval...")
-          print("Approve this turtle's IP in the admin panel.")
-        elseif body.status == "pending_id" then
-          print("Waiting for turtle ID approval...")
-          print("IP is approved. Approve turtle ID " .. tostring(os.getComputerID()) .. " in the admin panel.")
-        else
-          print("Waiting for admin approval...")
-        end
-        print("Retrying in 10 seconds.")
-        sleep(10)
-      else
-        print("Unexpected response: " .. code)
-        sleep(10)
-      end
-    else
-      print("Could not reach server, retrying...")
-      sleep(5)
-    end
-  end
-end
+bootstrap_download(base_url .. "computers/shared/boot.lua", "boot.lua")
+local boot = require("boot")
 
--- wait for approval before downloading updates
-check_approved()
+boot.check_approved(base_url, "turtle")
+-- Re-downloads shared libs (keeping boot.lua current). "startup" in the type list causes this file to self-update; new version runs on next reboot.
+boot.get_files(base_url, "computers/shared/", {"boot.lua", "rc_loop.lua", "api_common.lua"})
+boot.get_files(base_url, "computers/turtle/", {"tapi", "location", "setLocRot", "rcTurtle.lua", "startup"})
 
--- autoupdate
-get_files_from_server()
-
--- equip advanced modem to right slot if available
+-- Auto-equip wireless modem from inventory if found; required for modem-relay mode.
 for slot = 1, 16 do
-  local item = turtle.getItemDetail(slot)
-  if item and item.name == "computercraft:advanced_modem" then
-    turtle.select(slot)
-    turtle.equipRight()
-    break
-  end
+    local item = turtle.getItemDetail(slot)
+    if item and item.name == "computercraft:advanced_modem" then
+        turtle.select(slot)
+        turtle.equipRight()
+        break
+    end
 end
 
 shell.run("rcTurtle.lua")
