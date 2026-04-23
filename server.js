@@ -58,7 +58,14 @@ const APP_URL = IS_PROD ? process.env.APP_URL : DEV_APP_URL;
 const SIGNIN_URL = `${IS_PROD ? process.env.NEXTAUTH_URL : DEV_AUTH_URL}/auth/signin?callbackUrl=${encodeURIComponent(APP_URL)}`;
 const PORT = parseInt(process.env.APP_PORT || '8081', 10);
 
-const log = pino({ level: 'info' }, pino.destination({ dest: 1, sync: true })); // dest: 1 = stdout
+const log = pino({
+  level: 'info',
+  timestamp: () => { const d = new Date(); return `,"time":"${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}"`; },
+  base: null,  // drops pid and hostname
+  formatters: {
+    level: (label) => ({ level: label }),  // "info" instead of 30
+  },
+}, pino.destination({ dest: 1, sync: true }));
 
 const dev = !IS_PROD;
 const nextApp = next({ dev, hostname: 'localhost', port: PORT });
@@ -672,37 +679,13 @@ nextApp.prepare().then(() => {
       }
     }
     const ids = req.body.length > 0 ? req.body.split(',').map(Number).filter(n => !isNaN(n)) : [];
-    const commands = {};
-    const stops = {};
-    const sides = {};
-    const chats = {};
-    for (const id of ids) {
-      const sid = String(id);
-      if (modemEnabled[sid] === false) continue; // computer opted out of modem; it polls HTTP directly
-      if (stopSignal[id]) {
-        stops[sid] = true;
-        delete stopSignal[id];
-        log.info(`Modem: delivering stop signal to computer ${id}`);
-      } else if (cmds[id] && cmds[id].length > 0) {
-        commands[sid] = cmds[id].shift();
-        log.info(`Modem: delivering cmd to computer ${id}`);
-      }
-      if (sideCommands[id] && sideCommands[id].length > 0) {
-        sides[sid] = sideCommands[id].shift();
-        log.info(`Modem: delivering side command to computer ${id}`);
-      }
-      if (chatQueue[id] && chatQueue[id].length > 0) {
-        chats[sid] = chatQueue[id].shift();
-        log.info(`Modem: delivering chat to computer ${id}`);
-      }
-    }
     const wsReqs = {};
     for (const id of ids) {
       const sid = String(id);
       if (wsRequests[sid] && !computerWs[sid]) wsReqs[sid] = true;
     }
-    log.info(`Modem: poll (${ids.length} computers, ${Object.keys(commands).length} cmds, ${Object.keys(stops).length} stops, ${Object.keys(sides).length} sides, ${Object.keys(chats).length} chats, ${Object.keys(wsReqs).length} wsReqs, size: ${req.body.length} bytes)`);
-    res.json({ commands, stops, sides, chats, wsRequests: wsReqs });
+    log.info(`Modem: poll (${ids.length} computers, ${Object.keys(wsReqs).length} wsReqs, size: ${req.body.length} bytes)`);
+    res.json({ wsRequests: wsReqs });
   });
 
   // --- Browser endpoints ---
