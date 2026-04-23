@@ -95,7 +95,7 @@ return function(api, ws_url, opts)
                     local ok, err = pcall(function()
                         api.send_status_update()
                         while true do
-                            local rok, raw = pcall(ws.receive, ws)
+                            local rok, raw = pcall(function() return ws.receive() end)
                             if not rok or raw == nil then break end
                             handle_msg(ws, raw)
                         end
