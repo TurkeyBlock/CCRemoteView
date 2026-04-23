@@ -78,7 +78,7 @@ local native = {
     digDown = turtle.digDown,
   },
   os = {
-    os.restart
+    restart = os.restart
   }
 }
 os.restart = function()
