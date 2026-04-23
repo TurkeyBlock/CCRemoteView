@@ -66,20 +66,20 @@ const CHUNK_SIZE = 16;
 // block centre, the face normal, and UV coordinates.
 // Vertex order produces counter-clockwise winding when viewed from outside.
 const FACES = [
-  // +X (looking west from outside: left=south/+Z, right=north/-Z → U=0 at south/+Z, U=1 at north/-Z)
+  // +X
   {
     dx: 1, dy: 0, dz: 0,
     verts: [
-      [0.5, -0.5,  0.5], [0.5,  0.5,  0.5], [0.5,  0.5, -0.5], [0.5, -0.5, -0.5],
+      [0.5, -0.5, -0.5], [0.5,  0.5, -0.5], [0.5,  0.5,  0.5], [0.5, -0.5,  0.5],
     ],
     normal: [1, 0, 0],
     uvs: [[0,0],[0,1],[1,1],[1,0]],
   },
-  // -X (looking east from outside: left=north/-Z, right=south/+Z → U=0 at north/-Z, U=1 at south/+Z)
+  // -X
   {
     dx: -1, dy: 0, dz: 0,
     verts: [
-      [-0.5, -0.5, -0.5], [-0.5,  0.5, -0.5], [-0.5,  0.5,  0.5], [-0.5, -0.5,  0.5],
+      [-0.5, -0.5,  0.5], [-0.5,  0.5,  0.5], [-0.5,  0.5, -0.5], [-0.5, -0.5, -0.5],
     ],
     normal: [-1, 0, 0],
     uvs: [[0,0],[0,1],[1,1],[1,0]],
