@@ -18,7 +18,7 @@ locSemaphore = {
 }
 
 local headers        = { ["Content-Type"] = "application/json" }
-local api_common     = require("api_common")  -- shared library downloaded to disk during startup
+local api_common     = dofile("/api_common.lua")
 
 -- ─── Boot-time location capture ──────────────────────────────
 

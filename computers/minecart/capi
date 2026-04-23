@@ -8,7 +8,7 @@ url = "%%APP_URL%%/api/"
 local state_url = url .. "state/"
 local headers = { ["Content-Type"] = "application/json" }
 
-local api_common = require("api_common")  -- shared library downloaded to disk during startup
+local api_common = dofile("/api_common.lua")
 local _m = api_common.make_modem(url)
 use_modem = _m.use_modem
 local modem_device = _m.modem_device
