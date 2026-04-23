@@ -380,6 +380,14 @@ nextApp.prepare().then(() => {
   // Proxy fix: traffic arrives via Cloudflare tunnel
   app.set('trust proxy', 'loopback');
 
+  // For WebSocket upgrade requests (raw Node IncomingMessage, not Express), req.ip is unavailable.
+  // Read CF-Connecting-IP (set by Cloudflare) so we get the real client IP, not the tunnel loopback.
+  function getClientIp(req) {
+    return req.headers['cf-connecting-ip']
+      || (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+      || req.socket.remoteAddress;
+  }
+
   app.use(cors({
     origin: IS_PROD ? process.env.APP_URL : DEV_AUTH_URL,
   }));
@@ -891,7 +899,7 @@ nextApp.prepare().then(() => {
   // --- Computer WebSocket server ---
   const computerWss = new WebSocketServer({ noServer: true });
   computerWss.on('connection', (ws, req) => {
-    const ip = req.socket.remoteAddress;
+    const ip = getClientIp(req);
     if (IS_PROD || !DEV_NO_AUTH) {
       if (!computerIpManager.isApproved(ip)) {
         if (!computerIpManager.isPending(ip)) computerIpManager.addPending(ip);
@@ -993,7 +1001,7 @@ nextApp.prepare().then(() => {
       userName = DEV_TOKEN.username;
       wsIsOperator = true;
     }
-    const clientIp = req.socket.remoteAddress;
+    const clientIp = getClientIp(req);
     console.log(`[ws] Browser client connected from ${clientIp} (total: ${browserClients.size + 1})`);
     browserClients.add(ws);
     ws.on('message', (raw) => {
