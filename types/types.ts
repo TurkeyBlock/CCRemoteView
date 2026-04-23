@@ -6,11 +6,12 @@ interface ComputerState {
     rot: number,
     inv: ItemStack[],
     selectedSlot: number,
-    view: {
-        front: 0,
-        top: 0,
-        bottom: 0
+    view?: {
+        front?: Block | null,
+        top?: Block | null,
+        bottom?: Block | null,
     },
+    adjacentInventory?: Record<string, { inventory: Inventory, inventorySize: number }>,
     fuelLevel: number,
     fuelLimit: number,
     ws_connected?: boolean,

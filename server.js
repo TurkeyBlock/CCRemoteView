@@ -325,25 +325,8 @@ function extractState(computerState, state) {
   const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: {} };
 
   if (computerState.view) {
-    // Null out old adjacent positions that had inventory so stale indicators clear when the turtle moves/rotates.
-    const prev = state.computers[computerState.id];
-    if (prev?.loc) {
-      const { x: px, y: py, z: pz } = prev.loc;
-      let oldFrontKey;
-      switch (prev.rot) {
-        case 3: oldFrontKey = `${px},${py},${pz+1}`; break;
-        case 2: oldFrontKey = `${px+1},${py},${pz}`; break;
-        case 1: oldFrontKey = `${px},${py},${pz-1}`; break;
-        case 0: oldFrontKey = `${px-1},${py},${pz}`; break;
-      }
-      for (const oldKey of [`${px},${py+1},${pz}`, `${px},${py-1},${pz}`, oldFrontKey]) {
-        if (oldKey && state.world.blocks[oldKey]?.inventory) transaction.blocks[oldKey] = null;
-      }
-    }
-
-    transaction.blocks[`${x},${y+1},${z}`] = computerState.view.top || null;
-    transaction.blocks[`${x},${y-1},${z}`] = computerState.view.bottom || null;
-
+    const topKey    = `${x},${y+1},${z}`;
+    const bottomKey = `${x},${y-1},${z}`;
     let frontKey;
     switch (computerState.rot) {
       case 3: frontKey = `${x},${y},${z+1}`; break;
@@ -352,7 +335,27 @@ function extractState(computerState, state) {
       case 0: frontKey = `${x-1},${y},${z}`; break;
       default: log.warn(`error in extractBlockState: rot is invalid (${computerState.rot})`);
     }
-    if (frontKey) transaction.blocks[frontKey] = computerState.view.front || null;
+
+    // Write block identity to the world, but strip inventory — inventory is ephemeral
+    // to the turtle's current view and must never persist in the block map.
+    function blockOnly(b) {
+      if (!b) return null;
+      const { inventory, inventorySize, ...rest } = b;
+      return Object.keys(rest).length ? rest : null;
+    }
+    transaction.blocks[topKey]    = blockOnly(computerState.view.top);
+    transaction.blocks[bottomKey] = blockOnly(computerState.view.bottom);
+    if (frontKey) transaction.blocks[frontKey] = blockOnly(computerState.view.front);
+
+    // Collect inventory data onto the computer state, keyed by world position.
+    // This is fully replaced on every update so there are no ghost inventories.
+    const adjacentInventory = {};
+    const viewPairs = [[topKey, computerState.view.top], [bottomKey, computerState.view.bottom]];
+    if (frontKey) viewPairs.push([frontKey, computerState.view.front]);
+    for (const [key, block] of viewPairs) {
+      if (block?.inventory) adjacentInventory[key] = { inventory: block.inventory, inventorySize: block.inventorySize };
+    }
+    computerState.adjacentInventory = adjacentInventory;
   }
 
   transaction.computers[computerState.id] = computerState;

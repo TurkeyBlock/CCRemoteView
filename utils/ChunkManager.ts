@@ -286,7 +286,7 @@ export class ChunkManager {
   private scheduleSweep(): void {
     if (this.sweepPending) return;
     this.sweepPending = true;
-    // 50 ms debounce — a burst of block changes collapses into one rebuild pass.
+    // Defer to next task so all blocks from one transaction are marked dirty before sweeping.
     setTimeout(() => {
       this.sweepPending = false;
       for (const key of this.dirtyKeys) {
@@ -294,7 +294,7 @@ export class ChunkManager {
         if (this.loadedKeys.has(key)) this.scheduleBuild(key);
       }
       this.dirtyKeys.clear();
-    }, 50);
+    }, 0);
   }
 
   private scheduleBuild(key: string): void {

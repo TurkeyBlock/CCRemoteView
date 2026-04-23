@@ -66,20 +66,20 @@ const CHUNK_SIZE = 16;
 // block centre, the face normal, and UV coordinates.
 // Vertex order produces counter-clockwise winding when viewed from outside.
 const FACES = [
-  // +X
+  // +X (looking west from outside: left=south/+Z, right=north/-Z → U=0 at south/+Z, U=1 at north/-Z)
   {
     dx: 1, dy: 0, dz: 0,
     verts: [
-      [0.5, -0.5, -0.5], [0.5,  0.5, -0.5], [0.5,  0.5,  0.5], [0.5, -0.5,  0.5],
+      [0.5, -0.5,  0.5], [0.5,  0.5,  0.5], [0.5,  0.5, -0.5], [0.5, -0.5, -0.5],
     ],
     normal: [1, 0, 0],
     uvs: [[0,0],[0,1],[1,1],[1,0]],
   },
-  // -X
+  // -X (looking east from outside: left=north/-Z, right=south/+Z → U=0 at north/-Z, U=1 at south/+Z)
   {
     dx: -1, dy: 0, dz: 0,
     verts: [
-      [-0.5, -0.5,  0.5], [-0.5,  0.5,  0.5], [-0.5,  0.5, -0.5], [-0.5, -0.5, -0.5],
+      [-0.5, -0.5, -0.5], [-0.5,  0.5, -0.5], [-0.5,  0.5,  0.5], [-0.5, -0.5,  0.5],
     ],
     normal: [-1, 0, 0],
     uvs: [[0,0],[0,1],[1,1],[1,0]],
@@ -165,10 +165,11 @@ function pushCross(acc: Accumulator, bx: number, by: number, bz: number) {
   ] as [number,number,number][];
   const p1n: [number,number,number] = [0, 0, 1];
   const uv4: [number,number][] = [[0,0],[1,0],[1,1],[0,1]];
+  const uv4flip: [number,number][] = [[0,1],[1,1],[1,0],[0,0]];
   // front winding
   pushQuad(acc, p1v as any, p1n, uv4 as any, bx, by, bz);
-  // back winding (reverse)
-  pushQuad(acc, [p1v[3], p1v[2], p1v[1], p1v[0]] as any, [-p1n[0], -p1n[1], -p1n[2]], uv4 as any, bx, by, bz);
+  // back winding (reverse vertices + flip UVs vertically so texture isn't upside-down)
+  pushQuad(acc, [p1v[3], p1v[2], p1v[1], p1v[0]] as any, [-p1n[0], -p1n[1], -p1n[2]], uv4flip as any, bx, by, bz);
 
   // Plane 2: along Z axis (facing ±X)
   const p2v = [
@@ -176,7 +177,7 @@ function pushCross(acc: Accumulator, bx: number, by: number, bz: number) {
   ] as [number,number,number][];
   const p2n: [number,number,number] = [1, 0, 0];
   pushQuad(acc, p2v as any, p2n, uv4 as any, bx, by, bz);
-  pushQuad(acc, [p2v[3], p2v[2], p2v[1], p2v[0]] as any, [-p2n[0], -p2n[1], -p2n[2]], uv4 as any, bx, by, bz);
+  pushQuad(acc, [p2v[3], p2v[2], p2v[1], p2v[0]] as any, [-p2n[0], -p2n[1], -p2n[2]], uv4flip as any, bx, by, bz);
 }
 
 /** Append a flat horizontal quad (snow layer, carpet, rail) sitting at the block's base. */
@@ -194,23 +195,28 @@ function pushSlab(acc: Accumulator, bx: number, by: number, bz: number, isTop: b
   const yOff = isTop ? 0.25 : -0.25;
   const yMin = yOff - 0.25;
   const yMax = yOff + 0.25;
+  // Side faces show only the matching half of the texture (bottom half for bottom slab, top half for top).
+  const vLo = isTop ? 0.5 : 0;
+  const vHi = isTop ? 1.0 : 0.5;
+  const uvSide: [number,number][] = [[0,vLo],[1,vLo],[1,vHi],[0,vHi]];
+  const uvFull: [number,number][] = [[0,0],[1,0],[1,1],[0,1]];
+
   const slabFaces = [
     // +X
-    { verts: [[0.5, yMin, -0.5],[0.5, yMax, -0.5],[0.5, yMax,  0.5],[0.5, yMin,  0.5]], n: [1,0,0] },
+    { verts: [[0.5, yMin, -0.5],[0.5, yMax, -0.5],[0.5, yMax,  0.5],[0.5, yMin,  0.5]], n: [1,0,0], uv: uvSide },
     // -X
-    { verts: [[-0.5, yMin,  0.5],[-0.5, yMax,  0.5],[-0.5, yMax, -0.5],[-0.5, yMin, -0.5]], n: [-1,0,0] },
+    { verts: [[-0.5, yMin,  0.5],[-0.5, yMax,  0.5],[-0.5, yMax, -0.5],[-0.5, yMin, -0.5]], n: [-1,0,0], uv: uvSide },
     // +Y
-    { verts: [[-0.5, yMax, -0.5],[-0.5, yMax,  0.5],[0.5, yMax,  0.5],[0.5, yMax, -0.5]], n: [0,1,0] },
+    { verts: [[-0.5, yMax, -0.5],[-0.5, yMax,  0.5],[0.5, yMax,  0.5],[0.5, yMax, -0.5]], n: [0,1,0], uv: uvFull },
     // -Y
-    { verts: [[-0.5, yMin,  0.5],[-0.5, yMin, -0.5],[0.5, yMin, -0.5],[0.5, yMin,  0.5]], n: [0,-1,0] },
+    { verts: [[-0.5, yMin,  0.5],[-0.5, yMin, -0.5],[0.5, yMin, -0.5],[0.5, yMin,  0.5]], n: [0,-1,0], uv: uvFull },
     // +Z
-    { verts: [[-0.5, yMin, 0.5],[0.5, yMin, 0.5],[0.5, yMax, 0.5],[-0.5, yMax, 0.5]], n: [0,0,1] },
+    { verts: [[-0.5, yMin, 0.5],[0.5, yMin, 0.5],[0.5, yMax, 0.5],[-0.5, yMax, 0.5]], n: [0,0,1], uv: uvSide },
     // -Z
-    { verts: [[0.5, yMin, -0.5],[-0.5, yMin, -0.5],[-0.5, yMax, -0.5],[0.5, yMax, -0.5]], n: [0,0,-1] },
+    { verts: [[0.5, yMin, -0.5],[-0.5, yMin, -0.5],[-0.5, yMax, -0.5],[0.5, yMax, -0.5]], n: [0,0,-1], uv: uvSide },
   ];
-  const uv: [number,number][] = [[0,0],[1,0],[1,1],[0,1]];
   for (const f of slabFaces) {
-    pushQuad(acc, f.verts as any, f.n as [number,number,number], uv as any, bx, by, bz);
+    pushQuad(acc, f.verts as any, f.n as [number,number,number], f.uv as any, bx, by, bz);
   }
 }
 

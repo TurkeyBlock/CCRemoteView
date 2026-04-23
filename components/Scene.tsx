@@ -60,6 +60,8 @@ function SceneSetup() {
   const raycaster = useRef(new THREE.Raycaster())
   const animatedTextures = useRef<TextureAnimator[]>([])
   const invSprites = useRef(new Map<string, THREE.Sprite>())
+  // tracks which locStrings each computer currently has indicators for, so updateComputer can diff them
+  const computerAdjInvKeys = useRef(new Map<string, Set<string>>())
   const entityMeshes = useRef<Record<string, THREE.Mesh>>({})
   const entityMats = useRef<Record<string, THREE.MeshPhongMaterial>>({})
   const turtleModel = useRef<THREE.Object3D | null>(null)
@@ -123,9 +125,10 @@ function SceneSetup() {
   }
 
   function raycast(e: MouseEvent) {
+    const rect = gl.domElement.getBoundingClientRect()
     const mouse = {
-      x: (e.clientX / window.innerWidth) * 2 - 1,
-      y: -(e.clientY / window.innerHeight) * 2 + 1,
+      x: ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      y: -((e.clientY - rect.top) / rect.height) * 2 + 1,
     }
     raycaster.current.setFromCamera(mouse as any, camera)
 
@@ -184,8 +187,7 @@ function SceneSetup() {
   function addBlock(locString: string, block: Block) {
     if (!useWorldViewStore.getState().isBlockVisible(locString)) return
     chunkManager.current?.addBlock(locString, block)
-    if (block.inventory) addInventoryIndicator(locString)
-    else removeInventoryIndicator(locString)
+    // inventory indicators are driven by computer adjacentInventory, not block data
   }
 
   function removeBlock(locString: string) {
@@ -292,6 +294,24 @@ function SceneSetup() {
       computerAnimTargets.current[computerId] = { pos: new THREE.Vector3(x, y, z), rot: targetRot }
       invalidate()
     }
+
+    // Sync inventory indicators: diff old vs new adjacentInventory for this computer.
+    const allComputers = useWorldStore.getState().computers
+    const newAdjInv = (computerData as any).adjacentInventory ?? {}
+    const newKeys = new Set<string>(Object.keys(newAdjInv))
+    const oldKeys = computerAdjInvKeys.current.get(computerId) ?? new Set<string>()
+    for (const loc of oldKeys) {
+      if (!newKeys.has(loc)) {
+        const stillNeeded = Object.entries(allComputers).some(
+          ([id, c]) => id !== computerId && (c as any).adjacentInventory?.[loc]
+        )
+        if (!stillNeeded) removeInventoryIndicator(loc)
+      }
+    }
+    for (const loc of newKeys) {
+      if (!oldKeys.has(loc)) addInventoryIndicator(loc)
+    }
+    computerAdjInvKeys.current.set(computerId, newKeys)
   }
 
   function removeComputerModel(computerId: string) {
@@ -388,8 +408,12 @@ function SceneSetup() {
 
     updateChunkVisibility()
 
-    for (const locString in world.blocks) {
-      if (world.blocks[locString].inventory) addInventoryIndicator(locString)
+    computerAdjInvKeys.current.clear()
+    for (const [id, computer] of Object.entries(world.computers)) {
+      const adjInv = (computer as any).adjacentInventory ?? {}
+      const keys = new Set<string>(Object.keys(adjInv))
+      computerAdjInvKeys.current.set(id, keys)
+      for (const loc of keys) addInventoryIndicator(loc)
     }
 
     for (const computerId in world.computers) {
@@ -435,12 +459,24 @@ function SceneSetup() {
       const wv = useWorldViewStore.getState()
       if (wv.hoveredEntity) {
         useWorldViewStore.setState({ selectedInventory: null, selectedInventorySize: 0 })
-      } else if (wv.hoveredBlock?.inventory) {
-        useWorldViewStore.setState({
-          selectedInventory: wv.hoveredBlock.inventory,
-          selectedInventorySize: wv.hoveredBlock.inventorySize as number,
-          selectedInventoryPos: wv.hoveredBlockPos ? { x: wv.hoveredBlockPos.x, y: wv.hoveredBlockPos.y, z: wv.hoveredBlockPos.z } : null,
-        })
+      } else if (wv.hoveredBlockPos) {
+        const pos = wv.hoveredBlockPos
+        const locStr = `${pos.x},${pos.y},${pos.z}`
+        const computers = useWorldStore.getState().computers
+        let inv = null, invSize = 0
+        for (const c of Object.values(computers)) {
+          const entry = (c as any).adjacentInventory?.[locStr]
+          if (entry) { inv = entry.inventory; invSize = entry.inventorySize; break }
+        }
+        if (inv) {
+          useWorldViewStore.setState({
+            selectedInventory: inv,
+            selectedInventorySize: invSize,
+            selectedInventoryPos: { x: pos.x, y: pos.y, z: pos.z },
+          })
+        } else {
+          useWorldViewStore.setState({ selectedInventory: null, selectedInventorySize: 0 })
+        }
       } else {
         useWorldViewStore.setState({ selectedInventory: null, selectedInventorySize: 0 })
       }

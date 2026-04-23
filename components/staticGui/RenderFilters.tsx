@@ -88,7 +88,7 @@ const RenderFilters = forwardRef<PanelHandle, Props>(function RenderFilters({ on
         <div className="dropdown-divider" />
 
         <div className="dropdown-row">
-          <span className="dropdown-row-label" style={{ flex: '0 0 28px' }}>Y</span>
+          <span className="dropdown-row-label" style={{ flex: '0 0 64px' }}>Y</span>
           <input className="input input-mono" style={numInput} type="number" value={yMinLocal} min={0} max={255} onChange={e => setYMinLocal(Number(e.target.value))} onBlur={applyY} />
           <input className="input input-mono" style={numInput} type="number" value={yMaxLocal} min={0} max={255} onChange={e => setYMaxLocal(Number(e.target.value))} onBlur={applyY} />
           <button className="btn btn-compact" onClick={resetY}>Full</button>
