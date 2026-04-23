@@ -18,8 +18,8 @@ local function bootstrap_download(url, dest)
     res.close()
 end
 
-bootstrap_download(base_url .. "computers/shared/boot.lua", "boot.lua")
-local boot = require("boot")
+bootstrap_download(base_url .. "computers/shared/boot.lua", "/boot.lua")
+local boot = dofile("/boot.lua")
 
 boot.check_approved(base_url, "minecart")
 -- Re-downloads shared libs (keeping boot.lua current). "startup" in the type list causes this file to self-update; new version runs on next reboot.

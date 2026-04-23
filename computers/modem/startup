@@ -18,8 +18,8 @@ local function bootstrap_download(url, dest)
     res.close()
 end
 
-bootstrap_download(base_url .. "computers/shared/boot.lua", "boot.lua")
-local boot = require("boot")
+bootstrap_download(base_url .. "computers/shared/boot.lua", "/boot.lua")
+local boot = dofile("/boot.lua")
 
 boot.check_approved(base_url, "modem")
 -- Modem only needs boot.lua from shared (no rc_loop/api_common — modemServer.lua manages its own HTTP). "startup" self-updates.
