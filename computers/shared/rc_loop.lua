@@ -91,18 +91,23 @@ return function(api, ws_url, opts)
                     print("WS connected")
                     active_ws = ws
                     api.set_ws(ws)
-                    api.send_status_update()
 
-                    while true do
-                        local ok, raw = pcall(ws.receive, ws)
-                        if not ok or raw == nil then break end
-                        if handle_msg(ws, raw) then break end
-                    end
+                    local ok, err = pcall(function()
+                        api.send_status_update()
+                        while true do
+                            local rok, raw = pcall(ws.receive, ws)
+                            if not rok or raw == nil then break end
+                            handle_msg(ws, raw)
+                        end
+                    end)
 
                     api.set_ws(nil)
                     ws.close()
                     active_ws = nil
 
+                    if not ok then
+                        print("WS session error: " .. tostring(err))
+                    end
                     print("WS dropped, reconnecting in 5s")
                     os.sleep(5)
                 end
