@@ -95,6 +95,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         || (loc && (existing.loc?.x !== loc.x || existing.loc?.y !== loc.y || existing.loc?.z !== loc.z))
       const invChanged = JSON.stringify(existing?.inv) !== JSON.stringify(inv)
       const entitiesChanged = JSON.stringify(existing?.entities) !== JSON.stringify(entities)
+      const chatLogChanged = JSON.stringify(existing?.chatLog) !== JSON.stringify(computerState.chatLog)
       const changed = !existing
         || existing.fuelLevel !== computerState.fuelLevel
         || existing.label !== computerState.label
@@ -106,6 +107,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         || locChanged
         || invChanged
         || entitiesChanged
+        || chatLogChanged
 
       if (changed) updates[id] = { ...computerState, entities, inv, modified: Date.now() }
     }
