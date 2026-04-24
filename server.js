@@ -965,6 +965,9 @@ nextApp.prepare().then(() => {
           if (msg.actionSeq !== undefined) broadcast.actionSeq = msg.actionSeq;
           broadcastToClients({ commandResult: broadcast });
         }
+        // Do NOT call sendNextCommandToWs here — wait for turtle's "ready" signal.
+      } else if (msg.type === 'ready') {
+        log.info(`[ws/computer] id=${id} ready signal — sending next cmd`);
         sendNextCommandToWs(id);
       }
     });

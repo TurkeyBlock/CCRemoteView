@@ -115,6 +115,7 @@ return function(api, ws_url, opts)
                             if #pending_msgs > 0 then
                                 raw = table.remove(pending_msgs, 1)
                             else
+                                ws.send(textutils.serializeJSON({ type = "ready", computerId = os.getComputerID() }))
                                 local rok, received = pcall(function() return ws.receive() end)
                                 if not rok or received == nil then break end
                                 raw = received
