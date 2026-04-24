@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useWorldStore } from '@/store/useWorld'
 import { useWorldViewStore } from '@/store/useWorldView'
 import TurtlePanel from './turtles/TurtlePanel'
@@ -16,6 +16,7 @@ interface Props { computerId: number }
 export default function ComputerPanel({ computerId }: Props) {
   const computer = useWorldStore(s => s.computers[computerId])
   const followComputer = useWorldViewStore(s => s.followComputer)
+  const [showDebug, setShowDebug] = useState(false)
 
   useEffect(() => {
     followComputer(computerId)
@@ -66,6 +67,26 @@ export default function ComputerPanel({ computerId }: Props) {
       {(!computer?.type || !['minecart', 'player', 'stationary'].includes(computer.type)) && (
         <TurtlePanel computerId={computerId} />
       )}
+
+      <Section label="Debug">
+        <button
+          className="btn btn-compact btn-block"
+          onClick={() => setShowDebug(d => !d)}
+          style={{ fontSize: 11 }}
+        >
+          {showDebug ? 'Hide' : 'Show'} raw state
+        </button>
+        {showDebug && (
+          <pre style={{
+            marginTop: 6, padding: 8, fontSize: 10, lineHeight: 1.5,
+            background: 'var(--ink)', border: 'var(--border)', borderRadius: 2,
+            color: 'var(--fg)', overflowX: 'auto', overflowY: 'auto',
+            maxHeight: 320, whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+          }}>
+            {JSON.stringify(computer, null, 2)}
+          </pre>
+        )}
+      </Section>
     </div>
   )
 }

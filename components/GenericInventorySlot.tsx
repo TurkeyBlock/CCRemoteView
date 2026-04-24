@@ -40,34 +40,19 @@ export default function GenericInventorySlot({ invSlot, slotNum, computerId, sid
       onDrop={onDrop}
       onDragOver={e => e.preventDefault()}
       onDragEnter={e => e.preventDefault()}
-      style={{
-        backgroundColor: 'gray',
-        minWidth: 0,
-        minHeight: 0,
-        padding: '10%',
-        display: 'block',
-        position: 'relative',
-        color: 'white',
-        aspectRatio: '1',
-      }}
+      className="inv-slot"
       title={invSlot?.name ?? ''}
     >
       {src && (
         <img
-          style={{ maxWidth: '100%', width: '100%', imageRendering: 'pixelated' }}
+          style={{ width: '80%', imageRendering: 'pixelated' }}
           src={src}
           alt={invSlot?.name ?? ''}
           onError={e => { (e.target as HTMLImageElement).src = '/favicon-32x32.png' }}
         />
       )}
       {invSlot && (
-        <div style={{
-          position: 'absolute', bottom: '10%', right: '15%',
-          fontWeight: 'bold', fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif',
-          userSelect: 'none',
-        }}>
-          {invSlot.count}
-        </div>
+        <div className="inv-slot-count">{invSlot.count}</div>
       )}
     </div>
   )

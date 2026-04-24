@@ -168,8 +168,8 @@ function SceneSetup() {
     if (!exclMat.current || invSprites.current.has(locString)) return
     const [x, y, z] = locString.split(',').map(Number)
     const sprite = new THREE.Sprite(exclMat.current)
-    sprite.position.set(x, y + 0.9, z)
-    sprite.scale.set(0.5, 0.5, 0.5)
+    sprite.position.set(x, y + 1.4, z)
+    sprite.scale.set(0.9, 0.9, 0.9)
     invGroup.current.add(sprite)
     invSprites.current.set(locString, sprite)
   }
@@ -458,27 +458,17 @@ function SceneSetup() {
       raycast(e)
       const wv = useWorldViewStore.getState()
       if (wv.hoveredEntity) {
-        useWorldViewStore.setState({ selectedInventory: null, selectedInventorySize: 0 })
+        useWorldViewStore.setState({ selectedInventoryPos: null })
       } else if (wv.hoveredBlockPos) {
         const pos = wv.hoveredBlockPos
         const locStr = `${pos.x},${pos.y},${pos.z}`
         const computers = useWorldStore.getState().computers
-        let inv = null, invSize = 0
-        for (const c of Object.values(computers)) {
-          const entry = (c as any).adjacentInventory?.[locStr]
-          if (entry) { inv = entry.inventory; invSize = entry.inventorySize; break }
-        }
-        if (inv) {
-          useWorldViewStore.setState({
-            selectedInventory: inv,
-            selectedInventorySize: invSize,
-            selectedInventoryPos: { x: pos.x, y: pos.y, z: pos.z },
-          })
-        } else {
-          useWorldViewStore.setState({ selectedInventory: null, selectedInventorySize: 0 })
-        }
+        const hasInv = Object.values(computers).some(c => (c as any).adjacentInventory?.[locStr])
+        useWorldViewStore.setState({
+          selectedInventoryPos: hasInv ? { x: pos.x, y: pos.y, z: pos.z } : null,
+        })
       } else {
-        useWorldViewStore.setState({ selectedInventory: null, selectedInventorySize: 0 })
+        useWorldViewStore.setState({ selectedInventoryPos: null })
       }
     }
 

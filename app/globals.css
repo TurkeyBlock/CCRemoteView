@@ -214,6 +214,28 @@ kbd.kbd {
   gap: 3px; padding: 3px;
   background: var(--ink); border: var(--border); border-radius: 2px;
 }
+.inv-grid-wide { grid-template-columns: repeat(9, 1fr); }
+
+.inv-chest-panel {
+  background: rgba(37,37,38,0.96);
+  backdrop-filter: blur(6px);
+  border: var(--border); border-radius: 4px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.65);
+  user-select: none;
+  display: flex; flex-direction: column;
+  max-height: 60vh;
+}
+.inv-chest-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 10px 6px;
+  border-bottom: var(--border);
+  font-size: 12px; font-weight: 600; color: var(--fg-dim);
+  flex-shrink: 0;
+}
+.inv-chest-header-name { text-transform: capitalize; color: var(--fg); }
+.inv-chest-header-slots { font-weight: 400; color: var(--fg-mute); flex: 1; }
+.inv-chest-body { overflow-y: auto; padding: 6px; }
+
 .inv-slot {
   aspect-ratio: 1; background: var(--surface-2); border: 1px solid var(--line);
   border-radius: 2px; display: flex; align-items: center; justify-content: center;

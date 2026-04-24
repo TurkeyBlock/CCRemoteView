@@ -45,8 +45,6 @@ interface WorldViewState {
   gotoBlockPos: THREE.Vector3 | null
   selectedComputerId: number
   computerModels: Record<string, THREE.Object3D>
-  selectedInventory: Inventory | null
-  selectedInventorySize: number
   selectedInventoryPos: { x: number; y: number; z: number } | null
   transparencyList: string[]
   yMin: number
@@ -90,8 +88,6 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
   gotoBlockPos: null,
   selectedComputerId: -1,
   computerModels: {},
-  selectedInventory: null,
-  selectedInventorySize: 0,
   selectedInventoryPos: null,
   transparencyList: [],
   yMin: 0,

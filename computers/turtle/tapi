@@ -671,7 +671,9 @@ function suckDown()
 end
 
 function suckAll()
-  return suck() or suckUp() or suckDown()
+  local succ = turtle.suck() or turtle.suckUp() or turtle.suckDown()
+  send_status_update()
+  return succ
 end
 
 -- Pull a specific item by name from an adjacent inventory into the turtle.

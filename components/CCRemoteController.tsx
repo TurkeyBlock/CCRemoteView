@@ -26,9 +26,17 @@ export default function CCRemoteController() {
   const isLoading = useWorldStore(s => s.isLoading)
   const computers = useWorldStore(s => s.computers)
   const modemServerId = useWorldStore(s => s.modemServerId)
-  const selectedInventory = useWorldViewStore(s => s.selectedInventory)
-  const selectedInventorySize = useWorldViewStore(s => s.selectedInventorySize)
   const selectedInventoryPos = useWorldViewStore(s => s.selectedInventoryPos)
+  // Derive inventory live from world state so it updates after suck/drop and auto-closes when removed
+  const derivedInventory = useWorldStore(s => {
+    if (!selectedInventoryPos) return null
+    const locStr = `${selectedInventoryPos.x},${selectedInventoryPos.y},${selectedInventoryPos.z}`
+    for (const [id, c] of Object.entries(s.computers)) {
+      const entry = (c as any).adjacentInventory?.[locStr]
+      if (entry) return { inventory: entry.inventory, inventorySize: entry.inventorySize, computerId: Number(id) }
+    }
+    return null
+  })
   const computerRangeXZ = useWorldViewStore(s => s.computerRangeXZ)
   const userLoaded = useUserStore(s => s.loaded)
   const isOperator = useUserStore(s => s.isOperator)
@@ -75,6 +83,13 @@ export default function CCRemoteController() {
       wv.focusOnComputer(selectedComputerId)
     }
   }, [selectedComputerId, computerRangeXZ]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-close chest inventory panel when the turtle moves away and data is gone
+  useEffect(() => {
+    if (selectedInventoryPos && !derivedInventory) {
+      useWorldViewStore.setState({ selectedInventoryPos: null })
+    }
+  }, [derivedInventory, selectedInventoryPos])
 
   const computerIds = Object.keys(computers).map(Number).sort((a, b) => a - b)
 
@@ -518,12 +533,12 @@ export default function CCRemoteController() {
 
           <BlockNameDisplay />
 
-          {selectedInventory && (
+          {derivedInventory && selectedInventoryPos && (
             <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 5 }}>
               <InventoryView
-                inventory={selectedInventory}
-                inventorySize={selectedInventorySize}
-                computerId={selectedComputerId}
+                inventory={derivedInventory.inventory}
+                inventorySize={derivedInventory.inventorySize}
+                computerId={derivedInventory.computerId}
                 blockPos={selectedInventoryPos}
               />
             </div>
