@@ -990,11 +990,10 @@ nextApp.prepare().then(() => {
       if (computerWs[id] === ws) {
         delete computerWs[id];
         clearInFlight(id);
-        const hasPendingCmds = cmds[id] && cmds[id].length > 0;
-        if (hasPendingCmds) wsRequests[id] = true;
+        if (cmds[id] && cmds[id].length > 0) wsRequests[id] = true;
         if (state.computers[id]) {
           state.computers[id].ws_connected = false;
-          if (hasPendingCmds) state.computers[id].ws_request_at = Date.now();
+          state.computers[id].ws_request_at = null;
           const t = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: { ...state.computers[id] } } };
           applyTransaction(t, state, transactionCache);
           state.lastReadyTransactionId++;
@@ -1007,11 +1006,10 @@ nextApp.prepare().then(() => {
       if (computerWs[id] === ws) {
         delete computerWs[id];
         clearInFlight(id);
-        const hasPendingCmds = cmds[id] && cmds[id].length > 0;
-        if (hasPendingCmds) wsRequests[id] = true;
+        if (cmds[id] && cmds[id].length > 0) wsRequests[id] = true;
         if (state.computers[id]) {
           state.computers[id].ws_connected = false;
-          if (hasPendingCmds) state.computers[id].ws_request_at = Date.now();
+          state.computers[id].ws_request_at = null;
           const t = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: { ...state.computers[id] } } };
           applyTransaction(t, state, transactionCache);
           state.lastReadyTransactionId++;
