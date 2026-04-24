@@ -15,6 +15,7 @@ interface ComputerState {
     fuelLevel: number,
     fuelLimit: number,
     ws_connected?: boolean,
+    ws_request_at?: number | null,
     modified?: number,
     lastSeen?: number,
     via_modem?: boolean,

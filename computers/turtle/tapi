@@ -126,34 +126,47 @@ end
 
 local function does_side_have_inventory(side)
   if not peripheral.isPresent(side) then return false end
-  if peripheral.hasType then
-    return peripheral.hasType(side, "inventory")
-  end
-  -- Old CC: hasType doesn't exist. peripheral.getType returns the mod-specific
-  -- type string (e.g. "minecraft:chest"), never the generic "inventory" string,
-  -- so a string comparison is always wrong. Instead, probe by calling list().
+  -- hasType fast-path: if it confirms inventory, trust it.
+  if peripheral.hasType and peripheral.hasType(side, "inventory") then return true end
+  -- Fallback: probe by calling list(). Handles modded blocks that don't register
+  -- as "inventory" type but still expose a list() method.
   local ok, result = pcall(peripheral.call, side, "list")
   return ok and type(result) == "table"
+end
+
+local function read_side_inventory(side)
+  local ok, inv = pcall(peripheral.call, side, "list")
+  local ok2, sz = pcall(peripheral.call, side, "size")
+  return ok and inv or nil, ok2 and sz or nil
 end
 
 function scan_surrounding_blocks()
   local succ, block = turtle.inspect();
   state.view.front = succ and block or 0
   if succ and does_side_have_inventory("front") then
-    state.view.front.inventory = peripheral.call("front", "list")
-    state.view.front.inventorySize = peripheral.call("front", "size")
+    local inv, sz = read_side_inventory("front")
+    if inv ~= nil then
+      state.view.front.inventory = inv
+      state.view.front.inventorySize = sz
+    end
   end
   succ, block = turtle.inspectUp();
   state.view.top = succ and block or 0
   if succ and does_side_have_inventory("top") then
-    state.view.top.inventory = peripheral.call("top", "list")
-    state.view.top.inventorySize = peripheral.call("top", "size")
+    local inv, sz = read_side_inventory("top")
+    if inv ~= nil then
+      state.view.top.inventory = inv
+      state.view.top.inventorySize = sz
+    end
   end
   succ, block = turtle.inspectDown();
   state.view.bottom = succ and block or 0
   if succ and does_side_have_inventory("bottom") then
-    state.view.bottom.inventory = peripheral.call("bottom", "list")
-    state.view.bottom.inventorySize = peripheral.call("bottom", "size")
+    local inv, sz = read_side_inventory("bottom")
+    if inv ~= nil then
+      state.view.bottom.inventory = inv
+      state.view.bottom.inventorySize = sz
+    end
   end
 end
 

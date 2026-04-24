@@ -171,6 +171,10 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
         mat.opacity = 0.55
         mat.depthWrite = false
       }
+      if (name.includes('glass')) {
+        mat.transparent = true
+        mat.alphaTest = 0.5
+      }
       if (geomId === 'flat') {
         mat.polygonOffset = true
         mat.polygonOffsetFactor = -1

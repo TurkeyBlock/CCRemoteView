@@ -96,9 +96,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       const invChanged = JSON.stringify(existing?.inv) !== JSON.stringify(inv)
       const entitiesChanged = JSON.stringify(existing?.entities) !== JSON.stringify(entities)
       const chatLogChanged = JSON.stringify(existing?.chatLog) !== JSON.stringify(computerState.chatLog)
-      const adjInvKeys = Object.keys(computerState.adjacentInventory ?? {}).sort().join(',')
-      const existingAdjInvKeys = Object.keys((existing as any)?.adjacentInventory ?? {}).sort().join(',')
-      const adjInvChanged = adjInvKeys !== existingAdjInvKeys
+      const adjInvChanged = JSON.stringify(computerState.adjacentInventory ?? {}) !== JSON.stringify((existing as any)?.adjacentInventory ?? {})
       const changed = !existing
         || existing.fuelLevel !== computerState.fuelLevel
         || existing.label !== computerState.label
