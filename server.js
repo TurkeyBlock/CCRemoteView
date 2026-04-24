@@ -93,7 +93,7 @@ let wsRequests = {};      // { [id]: true } — computer should open a WebSocket
 let computerWs = {};      // { [id]: WebSocket } — live computer WebSocket connections
 const commandInFlight = new Set(); // computer IDs with a command currently in flight over WS
 const commandInFlightTimers = {};  // { [id]: Timeout } — cleared when result arrives or WS closes
-const COMMAND_TIMEOUT_MS = 10_000; // clear commandInFlight after 10s with no result
+const COMMAND_TIMEOUT_MS = 2_000; // clear commandInFlight after 2s with no result
 
 // Validate a computer ID: must be a non-negative integer ≤ 1 000 000.
 // Returns the numeric string form, or null if invalid.
@@ -320,8 +320,10 @@ function sendNextCommandToWs(id) {
   commandInFlight.add(id);
   commandInFlightTimers[id] = setTimeout(() => {
     if (commandInFlight.has(id)) {
-      log.info(`[sendNextCmd] id=${id} — command timed out after ${COMMAND_TIMEOUT_MS}ms, unblocking`);
+      log.info(`[sendNextCmd] id=${id} — command timed out after ${COMMAND_TIMEOUT_MS}ms, re-queuing`);
       clearInFlight(id);
+      if (!cmds[id]) cmds[id] = [];
+      cmds[id].unshift(cmd);
       sendNextCommandToWs(id);
     }
   }, COMMAND_TIMEOUT_MS);
