@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { useWorldStore, maxActionSeqPerComputer } from '@/store/useWorld'
 import { useWorldViewStore } from '@/store/useWorldView'
@@ -27,16 +27,17 @@ export default function CCRemoteController() {
   const computers = useWorldStore(s => s.computers)
   const modemServerId = useWorldStore(s => s.modemServerId)
   const selectedInventoryPos = useWorldViewStore(s => s.selectedInventoryPos)
-  // Derive inventory live from world state so it updates after suck/drop and auto-closes when removed
-  const derivedInventory = useWorldStore(s => {
+  // Watch the whole computers map so derivedInventory updates live after suck/drop
+  const computers = useWorldStore(s => s.computers)
+  const derivedInventory = useMemo(() => {
     if (!selectedInventoryPos) return null
     const locStr = `${selectedInventoryPos.x},${selectedInventoryPos.y},${selectedInventoryPos.z}`
-    for (const [id, c] of Object.entries(s.computers)) {
+    for (const [id, c] of Object.entries(computers)) {
       const entry = (c as any).adjacentInventory?.[locStr]
       if (entry) return { inventory: entry.inventory, inventorySize: entry.inventorySize, computerId: Number(id) }
     }
     return null
-  })
+  }, [selectedInventoryPos, computers])
   const computerRangeXZ = useWorldViewStore(s => s.computerRangeXZ)
   const userLoaded = useUserStore(s => s.loaded)
   const isOperator = useUserStore(s => s.isOperator)
