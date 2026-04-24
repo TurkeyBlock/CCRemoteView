@@ -14,6 +14,11 @@ return function(api, ws_url, opts)
     local IDLE_TIMEOUT = 300
     local last_active  = 0  -- os.clock() timestamp of last received message; set on session start
 
+    -- Messages received by watch_ws_signals (other than stopSignal) are buffered here
+    -- so the outer loop can process them after the current command completes, preventing
+    -- commands arriving mid-execution from being silently discarded.
+    local pending_msgs = {}
+
     -- Returns true if the WS was closed (receive returned nil), false otherwise.
     local function watch_ws_signals(ws)
         while true do
@@ -26,8 +31,8 @@ return function(api, ws_url, opts)
                 api.locSemaphore.stopSignal = true
                 while api.locSemaphore.count > 0 do os.sleep(0.001) end
                 return false
-            elseif opts.on_signal then
-                opts.on_signal(msg, ws)
+            else
+                table.insert(pending_msgs, raw)
             end
         end
     end
@@ -75,6 +80,7 @@ return function(api, ws_url, opts)
     local function run_session()
         last_active = os.clock()
         local active_ws = nil
+        pending_msgs = {}  -- reset per session
 
         local function idle_watcher()
             while true do
@@ -105,9 +111,15 @@ return function(api, ws_url, opts)
                     local ok, err = pcall(function()
                         api.send_status_update()
                         while true do
-                            local rok, raw = pcall(function() return ws.receive() end)
-                            if not rok or raw == nil then break end
-                            handle_msg(ws, raw)
+                            local raw
+                            if #pending_msgs > 0 then
+                                raw = table.remove(pending_msgs, 1)
+                            else
+                                local rok, received = pcall(function() return ws.receive() end)
+                                if not rok or received == nil then break end
+                                raw = received
+                            end
+                            if handle_msg(ws, raw) then break end
                         end
                     end)
 
