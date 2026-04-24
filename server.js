@@ -92,6 +92,8 @@ let lastModemLastSeenBroadcast = 0;
 let wsRequests = {};      // { [id]: true } — computer should open a WebSocket
 let computerWs = {};      // { [id]: WebSocket } — live computer WebSocket connections
 const commandInFlight = new Set(); // computer IDs with a command currently in flight over WS
+const commandInFlightTimers = {};  // { [id]: Timeout } — cleared when result arrives or WS closes
+const COMMAND_TIMEOUT_MS = 10_000; // clear commandInFlight after 10s with no result
 
 // Validate a computer ID: must be a non-negative integer ≤ 1 000 000.
 // Returns the numeric string form, or null if invalid.
@@ -301,6 +303,14 @@ function broadcastTransaction(transaction) {
   broadcastToClients({ transactions: { [transaction.id]: transaction } });
 }
 
+function clearInFlight(id) {
+  commandInFlight.delete(id);
+  if (commandInFlightTimers[id]) {
+    clearTimeout(commandInFlightTimers[id]);
+    delete commandInFlightTimers[id];
+  }
+}
+
 function sendNextCommandToWs(id) {
   if (commandInFlight.has(id)) return;
   const ws = computerWs[id];
@@ -308,6 +318,13 @@ function sendNextCommandToWs(id) {
   if (!cmds[id] || cmds[id].length === 0) return;
   const cmd = cmds[id].shift();
   commandInFlight.add(id);
+  commandInFlightTimers[id] = setTimeout(() => {
+    if (commandInFlight.has(id)) {
+      log.info(`[sendNextCmd] id=${id} — command timed out after ${COMMAND_TIMEOUT_MS}ms, unblocking`);
+      clearInFlight(id);
+      sendNextCommandToWs(id);
+    }
+  }, COMMAND_TIMEOUT_MS);
   log.info(`[sendNextCmd] id=${id} — sending cmd, remaining=${cmds[id].length} <${sanitizeForLog(cmd)}>`);
   ws.send(JSON.stringify({ type: 'command', command: cmd }));
 }
@@ -611,6 +628,11 @@ nextApp.prepare().then(() => {
         if (modemEnabled[computerId] === false) continue; // respect opt-out
         if (!cmds[computerId]) cmds[computerId] = [];
         cmds[computerId].push('os.reboot()');
+        if (computerWs[computerId]?.readyState === 1) {
+          sendNextCommandToWs(computerId);
+        } else {
+          wsRequests[computerId] = true;
+        }
       }
     }
     modemServerId = id;
@@ -852,6 +874,11 @@ nextApp.prepare().then(() => {
       for (const computerId of Object.keys(state.computers)) {
         if (!cmds[computerId]) cmds[computerId] = [];
         cmds[computerId].push('os.reboot()');
+        if (computerWs[computerId]?.readyState === 1) {
+          sendNextCommandToWs(computerId);
+        } else {
+          wsRequests[computerId] = true;
+        }
       }
     }
     log.info(`Computer ${id} deleted by ${req.token.sub}`);
@@ -900,7 +927,7 @@ nextApp.prepare().then(() => {
     }
     console.log(`[ws/computer] Computer ${id} connected from ${ip} — queueDepth=${cmds[id]?.length ?? 0}`);
     if (computerWs[id] && computerWs[id] !== ws) computerWs[id].terminate();
-    commandInFlight.delete(id);
+    clearInFlight(id);
     delete wsRequests[id];
     computerWs[id] = ws;
     if (state.computers[id]) {
@@ -927,7 +954,7 @@ nextApp.prepare().then(() => {
       if (msg.type === 'commandResult') {
         const cid = safeId(msg.computerId) ?? id;
         log.info(`[ws/computer] id=${id} commandResult cid=${cid} seq=${msg.actionSeq ?? '?'} — clearing inFlight, remaining queue=${cmds[id]?.length ?? 0}`);
-        commandInFlight.delete(id);
+        clearInFlight(id);
         const result = msg.result;
         if (result !== undefined) {
           console.log(`[ws/computer] Computer ${cid} result (seq=${msg.actionSeq ?? '?'}):`, result);
@@ -945,7 +972,7 @@ nextApp.prepare().then(() => {
       console.log(`[ws/computer] Computer ${id} disconnected — code: ${code}`);
       if (computerWs[id] === ws) {
         delete computerWs[id];
-        commandInFlight.delete(id);
+        clearInFlight(id);
         if (cmds[id] && cmds[id].length > 0) wsRequests[id] = true;
         if (state.computers[id]) {
           state.computers[id].ws_connected = false;
@@ -960,7 +987,7 @@ nextApp.prepare().then(() => {
       console.log(`[ws/computer] Computer ${id} error: ${err.message}`);
       if (computerWs[id] === ws) {
         delete computerWs[id];
-        commandInFlight.delete(id);
+        clearInFlight(id);
         if (cmds[id] && cmds[id].length > 0) wsRequests[id] = true;
         if (state.computers[id]) {
           state.computers[id].ws_connected = false;
@@ -1035,7 +1062,7 @@ nextApp.prepare().then(() => {
           const id = safeId(msg.id);
           if (!id) return;
           clearCommandQueue(id, userSub);
-          commandInFlight.delete(id);
+          clearInFlight(id);
           if (LOG_BROWSER_CMDS) log.info(`[ws] setStopSignal id=${id} user=${userSub}`);
           userManagement.incrementActionCount(userSub);
           if (computerWs[id]?.readyState === 1) {

@@ -87,13 +87,17 @@ return function(api, ws_url, opts)
         end
 
         local function session_loop()
-            while true do
-                print("Opening WebSocket to server...")
+            local MAX_RETRIES = 10
+            local retries = 0
+            while retries < MAX_RETRIES do
+                print("Opening WebSocket to server... (attempt " .. (retries + 1) .. "/" .. MAX_RETRIES .. ")")
                 local ws, err = http.websocket(ws_url)
                 if not ws then
-                    print("WS failed: " .. tostring(err) .. ", retrying in 5s")
-                    os.sleep(5)
+                    retries = retries + 1
+                    print("WS failed: " .. tostring(err) .. ", retrying in 2s (" .. retries .. "/" .. MAX_RETRIES .. ")")
+                    os.sleep(2)
                 else
+                    retries = 0
                     print("WS connected")
                     active_ws = ws
                     api.set_ws(ws)
@@ -114,10 +118,11 @@ return function(api, ws_url, opts)
                     if not ok then
                         print("WS session error: " .. tostring(err))
                     end
-                    print("WS dropped, reconnecting in 5s")
-                    os.sleep(5)
+                    print("WS dropped, reconnecting in 2s")
+                    os.sleep(2)
                 end
             end
+            print("WS failed " .. MAX_RETRIES .. " times, giving up")
         end
 
         parallel.waitForAny(session_loop, idle_watcher)
