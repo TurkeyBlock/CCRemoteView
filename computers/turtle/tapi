@@ -115,8 +115,10 @@ function send_command_result(succ, ret)
   end
   local json = textutils.serializeJSON({ type = "commandResult", computerId = os.getComputerID(), result = result, actionSeq = seq })
   if ws_conn then
+    print("[tapi] sending result via WS (seq=" .. seq .. ")")
     ws_conn.send(json)
   else
+    print("[tapi] sending result via HTTP (no ws_conn)")
     local res = http.post(url .. "commandResult", json, headers)
     if res then res.close() end
   end

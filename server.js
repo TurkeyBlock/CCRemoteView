@@ -302,10 +302,8 @@ function broadcastTransaction(transaction) {
 }
 
 function sendNextCommandToWs(id) {
-  if (commandInFlight.has(id)) {
-    log.info(`[sendNextCmd] id=${id} BLOCKED — commandInFlight already set`);
-    return;
-  }
+  // DIAG: in-flight guard disabled — re-enable by uncommenting the two lines below
+  // if (commandInFlight.has(id)) { log.info(`[sendNextCmd] id=${id} BLOCKED — commandInFlight already set`); return; }
   const ws = computerWs[id];
   if (!ws || ws.readyState !== 1) {
     const state = ws ? `readyState=${ws.readyState}` : 'no ws';
@@ -317,7 +315,7 @@ function sendNextCommandToWs(id) {
     return;
   }
   const cmd = cmds[id].shift();
-  commandInFlight.add(id);
+  // DIAG: commandInFlight.add(id);
   log.info(`[sendNextCmd] id=${id} — sending cmd, remaining=${cmds[id].length} <${sanitizeForLog(cmd)}>`);
   ws.send(JSON.stringify({ type: 'command', command: cmd }));
 }

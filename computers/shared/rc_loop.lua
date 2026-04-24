@@ -35,10 +35,12 @@ return function(api, ws_url, opts)
     -- Returns true if the WS was closed during handling and the outer loop should break.
     local function handle_msg(ws, raw)
         last_active = os.clock()
+        print("[rc_loop] msg received (" .. #raw .. " bytes)")
         local msg = textutils.unserializeJSON(raw)
         if not msg then
-            -- ignore
+            print("[rc_loop] could not parse message")
         elseif msg.type == "command" and msg.command and msg.command ~= "" then
+            print("[rc_loop] executing command: " .. tostring(msg.command):sub(1, 60))
             local cmd, load_err = loadstring(msg.command)
             if cmd then
                 setfenv(cmd, getfenv())
@@ -48,8 +50,12 @@ return function(api, ws_url, opts)
                     function() ws_closed = watch_ws_signals(ws) end
                 )
                 api.locSemaphore.stopSignal = false
-                if ws_closed then return true end
+                if ws_closed then
+                    print("[rc_loop] WS closed during command execution")
+                    return true
+                end
             else
+                print("[rc_loop] loadstring error: " .. tostring(load_err))
                 api.send_command_result(false, load_err)
             end
             api.send_status_update()
