@@ -27,8 +27,7 @@ export default function CCRemoteController() {
   const computers = useWorldStore(s => s.computers)
   const modemServerId = useWorldStore(s => s.modemServerId)
   const selectedInventoryPos = useWorldViewStore(s => s.selectedInventoryPos)
-  // Watch the whole computers map so derivedInventory updates live after suck/drop
-  const computers = useWorldStore(s => s.computers)
+  // Derive inventory live from world state so it updates after suck/drop and auto-closes when removed
   const derivedInventory = useMemo(() => {
     if (!selectedInventoryPos) return null
     const locStr = `${selectedInventoryPos.x},${selectedInventoryPos.y},${selectedInventoryPos.z}`
