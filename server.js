@@ -302,20 +302,12 @@ function broadcastTransaction(transaction) {
 }
 
 function sendNextCommandToWs(id) {
-  // DIAG: in-flight guard disabled — re-enable by uncommenting the two lines below
-  // if (commandInFlight.has(id)) { log.info(`[sendNextCmd] id=${id} BLOCKED — commandInFlight already set`); return; }
+  if (commandInFlight.has(id)) return;
   const ws = computerWs[id];
-  if (!ws || ws.readyState !== 1) {
-    const state = ws ? `readyState=${ws.readyState}` : 'no ws';
-    log.info(`[sendNextCmd] id=${id} BLOCKED — WS not open (${state}), queueDepth=${cmds[id]?.length ?? 0}`);
-    return;
-  }
-  if (!cmds[id] || cmds[id].length === 0) {
-    log.info(`[sendNextCmd] id=${id} — queue empty, nothing to send`);
-    return;
-  }
+  if (!ws || ws.readyState !== 1) return;
+  if (!cmds[id] || cmds[id].length === 0) return;
   const cmd = cmds[id].shift();
-  // DIAG: commandInFlight.add(id);
+  commandInFlight.add(id);
   log.info(`[sendNextCmd] id=${id} — sending cmd, remaining=${cmds[id].length} <${sanitizeForLog(cmd)}>`);
   ws.send(JSON.stringify({ type: 'command', command: cmd }));
 }
@@ -906,9 +898,7 @@ nextApp.prepare().then(() => {
       ws.close(4403, 'Forbidden');
       return;
     }
-    const queueDepthOnConnect = cmds[id]?.length ?? 0;
-    const hadInFlight = commandInFlight.has(id);
-    console.log(`[ws/computer] Computer ${id} connected from ${ip} — queueDepth=${queueDepthOnConnect} hadInFlight=${hadInFlight}`);
+    console.log(`[ws/computer] Computer ${id} connected from ${ip} — queueDepth=${cmds[id]?.length ?? 0}`);
     if (computerWs[id] && computerWs[id] !== ws) computerWs[id].terminate();
     commandInFlight.delete(id);
     delete wsRequests[id];
@@ -920,7 +910,13 @@ nextApp.prepare().then(() => {
       state.lastReadyTransactionId++;
       broadcastTransaction(t);
     }
-    sendNextCommandToWs(id);
+    // Feed the first queued command directly on connect, bypassing the in-flight guard.
+    if (cmds[id]?.length > 0) {
+      const cmd = cmds[id].shift();
+      commandInFlight.add(id);
+      log.info(`[ws/computer] id=${id} — fed first cmd on connect, remaining=${cmds[id].length} <${sanitizeForLog(cmd)}>`);
+      ws.send(JSON.stringify({ type: 'command', command: cmd }));
+    }
     ws.on('message', (raw) => {
       let msg;
       try { msg = JSON.parse(raw); } catch {
@@ -1010,14 +1006,14 @@ nextApp.prepare().then(() => {
         case 'setCommand': {
           const id = safeId(msg.id);
           if (!id || !msg.cmd || typeof msg.cmd !== 'string' || msg.cmd.length > MAX_CMD_LENGTH) return;
-          if (!cmds[id]) cmds[id] = [];
-          cmds[id].push(msg.cmd);
-          const wsState = computerWs[id] ? `readyState=${computerWs[id].readyState}` : 'no ws';
-          log.info(`[ws] setCommand id=${id} user=${userSub} queueDepth=${cmds[id].length} wsState=${wsState} inFlight=${commandInFlight.has(id)} <${sanitizeForLog(msg.cmd)}>`);
           userManagement.incrementActionCount(userSub);
           if (computerWs[id]?.readyState === 1) {
+            if (!cmds[id]) cmds[id] = [];
+            cmds[id].push(msg.cmd);
+            if (LOG_BROWSER_CMDS) log.info(`[ws] setCommand id=${id} user=${userSub} queueDepth=${cmds[id].length} <${sanitizeForLog(msg.cmd)}>`);
             sendNextCommandToWs(id);
           } else {
+            log.info(`[ws] setCommand id=${id} user=${userSub} — WS not active, triggering wsRequest (cmd not queued)`);
             wsRequests[id] = true;
           }
           break;
