@@ -97,6 +97,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         || existing.label !== computerState.label
         || existing.type !== computerState.type
         || existing.ws_connected !== computerState.ws_connected
+        || existing.ws_request_at !== computerState.ws_request_at
         || existing.rot !== computerState.rot
         || existing.selectedSlot !== computerState.selectedSlot
         || locChanged

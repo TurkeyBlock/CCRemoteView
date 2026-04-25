@@ -21,7 +21,11 @@ const RenderFilters = forwardRef<PanelHandle, Props>(function RenderFilters({ on
   const [yMaxLocal, setYMaxLocal] = useState(255)
   const [renderDistLocal, setRenderDistLocal] = useState(12)
 
-  const worldView = useWorldViewStore()
+  const fastRender    = useWorldViewStore(s => s.fastRender)
+  const skipLoadYield = useWorldViewStore(s => s.skipLoadYield)
+  const lockChunks    = useWorldViewStore(s => s.lockChunks)
+  const lockBlockInfo = useWorldViewStore(s => s.lockBlockInfo)
+  const showOrbitMarker = useWorldViewStore(s => s.showOrbitMarker)
   const savedFileSizeBytes = useUserStore(s => s.savedFileSizeBytes)
   const fileSizeDisplay = savedFileSizeBytes === null ? 'unknown' : formatBytes(savedFileSizeBytes)
 
@@ -29,26 +33,26 @@ const RenderFilters = forwardRef<PanelHandle, Props>(function RenderFilters({ on
     const lo = Math.max(0, Math.min(255, yMinLocal))
     const hi = Math.max(0, Math.min(255, yMaxLocal))
     useWorldViewStore.setState({ yMin: Math.min(lo, hi), yMax: Math.max(lo, hi) })
-    worldView.regenerateSceneFromBlocks()
+    useWorldViewStore.getState().regenerateSceneFromBlocks()
   }
 
   function resetY() {
     setYMinLocal(0); setYMaxLocal(255)
     useWorldViewStore.setState({ yMin: 0, yMax: 255 })
-    worldView.regenerateSceneFromBlocks()
+    useWorldViewStore.getState().regenerateSceneFromBlocks()
   }
 
   function applyRenderDist() {
     const v = Math.max(1, Math.min(128, renderDistLocal ?? 8))
     setRenderDistLocal(v)
     useWorldViewStore.setState({ renderDistance: v })
-    worldView.updateChunkVisibility()
+    useWorldViewStore.getState().updateChunkVisibility()
   }
 
   function resetRenderDist() {
     setRenderDistLocal(12)
     useWorldViewStore.setState({ renderDistance: 12 })
-    worldView.updateChunkVisibility()
+    useWorldViewStore.getState().updateChunkVisibility()
   }
 
   const numInput: React.CSSProperties = { width: 58, padding: '5px 6px', fontSize: 12 }
@@ -84,31 +88,31 @@ const RenderFilters = forwardRef<PanelHandle, Props>(function RenderFilters({ on
         <Checkbox
           label="Multiworker"
           desc="Builds chunks on all CPU cores in parallel."
-          checked={worldView.fastRender}
-          onChange={v => { useWorldViewStore.setState({ fastRender: v }); worldView.regenerateSceneFromBlocks() }}
+          checked={fastRender}
+          onChange={v => { useWorldViewStore.setState({ fastRender: v }); useWorldViewStore.getState().regenerateSceneFromBlocks() }}
         />
         <Checkbox
           label="Skip load pauses"
           desc="Apply chunk geometry immediately. Loads faster but the UI may stutter; unchecked caps to 5ms/tick."
-          checked={worldView.skipLoadYield}
-          onChange={v => { useWorldViewStore.setState({ skipLoadYield: v }); worldView.regenerateSceneFromBlocks() }}
+          checked={skipLoadYield}
+          onChange={v => { useWorldViewStore.setState({ skipLoadYield: v }); useWorldViewStore.getState().regenerateSceneFromBlocks() }}
         />
         <Checkbox
           label="Lock chunks"
           desc="Keeps loaded chunks in memory permanently. Disabling sweeps out-of-range chunks."
-          checked={worldView.lockChunks}
-          onChange={v => { useWorldViewStore.setState({ lockChunks: v }); worldView.updateChunkVisibility() }}
+          checked={lockChunks}
+          onChange={v => { useWorldViewStore.setState({ lockChunks: v }); useWorldViewStore.getState().updateChunkVisibility() }}
         />
         <Checkbox
           label="Block hover info"
           desc="Show block name under cursor on mouse move. Requires raycasting each frame."
-          checked={!worldView.lockBlockInfo}
+          checked={!lockBlockInfo}
           onChange={v => useWorldViewStore.setState({ lockBlockInfo: !v })}
         />
         <Checkbox
           label="Show orbit center"
-          checked={worldView.showOrbitMarker}
-          onChange={v => { useWorldViewStore.setState({ showOrbitMarker: v }); worldView.updateChunkVisibility() }}
+          checked={showOrbitMarker}
+          onChange={v => { useWorldViewStore.setState({ showOrbitMarker: v }); useWorldViewStore.getState().updateChunkVisibility() }}
         />
       </div>
     </HeaderMenu>

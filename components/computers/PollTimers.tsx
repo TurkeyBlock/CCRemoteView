@@ -24,8 +24,7 @@ function fmtCountdown(ms: number): string {
 }
 
 export default function PollTimers({ computerId }: Props) {
-  const computers = useWorldStore(s => s.computers)
-  const computer  = computers[computerId]
+  const computer = useWorldStore(s => s.computers[computerId])
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {

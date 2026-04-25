@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
+import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useWorldStore } from '@/store/useWorld'
 import { useWorldViewStore } from '@/store/useWorldView'
 import { useUserStore } from '@/store/useUser'
@@ -25,7 +26,24 @@ const TYPE_SHORT: Record<string, string> = {
 
 export default function CCRemoteController() {
   const isLoading = useWorldStore(s => s.isLoading)
-  const computers = useWorldStore(s => s.computers)
+  // Re-render only when fields the tab strip or inventory panel actually use change.
+  // Volatile fields (loc, inv, rot, entities, chatLog, fuelLevel, selectedSlot)
+  // are handled by child components with their own narrow subscriptions.
+  const computers = useStoreWithEqualityFn(useWorldStore, s => s.computers, (prev, next) => {
+    const prevIds = Object.keys(prev)
+    const nextIds = Object.keys(next)
+    if (prevIds.length !== nextIds.length) return false
+    for (const id of nextIds) {
+      if (!prev[id]) return false
+      const p = prev[id], n = next[id]
+      if (p.ws_connected !== n.ws_connected ||
+          p.ws_request_at !== n.ws_request_at ||
+          p.type !== n.type ||
+          p.label !== n.label ||
+          (p as any).adjacentInventory !== (n as any).adjacentInventory) return false
+    }
+    return true
+  })
   const selectedInventoryPos = useWorldViewStore(s => s.selectedInventoryPos)
   // Derive inventory live from world state so it updates after suck/drop and auto-closes when removed
   const derivedInventory = useMemo(() => {
@@ -56,7 +74,6 @@ export default function CCRemoteController() {
   const addBtnRef = useRef<HTMLButtonElement>(null)
   const [addPos, setAddPos] = useState({ top: 0, left: 0 })
   const [contextMenu, setContextMenu] = useState<{ id: number; x: number; y: number } | null>(null)
-  const [now, setNow] = useState(() => Date.now())
   const contextMenuRef = useRef<HTMLDivElement>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
@@ -67,11 +84,6 @@ export default function CCRemoteController() {
   const renderFiltersRef = useRef<{ setOpen: (v: boolean) => void } | null>(null)
   const blockTransparencyRef = useRef<{ setOpen: (v: boolean) => void } | null>(null)
   const adminPanelRef = useRef<{ setOpen: (v: boolean) => void } | null>(null)
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 500)
-    return () => clearInterval(t)
-  }, [])
 
   const selectedComputerId = useWorldViewStore(s => s.selectedComputerId)
   const prevSelectedIdRef = useRef(selectedComputerId)
@@ -287,8 +299,6 @@ export default function CCRemoteController() {
 
   const floatingIds = new Set(floatingPanels.map(p => p.id))
   const dockedSelectedId = floatingIds.has(selectedComputerId) ? -1 : selectedComputerId
-  const tabComputers = tabOrder.map(id => computers[id]).filter(Boolean)
-
   function computerName(id: number) {
     const c = computers[id]
     return c?.label ? c.label : `#${id}`
