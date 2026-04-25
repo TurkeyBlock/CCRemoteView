@@ -560,6 +560,11 @@ function SceneSetup() {
     }
     if (anyMoving) state.invalidate()
 
+    // Apply pending chunk GPU uploads within a per-frame budget.  Running this
+    // inside useFrame (rather than setTimeout) ensures input events and camera
+    // rotation are never blocked mid-frame by chunk work.
+    chunkManager.current?.flushFrame(4);
+
     // Only recalculate chunk visibility when the camera has actually moved.
     state.camera.updateMatrixWorld()
     if (!state.camera.matrixWorldInverse.equals(prevViewMatrix.current)) {

@@ -398,7 +398,7 @@ export default function CCRemoteController() {
                       onContextMenu={e => { e.preventDefault(); setContextMenu({ id, x: e.clientX, y: e.clientY }) }}
                       title={`${computerTitle(id)} · right-click for options`}
                     >
-                      <Led kind={connLedKind(!!c?.ws_connected, c?.lastPoll, now)} />
+                      <Led kind={connLedKind(!!c?.ws_connected, c?.ws_request_at)} />
                       <span className="tab-type">{TYPE_SHORT[c?.type ?? ''] ?? '?'}</span>
                       <span className="tab-label">{computerName(id)}</span>
                       {isFloating && <span className="tab-float-mark">↗</span>}
@@ -443,7 +443,7 @@ export default function CCRemoteController() {
                             if (filtered.length === 0) return <div className="explainer" style={{ padding: '4px 0' }}>No matches.</div>
                             return filtered.map(id => (
                               <div key={id} className="ctx-item" onClick={() => addTab(id)}>
-                                <Led kind={connLedKind(!!computers[id]?.ws_connected, computers[id]?.lastPoll, now)} />
+                                <Led kind={connLedKind(!!computers[id]?.ws_connected, computers[id]?.ws_request_at)} />
                                 <span className="mono" style={{ color: 'var(--fg-mute)', fontSize: 11 }}>#{id}</span>
                                 <span>{computerName(id)}</span>
                               </div>
@@ -467,7 +467,7 @@ export default function CCRemoteController() {
             <div className="panel">
               <div className="panel-header">
                 <div className="panel-header-title">
-                  <Led kind={connLedKind(!!computers[dockedSelectedId]?.ws_connected, computers[dockedSelectedId]?.lastPoll, now)} />
+                  <Led kind={connLedKind(!!computers[dockedSelectedId]?.ws_connected, computers[dockedSelectedId]?.ws_request_at)} />
                   <span>{computerTitle(dockedSelectedId)}</span>
                 </div>
               </div>
@@ -532,7 +532,7 @@ export default function CCRemoteController() {
           >
             <div className="floating-titlebar" onMouseDown={e => startPanelDrag(e, panel.id)}>
               <span className="floating-title">
-                <Led kind={connLedKind(!!c.ws_connected, c.lastPoll, now)} />
+                <Led kind={connLedKind(!!c.ws_connected, c.ws_request_at)} />
                 {computerTitle(panel.id)}
               </span>
               <button className="floating-close" onMouseDown={e => e.stopPropagation()} onClick={() => dockPanel(panel.id)} title="Dock">×</button>

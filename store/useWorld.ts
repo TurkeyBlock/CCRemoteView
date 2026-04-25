@@ -9,10 +9,7 @@ function worldView() {
 
 // Per-computer high-water mark for actionSeq numbers.
 // Module-level (not Zustand) so updates never cause re-renders.
-// Exported so CCRemoteController can advance it from commandResult broadcasts
-// before the matching state transaction arrives, preventing even a brief flash
-// of the stale position.
-export const maxActionSeqPerComputer: Record<string, number> = {}
+const maxActionSeqPerComputer: Record<string, number> = {}
 
 interface WorldState {
   computers: Record<string, ComputerState>

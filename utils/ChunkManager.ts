@@ -43,8 +43,6 @@ export class ChunkManager {
 
   /** Worker results waiting to be applied to the scene. */
   private pendingResults: BuildResult[] = [];
-  /** Whether a flush of pendingResults is already scheduled. */
-  private resultFlushPending = false;
 
   /** Materials for each in-flight build, keyed by buildId. */
   private readonly _buildMaterials = new Map<number, THREE.Material[]>();
@@ -436,27 +434,25 @@ export class ChunkManager {
       this._applyResult(chunk, result);
     } else {
       this.pendingResults.push(result);
-      this._scheduleResultFlush();
+      this.onChunkReady?.(); // kick the R3F frame loop to call flushFrame()
     }
   }
 
-  private _scheduleResultFlush(): void {
-    if (this.resultFlushPending) return;
-    this.resultFlushPending = true;
-    setTimeout(() => this._flushPendingResults(), 0);
-  }
-
-  private _flushPendingResults(): void {
-    this.resultFlushPending = false;
-    // Apply as many results as fit within a 5 ms budget so the browser stays
-    // responsive (60 fps = 16 ms/frame; 5 ms leaves ample headroom).
-    const deadline = performance.now() + 5;
+  /**
+   * Called by Scene.tsx's useFrame each animation frame.
+   * Applies pending worker results within a time budget so GPU uploads are
+   * always aligned to the render cycle, keeping input and camera events
+   * responsive between frames.
+   */
+  public flushFrame(budgetMs: number): void {
+    const deadline = performance.now() + budgetMs;
     while (this.pendingResults.length > 0 && performance.now() < deadline) {
       const result = this.pendingResults.shift()!;
       const chunk = this.chunks.get(result.chunkKey);
       if (chunk) this._applyResult(chunk, result);
     }
-    if (this.pendingResults.length > 0) this._scheduleResultFlush();
+    // If the budget ran out, _applyResult will have called onChunkReady (→ invalidate),
+    // which schedules another frame — no extra scheduling needed.
   }
 
   private _applyResult(chunk: WorldChunk, result: BuildResult): void {

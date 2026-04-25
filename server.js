@@ -577,14 +577,11 @@ nextApp.prepare().then(() => {
     if (computerId === null) return res.status(400).json({ error: 'invalid computerId' });
     const result = req.body.result;
     if (JSON.stringify(result).length > 100_000) return res.status(400).json({ error: 'result too large' });
-    const actionSeq = typeof req.body.actionSeq === 'number' ? req.body.actionSeq : undefined;
-    console.log(`[${new Date().toISOString()}] Computer ${computerId} sent command result (seq=${actionSeq ?? '?'}):`, result);
+    console.log(`[${new Date().toISOString()}] Computer ${computerId} sent command result:`, result);
     if (!commandResultCache[computerId]) commandResultCache[computerId] = [];
     commandResultCache[computerId].push(result);
     if (commandResultCache[computerId].length > CMD_RESULT_CACHE_MAX) commandResultCache[computerId].shift();
-    const broadcast = { computerId, result };
-    if (actionSeq !== undefined) broadcast.actionSeq = actionSeq;
-    broadcastToClients({ commandResult: broadcast });
+    broadcastToClients({ commandResult: { computerId, result } });
     res.sendStatus(200);
   });
 
@@ -850,17 +847,15 @@ nextApp.prepare().then(() => {
       log.info(`[ws/computer] id=${id} received msg type=${msg.type ?? '(none)'}`);
       if (msg.type === 'commandResult') {
         const cid = safeId(msg.computerId) ?? id;
-        log.info(`[ws/computer] id=${id} commandResult cid=${cid} seq=${msg.actionSeq ?? '?'} — clearing inFlight, remaining queue=${cmds[id]?.length ?? 0}`);
+        log.info(`[ws/computer] id=${id} commandResult cid=${cid} — clearing inFlight, remaining queue=${cmds[id]?.length ?? 0}`);
         clearInFlight(id);
         const result = msg.result;
         if (result !== undefined) {
-          console.log(`[ws/computer] Computer ${cid} result (seq=${msg.actionSeq ?? '?'}):`, result);
+          console.log(`[ws/computer] Computer ${cid} result:`, result);
           if (!commandResultCache[cid]) commandResultCache[cid] = [];
           commandResultCache[cid].push(result);
           if (commandResultCache[cid].length > CMD_RESULT_CACHE_MAX) commandResultCache[cid].shift();
-          const broadcast = { computerId: cid, result };
-          if (msg.actionSeq !== undefined) broadcast.actionSeq = msg.actionSeq;
-          broadcastToClients({ commandResult: broadcast });
+          broadcastToClients({ commandResult: { computerId: cid, result } });
         }
         // Do NOT call sendNextCommandToWs here — wait for turtle's "ready" signal.
       } else if (msg.type === 'ready') {
