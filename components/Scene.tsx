@@ -6,7 +6,7 @@ import { CameraControls } from '@react-three/drei'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { Block } from '@/types/types'
-import { useWorldStore } from '@/store/useWorld'
+import { useWorldStore, worldBlocks } from '@/store/useWorld'
 import { useWorldViewStore, clearMaterialsCache } from '@/store/useWorldView'
 import { ChunkManager } from '@/utils/ChunkManager'
 import { CHUNK_SIZE } from '@/utils/WorldChunk'
@@ -150,7 +150,7 @@ function SceneSetup() {
       if (!hit.face) continue
       const blockPos = getBlockPosFromHit(hit)
       const locString = `${blockPos.x},${blockPos.y},${blockPos.z}`
-      const block = useWorldStore.getState().blocks[locString]
+      const block = worldBlocks[locString]
       if (!block) continue
       useWorldViewStore.setState({
         hoveredBlock: block,
@@ -280,7 +280,7 @@ function SceneSetup() {
       const { x: newX, y: newY, z: newZ } = computerData.loc
       if (oldX !== newX || oldY !== newY || oldZ !== newZ) {
         const oldLoc = `${oldX},${oldY},${oldZ}`
-        const oldBlock = useWorldStore.getState().blocks[oldLoc]
+        const oldBlock = worldBlocks[oldLoc]
         if (oldBlock && wv.isBlockVisible(oldLoc)) chunkManager.current?.addBlock(oldLoc, oldBlock)
         chunkManager.current?.removeBlock(`${newX},${newY},${newZ}`)
       }
@@ -379,7 +379,7 @@ function SceneSetup() {
       const c = world.computers[id]
       if (c.type === 'minecart' && c.loc) minecartLocs.add(`${c.loc.x},${c.loc.y},${c.loc.z}`)
     }
-    const blockSnap = world.blocks
+    const blockSnap = worldBlocks
     const isVisible = (locString: string): boolean => {
       const c1 = locString.indexOf(',')
       const c2 = locString.indexOf(',', c1 + 1)
@@ -390,7 +390,7 @@ function SceneSetup() {
       return true
     }
 
-    await chunkManager.current.bulkLoad(world.blocks, isVisible, wv.skipLoadYield)
+    await chunkManager.current.bulkLoad(worldBlocks, isVisible, wv.skipLoadYield)
 
     updateChunkVisibility()
 

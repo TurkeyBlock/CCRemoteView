@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
-import { useWorldStore } from '@/store/useWorld'
+import { useWorldStore, replaceWorldBlocks } from '@/store/useWorld'
 import { useWorldViewStore } from '@/store/useWorldView'
 import { useUserStore } from '@/store/useUser'
 import ComputerPanel from './computers/ComputerPanel'
@@ -17,6 +17,11 @@ import BlockTransparency from './staticGui/BlockTransparency'
 import RenderFilters from './staticGui/RenderFilters'
 import { Led } from './ui'
 import { connLedKind } from './computers/PollTimers'
+
+const ComputerLed = memo(function ComputerLed({ computerId }: { computerId: number }) {
+  const kind = useWorldStore(s => connLedKind(!!s.computers[computerId]?.ws_connected, s.computers[computerId]?.ws_request_at))
+  return <Led kind={kind} />
+})
 
 interface FloatingPanel { id: number; x: number; y: number }
 
@@ -208,7 +213,7 @@ export default function CCRemoteController() {
     const data = await res.json().catch(() => null)
     if (!data) return
     w.setComputerStatus(data.computers)
-    useWorldStore.setState({ blocks: data.world.blocks })
+    replaceWorldBlocks(data.world.blocks)
     const freshComputers = useWorldStore.getState().computers
     const selId = useWorldViewStore.getState().selectedComputerId
     const hasCoords = (c: { loc?: { x?: unknown; y?: unknown; z?: unknown } | null } | undefined) =>
@@ -253,7 +258,8 @@ export default function CCRemoteController() {
         const alreadyCurrent = data.state.lastTransactionId === w.lastTransactionId
         if (!alreadyCurrent) {
           w.setComputerStatus(data.state.computers)
-          useWorldStore.setState({ blocks: data.state.world.blocks, lastTransactionId: data.state.lastTransactionId })
+          replaceWorldBlocks(data.state.world.blocks)
+          useWorldStore.setState({ lastTransactionId: data.state.lastTransactionId })
           const freshComputers = useWorldStore.getState().computers
           const hasCoords = (c: { loc?: { x?: unknown; y?: unknown; z?: unknown } | null } | undefined) =>
             c?.loc != null && c.loc.x != null && c.loc.y != null && c.loc.z != null
@@ -408,7 +414,7 @@ export default function CCRemoteController() {
                       onContextMenu={e => { e.preventDefault(); setContextMenu({ id, x: e.clientX, y: e.clientY }) }}
                       title={`${computerTitle(id)} · right-click for options`}
                     >
-                      <Led kind={connLedKind(!!c?.ws_connected, c?.ws_request_at)} />
+                      <ComputerLed computerId={id} />
                       <span className="tab-type">{TYPE_SHORT[c?.type ?? ''] ?? '?'}</span>
                       <span className="tab-label">{computerName(id)}</span>
                       {isFloating && <span className="tab-float-mark">↗</span>}
@@ -453,7 +459,7 @@ export default function CCRemoteController() {
                             if (filtered.length === 0) return <div className="explainer" style={{ padding: '4px 0' }}>No matches.</div>
                             return filtered.map(id => (
                               <div key={id} className="ctx-item" onClick={() => addTab(id)}>
-                                <Led kind={connLedKind(!!computers[id]?.ws_connected, computers[id]?.ws_request_at)} />
+                                <ComputerLed computerId={id} />
                                 <span className="mono" style={{ color: 'var(--fg-mute)', fontSize: 11 }}>#{id}</span>
                                 <span>{computerName(id)}</span>
                               </div>
@@ -477,7 +483,7 @@ export default function CCRemoteController() {
             <div className="panel">
               <div className="panel-header">
                 <div className="panel-header-title">
-                  <Led kind={connLedKind(!!computers[dockedSelectedId]?.ws_connected, computers[dockedSelectedId]?.ws_request_at)} />
+                  <ComputerLed computerId={dockedSelectedId} />
                   <span>{computerTitle(dockedSelectedId)}</span>
                 </div>
               </div>
@@ -542,7 +548,7 @@ export default function CCRemoteController() {
           >
             <div className="floating-titlebar" onMouseDown={e => startPanelDrag(e, panel.id)}>
               <span className="floating-title">
-                <Led kind={connLedKind(!!c.ws_connected, c.ws_request_at)} />
+                <ComputerLed computerId={panel.id} />
                 {computerTitle(panel.id)}
               </span>
               <button className="floating-close" onMouseDown={e => e.stopPropagation()} onClick={() => dockPanel(panel.id)} title="Dock">×</button>

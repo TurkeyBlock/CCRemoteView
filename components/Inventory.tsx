@@ -1,6 +1,6 @@
 'use client'
 
-import { useWorldStore } from '@/store/useWorld'
+import { useWorldStore, worldBlocks } from '@/store/useWorld'
 import { useWorldViewStore } from '@/store/useWorldView'
 import type { Inventory } from '@/types/types'
 import GenericInventorySlot from './GenericInventorySlot'
@@ -15,9 +15,7 @@ interface Props {
 export default function InventoryView({ inventory, inventorySize, computerId, blockPos }: Props) {
   const sendCommand = useWorldStore(s => s.sendCommand)
   const computers = useWorldStore(s => s.computers)
-  const block = useWorldStore(s =>
-    blockPos ? s.blocks[`${blockPos.x},${blockPos.y},${blockPos.z}`] : null
-  )
+  const block = blockPos ? worldBlocks[`${blockPos.x},${blockPos.y},${blockPos.z}`] : null
 
   const normalized: Record<number, { name: string; count: number }> = {}
   if (inventory) {

@@ -1,6 +1,12 @@
 import { create } from 'zustand'
 import type { ComputerState, Block } from '../types/types'
 
+export let worldBlocks: Record<string, Block> = {}
+
+export function replaceWorldBlocks(newBlocks: Record<string, Block>) {
+  worldBlocks = newBlocks
+}
+
 // Resolved at runtime so there is no circular-import between stores.
 // worldView actions (addBlock, removeBlock, etc.) are called via this getter.
 function worldView() {
@@ -13,7 +19,6 @@ const maxActionSeqPerComputer: Record<string, number> = {}
 
 interface WorldState {
   computers: Record<string, ComputerState>
-  blocks: Record<string, Block>
   commandResult: Record<string, string>
   URL: string
   apiURL: string
@@ -39,7 +44,6 @@ interface WorldState {
 
 export const useWorldStore = create<WorldState>()((set, get) => ({
   computers: {},
-  blocks: {},
   commandResult: {},
   URL: '',
   apiURL: 'api/',
@@ -85,6 +89,11 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       if (inv) for (let i = 0; i < inv.length; i++) if (inv[i] === 0) inv[i] = undefined
       const entities = computerState.entities ? [...computerState.entities] : undefined
 
+      // Lua-sent transactions don't include server-managed connection fields.
+      // Fall back to existing values so they are never clobbered by undefined.
+      const ws_connected  = computerState.ws_connected  !== undefined ? computerState.ws_connected  : existing?.ws_connected
+      const ws_request_at = computerState.ws_request_at !== undefined ? computerState.ws_request_at : existing?.ws_request_at
+
       const loc = computerState.loc
       const locChanged = !existing?.loc !== !loc
         || (loc && (existing.loc?.x !== loc.x || existing.loc?.y !== loc.y || existing.loc?.z !== loc.z))
@@ -96,8 +105,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         || existing.fuelLevel !== computerState.fuelLevel
         || existing.label !== computerState.label
         || existing.type !== computerState.type
-        || existing.ws_connected !== computerState.ws_connected
-        || existing.ws_request_at !== computerState.ws_request_at
+        || existing.ws_connected !== ws_connected
+        || existing.ws_request_at !== ws_request_at
         || existing.rot !== computerState.rot
         || existing.selectedSlot !== computerState.selectedSlot
         || locChanged
@@ -107,35 +116,22 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         || adjInvChanged
 
       if (changed) {
-        if (existing?.ws_connected && !computerState.ws_connected) {
+        if (existing?.ws_connected && !ws_connected) {
           console.warn(
             `[useWorld] ws_connected dropped for computer ${id}`,
             {
               prev_ws_connected: existing.ws_connected,
-              next_ws_connected: computerState.ws_connected,
+              next_ws_connected: ws_connected,
+              raw_ws_connected: computerState.ws_connected,
               prev_ws_request_at: existing.ws_request_at,
-              next_ws_request_at: computerState.ws_request_at,
+              next_ws_request_at: ws_request_at,
               prev_actionSeq: existing.actionSeq,
               next_actionSeq: computerState.actionSeq,
-              changedFields: {
-                fuelLevel: existing.fuelLevel !== computerState.fuelLevel,
-                label: existing.label !== computerState.label,
-                type: existing.type !== computerState.type,
-                ws_connected: existing.ws_connected !== computerState.ws_connected,
-                ws_request_at: existing.ws_request_at !== computerState.ws_request_at,
-                rot: existing.rot !== computerState.rot,
-                selectedSlot: existing.selectedSlot !== computerState.selectedSlot,
-                loc: locChanged,
-                inv: invChanged,
-                entities: entitiesChanged,
-                chatLog: chatLogChanged,
-                adjInv: adjInvChanged,
-              },
               stack: new Error().stack,
             }
           )
         }
-        updates[id] = { ...computerState, entities, inv, modified: Date.now() }
+        updates[id] = { ...computerState, ws_connected, ws_request_at, entities, inv, modified: Date.now() }
       }
     }
 
@@ -146,16 +142,12 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
 
   transactionRemoveBlock: (locString) => {
     worldView().removeBlock(locString)
-    set((state) => {
-      const blocks = { ...state.blocks }
-      delete blocks[locString]
-      return { blocks }
-    })
+    delete worldBlocks[locString]
   },
 
   transactionAddBlock: (locString, block) => {
     worldView().removeBlock(locString)
-    set((state) => ({ blocks: { ...state.blocks, [locString]: block } }))
+    worldBlocks[locString] = block
     worldView().addBlock(locString, block)
   },
 
@@ -187,18 +179,12 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       get().transactionSetComputerState(t.computers ?? {})
     }
 
-    // Single Zustand update for all block changes — avoids O(n²) object spreading
-    // when many blocks change across a batch of transactions.
     if (removes.length > 0 || adds.length > 0) {
       const wv = worldView()
       for (const loc of removes) wv.removeBlock(loc)
       for (const [loc] of adds) wv.removeBlock(loc)
-      set((state) => {
-        const blocks = { ...state.blocks }
-        for (const loc of removes) delete blocks[loc]
-        for (const [loc, block] of adds) blocks[loc] = block
-        return { blocks }
-      })
+      for (const loc of removes) delete worldBlocks[loc]
+      for (const [loc, block] of adds) worldBlocks[loc] = block
       for (const [loc, block] of adds) wv.addBlock(loc, block)
     }
 
@@ -244,6 +230,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
 
   clearBlocks: () => {
     worldView().clearAllBlocks()
-    set({ blocks: {} })
+    worldBlocks = {}
   },
 }))
