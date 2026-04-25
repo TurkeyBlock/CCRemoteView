@@ -83,7 +83,26 @@ function scan()
         blocks = blocks,
     }
 
-    _ws.send_scan(payload)
+    -- Scan payloads often exceed CC:Tweaked's 131072-byte (128 KiB) WebSocket message limit.
+    -- Set SCAN_USE_HTTP = false to re-enable the WebSocket path once that constraint is addressed.
+    local SCAN_USE_HTTP = true
+    if not SCAN_USE_HTTP then
+        _ws.send_scan(payload)
+    else
+        local json = textutils.serializeJSON(payload)
+        local res = http.post(url .. "scan", json, { ["Content-Type"] = "application/json" })
+        if not res then
+            print("! scan: HTTP request failed")
+            return false, "http request failed"
+        end
+        local code = res.getResponseCode()
+        local body = res.readAll()
+        res.close()
+        if code ~= 200 then
+            print("! scan failed (HTTP " .. code .. "): " .. tostring(body))
+            return false, "server error: " .. code
+        end
+    end
     print("? block scan (" .. #blocks .. " blocks @ " .. ox .. "," .. oy .. "," .. oz .. ")")
     return true
 end

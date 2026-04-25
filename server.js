@@ -811,7 +811,13 @@ nextApp.prepare().then(() => {
       state.lastReadyTransactionId++;
       broadcastTransaction(t);
     }
-    sendNextCommandToWs(id);
+    // Feed the first queued command directly on connect, bypassing the in-flight guard.
+    if (cmds[id]?.length > 0) {
+      const cmd = cmds[id].shift();
+      commandInFlight.add(id);
+      log.info(`[ws/computer] id=${id} — fed first cmd on connect, remaining=${cmds[id].length} <${sanitizeForLog(cmd)}>`);
+      ws.send(JSON.stringify({ type: 'command', command: cmd }));
+    }
     ws.on('message', (raw) => {
       let msg;
       try { msg = JSON.parse(raw); } catch {
@@ -831,6 +837,9 @@ nextApp.prepare().then(() => {
           if (commandResultCache[cid].length > CMD_RESULT_CACHE_MAX) commandResultCache[cid].shift();
           broadcastToClients({ commandResult: { computerId: cid, result } });
         }
+        // Do NOT call sendNextCommandToWs here — wait for turtle's "ready" signal.
+      } else if (msg.type === 'ready') {
+        log.info(`[ws/computer] id=${id} ready signal — sending next cmd`);
         sendNextCommandToWs(id);
       } else if (msg.type === 'scan') {
         const data = msg.data || {};
