@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useWorldStore } from '@/store/useWorld'
 import { Led, MeterRow } from '@/components/ui'
 import type { LedKind } from '@/components/ui'
@@ -23,22 +23,34 @@ function fmtCountdown(ms: number): string {
   return neg ? `-${str}` : str
 }
 
-export default function PollTimers({ computerId }: Props) {
-  const computer = useWorldStore(s => s.computers[computerId])
-  const [now, setNow] = useState(() => Date.now())
-
+// Isolated timer component — only mounts (and ticks) when a wakeup is pending.
+function PollCountdown({ wsRequestAt }: { wsRequestAt: number }) {
+  const lockedAt = useRef(wsRequestAt)
+  const [now, setNow] = useState(Date.now)
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 500)
     return () => clearInterval(id)
   }, [])
+  const wakeMs = POLL_INTERVAL_MS - (now - lockedAt.current)
+  return (
+    <MeterRow
+      label="Next poll"
+      value={Math.max(0, wakeMs) / 1000}
+      max={POLL_INTERVAL_MS / 1000}
+      amber={wakeMs <= 0}
+      valueLabel={fmtCountdown(wakeMs)}
+    />
+  )
+}
 
+export default function PollTimers({ computerId }: Props) {
+  const computer = useWorldStore(s => s.computers[computerId])
   if (!computer) return null
 
   const wsConnected = !!computer.ws_connected
   const wsRequestAt = computer.ws_request_at ?? null
-  const kind        = connLedKind(wsConnected, wsRequestAt)
-  const label       = wsConnected ? 'WebSocket connected' : wsRequestAt ? 'Waiting for wakeup' : 'Idle'
-  const wakeMs      = wsRequestAt !== null ? POLL_INTERVAL_MS - (now - wsRequestAt) : null
+  const kind  = connLedKind(wsConnected, wsRequestAt)
+  const label = wsConnected ? 'WebSocket connected' : wsRequestAt ? 'Waiting for wakeup' : 'Idle'
 
   return (
     <div className="group-tight">
@@ -46,15 +58,7 @@ export default function PollTimers({ computerId }: Props) {
         <Led kind={kind} />
         <span className="meter-row-value">{label}</span>
       </div>
-      {wakeMs !== null && (
-        <MeterRow
-          label="Next poll"
-          value={Math.max(0, wakeMs) / 1000}
-          max={POLL_INTERVAL_MS / 1000}
-          amber={wakeMs <= 0}
-          valueLabel={fmtCountdown(wakeMs)}
-        />
-      )}
+      {wsRequestAt !== null && <PollCountdown wsRequestAt={wsRequestAt} />}
     </div>
   )
 }

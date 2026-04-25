@@ -106,7 +106,37 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         || chatLogChanged
         || adjInvChanged
 
-      if (changed) updates[id] = { ...computerState, entities, inv, modified: Date.now() }
+      if (changed) {
+        if (existing?.ws_connected && !computerState.ws_connected) {
+          console.warn(
+            `[useWorld] ws_connected dropped for computer ${id}`,
+            {
+              prev_ws_connected: existing.ws_connected,
+              next_ws_connected: computerState.ws_connected,
+              prev_ws_request_at: existing.ws_request_at,
+              next_ws_request_at: computerState.ws_request_at,
+              prev_actionSeq: existing.actionSeq,
+              next_actionSeq: computerState.actionSeq,
+              changedFields: {
+                fuelLevel: existing.fuelLevel !== computerState.fuelLevel,
+                label: existing.label !== computerState.label,
+                type: existing.type !== computerState.type,
+                ws_connected: existing.ws_connected !== computerState.ws_connected,
+                ws_request_at: existing.ws_request_at !== computerState.ws_request_at,
+                rot: existing.rot !== computerState.rot,
+                selectedSlot: existing.selectedSlot !== computerState.selectedSlot,
+                loc: locChanged,
+                inv: invChanged,
+                entities: entitiesChanged,
+                chatLog: chatLogChanged,
+                adjInv: adjInvChanged,
+              },
+              stack: new Error().stack,
+            }
+          )
+        }
+        updates[id] = { ...computerState, entities, inv, modified: Date.now() }
+      }
     }
 
     if (Object.keys(updates).length === 0 && firstNewId === null) return
