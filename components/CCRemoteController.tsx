@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { useWorldStore, maxActionSeqPerComputer } from '@/store/useWorld'
+import { useWorldStore } from '@/store/useWorld'
 import { useWorldViewStore } from '@/store/useWorldView'
 import { useUserStore } from '@/store/useUser'
 import ComputerPanel from './computers/ComputerPanel'
@@ -37,7 +37,6 @@ export default function CCRemoteController() {
     }
     return null
   }, [selectedInventoryPos, computers])
-  const computerRangeXZ = useWorldViewStore(s => s.computerRangeXZ)
   const userLoaded = useUserStore(s => s.loaded)
   const isOperator = useUserStore(s => s.isOperator)
   const isAdmin = useUserStore(s => s.isAdmin)
@@ -80,14 +79,8 @@ export default function CCRemoteController() {
     if (selectedComputerId === prevSelectedIdRef.current) return
     prevSelectedIdRef.current = selectedComputerId
     if (selectedComputerId === -1) return
-    useWorldViewStore.setState({ manualCenter: null })
-    const wv = useWorldViewStore.getState()
-    if (computerRangeXZ !== null) {
-      wv.regenerateSceneFromBlocks()
-    } else {
-      wv.focusOnComputer(selectedComputerId)
-    }
-  }, [selectedComputerId, computerRangeXZ]) // eslint-disable-line react-hooks/exhaustive-deps
+    useWorldViewStore.getState().focusOnComputer(selectedComputerId)
+  }, [selectedComputerId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-close chest inventory panel when the turtle moves away and data is gone
   useEffect(() => {
@@ -241,11 +234,7 @@ export default function CCRemoteController() {
       const data = JSON.parse(event.data)
       const w = useWorldStore.getState(); const view = useWorldViewStore.getState()
       if (data.commandResult) {
-        const { computerId, result, actionSeq } = data.commandResult
-        if (typeof actionSeq === 'number' && actionSeq > 0) {
-          const cid = String(computerId)
-          if ((maxActionSeqPerComputer[cid] ?? 0) < actionSeq) maxActionSeqPerComputer[cid] = actionSeq
-        }
+        const { computerId, result } = data.commandResult
         if (result != null) useWorldStore.setState(s => ({ commandResult: { ...s.commandResult, [computerId]: result.ret } }))
       }
       if (data.state) {

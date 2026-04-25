@@ -424,7 +424,7 @@ nextApp.prepare().then(() => {
   app.use(express.json({ limit: '2mb' }));
 
   // Static assets served by Express (not Next.js) — accessible to turtle computers too
-  app.use('/textures', express.static('textures'));
+  app.use('/textures', express.static('textures', { maxAge: '1d' }));
   app.use('/computers', (req, res, next) => {
     const safe = path.normalize(req.path).replace(/^(\.\.[/\\])+/, '');
     const filePath = path.resolve('computers', safe.slice(1));

@@ -372,21 +372,12 @@ function SceneSetup() {
 
     // Build a fast visibility closure from a single state snapshot so bulkLoad
     // doesn't call getState()/require on every block in the world.
-    const { yMin, yMax, transparencyList, computerRangeXZ, selectedComputerId, manualCenter } = wv
+    const { yMin, yMax, transparencyList } = wv
     const transparencySet = new Set(transparencyList)
     const minecartLocs = new Set<string>()
     for (const id in world.computers) {
       const c = world.computers[id]
       if (c.type === 'minecart' && c.loc) minecartLocs.add(`${c.loc.x},${c.loc.y},${c.loc.z}`)
-    }
-    let centerX: number | null = null, centerZ: number | null = null
-    if (computerRangeXZ !== null) {
-      if (selectedComputerId !== -1) {
-        const turtle = world.computers[selectedComputerId]
-        if (turtle?.loc) { centerX = turtle.loc.x; centerZ = turtle.loc.z }
-      } else if (manualCenter) {
-        centerX = manualCenter.x; centerZ = manualCenter.z
-      }
     }
     const blockSnap = world.blocks
     const isVisible = (locString: string): boolean => {
@@ -396,11 +387,6 @@ function SceneSetup() {
       if (y < yMin || y > yMax) return false
       if (transparencySet.has(blockSnap[locString]?.name)) return false
       if (minecartLocs.has(locString)) return false
-      if (computerRangeXZ !== null && centerX !== null && centerZ !== null) {
-        const x = +locString.slice(0, c1)
-        const z = +locString.slice(c2 + 1)
-        if (Math.abs(x - centerX) > computerRangeXZ || Math.abs(z - centerZ) > computerRangeXZ) return false
-      }
       return true
     }
 

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import * as THREE from 'three'
-import type { Block, Inventory, EntitySighting } from '../types/types'
+import type { Block, EntitySighting } from '../types/types'
 import { geometryMap, textureAliases, blockTint, BIOME_TINT } from './blockMaps'
 
 // Materials and texture caches live outside Zustand — no re-renders on load.
@@ -37,7 +37,6 @@ interface WorldViewState {
   addAnimatedTexture: SceneCallback<[THREE.Texture]>
   updateChunkVisibility: SceneCallback
 
-  manualCenter: { x: number; z: number } | null
   followedComputer: { computerId: number; lastPos: { x: number; y: number; z: number } }
   hoveredBlock: Block | null
   hoveredBlockPos: THREE.Vector3 | null
@@ -49,7 +48,6 @@ interface WorldViewState {
   transparencyList: string[]
   yMin: number
   yMax: number
-  computerRangeXZ: number | null
   renderDistance: number
   fastRender: boolean
   skipLoadYield: boolean
@@ -80,7 +78,6 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
   addAnimatedTexture: () => {},
   updateChunkVisibility: () => {},
 
-  manualCenter: null,
   followedComputer: { computerId: -1, lastPos: { x: 0, y: 0, z: 0 } },
   hoveredBlock: null,
   hoveredBlockPos: null,
@@ -92,7 +89,6 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
   transparencyList: [],
   yMin: 0,
   yMax: 255,
-  computerRangeXZ: null,
   renderDistance: 12,
   fastRender: false,
   skipLoadYield: false,
@@ -103,26 +99,13 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
   setSelectedComputerId: (id) => set({ selectedComputerId: id }),
 
   isBlockVisible: (locString) => {
-    const { yMin, yMax, transparencyList, computerRangeXZ, selectedComputerId, manualCenter } = get()
+    const { yMin, yMax, transparencyList } = get()
     const [x, y, z] = locString.split(',').map(Number)
     if (y < yMin || y > yMax) return false
     const { useWorldStore } = require('./useWorld') as typeof import('./useWorld')
     const world = useWorldStore.getState()
     const block = world.blocks[locString]
     if (block && transparencyList.includes(block.name)) return false
-    if (computerRangeXZ !== null) {
-      let cx: number | null = null, cz: number | null = null
-      if (selectedComputerId !== -1) {
-        const turtle = world.computers[selectedComputerId]
-        if (turtle?.loc) { cx = turtle.loc.x; cz = turtle.loc.z }
-      } else if (manualCenter) {
-        cx = manualCenter.x; cz = manualCenter.z
-      }
-      if (cx !== null && cz !== null) {
-        if (Math.abs(x - cx) > computerRangeXZ) return false
-        if (Math.abs(z - cz) > computerRangeXZ) return false
-      }
-    }
     for (const id in world.computers) {
       const c = world.computers[id]
       if (c.type === 'minecart' && c.loc?.x === x && c.loc?.y === y && c.loc?.z === z) return false

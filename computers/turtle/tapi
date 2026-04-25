@@ -56,7 +56,7 @@ locSemaphore = { count = 0, stopSignal = false }
 setmetatable(locSemaphore, lmetatable)
 
 if os.getComputerLabel() == "" then
-os.setComputerLabel("kukumba" .. tostring(os.getComputerID()))
+os.setComputerLabel("Turtle" .. tostring(os.getComputerID()))
 end
 
 -- global api overwrites
