@@ -247,7 +247,6 @@ export class ChunkManager {
       this._visibilityDebounceTimer = null;
     }
     this.pendingResults.length = 0;
-    this.resultFlushPending = false;
     this._buildMaterials.clear();
     for (const chunk of this.chunks.values()) {
       chunk.dispose(this.parent);
