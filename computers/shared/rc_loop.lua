@@ -32,6 +32,7 @@ return function(api, ws_url, opts)
                 while api.locSemaphore.count > 0 do os.sleep(0.001) end
                 return false
             else
+                print("[rc_loop] buffering msg during command (" .. #pending_msgs + 1 .. " queued)")
                 table.insert(pending_msgs, raw)
             end
         end
