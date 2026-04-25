@@ -4,7 +4,7 @@
 --   local rc = make_rc(api, ws_url, {
 --     on_signal      = function(msg, ws) ... end,  -- extra msg types in watch_ws_signals
 --     on_msg         = function(msg) ... end,       -- extra msg types in the main WS loop
---     extra_parallel = { fn1, fn2 },                -- run alongside the main poll/modem loop
+--     extra_parallel = { fn1, fn2 },                -- run alongside the main poll loop
 --   })
 --   rc.run()
 
@@ -161,34 +161,12 @@ return function(api, ws_url, opts)
         end
     end
 
-    local function modem_fn()
-        local MY_ID = os.getComputerID()
-        while true do
-            local event, p1, p2, p3, p4 = os.pullEvent()
-            if event == "modem_message" then
-                local channel, message = p2, p4
-                if channel == MY_ID and type(message) == "table" then
-                    if message.type == "openWs" then
-                        print("Modem: WS open requested")
-                        run_session()
-                        api.send_status_update()
-                    end
-                end
-            end
-        end
-    end
-
     return {
         run = function()
             api.send_status_update()
             local extras = opts.extra_parallel or {}
-            if api.use_modem then
-                print("Modem mode: waiting for WS request (id=" .. os.getComputerID() .. ")")
-                parallel.waitForAny(modem_fn, unpack(extras))
-            else
-                print("Polling for WS request every 30s (id=" .. os.getComputerID() .. ")")
-                parallel.waitForAny(poll_fn, unpack(extras))
-            end
+            print("Polling for WS request every 30s (id=" .. os.getComputerID() .. ")")
+            parallel.waitForAny(poll_fn, unpack(extras))
         end
     }
 end

@@ -15,17 +15,17 @@ import OperatorRequest from './staticGui/OperatorRequest'
 import BlockTransparency from './staticGui/BlockTransparency'
 import RenderFilters from './staticGui/RenderFilters'
 import { Led } from './ui'
+import { connLedKind } from './computers/PollTimers'
 
 interface FloatingPanel { id: number; x: number; y: number }
 
 const TYPE_SHORT: Record<string, string> = {
-  minecart: 'MC', modem: 'Mdm', turtle: 'T', player: 'Ply', stationary: 'Sta',
+  minecart: 'MC', turtle: 'T', player: 'Ply', stationary: 'Sta',
 }
 
 export default function CCRemoteController() {
   const isLoading = useWorldStore(s => s.isLoading)
   const computers = useWorldStore(s => s.computers)
-  const modemServerId = useWorldStore(s => s.modemServerId)
   const selectedInventoryPos = useWorldViewStore(s => s.selectedInventoryPos)
   // Derive inventory live from world state so it updates after suck/drop and auto-closes when removed
   const derivedInventory = useMemo(() => {
@@ -57,17 +57,22 @@ export default function CCRemoteController() {
   const addBtnRef = useRef<HTMLButtonElement>(null)
   const [addPos, setAddPos] = useState({ top: 0, left: 0 })
   const [contextMenu, setContextMenu] = useState<{ id: number; x: number; y: number } | null>(null)
+  const [now, setNow] = useState(() => Date.now())
   const contextMenuRef = useRef<HTMLDivElement>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
   const wsBackoffRef = useRef(1000)
   const wsReconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wsInitialStateLoadedRef = useRef(false)
-  const modemStatusIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const guestRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const renderFiltersRef = useRef<{ setOpen: (v: boolean) => void } | null>(null)
   const blockTransparencyRef = useRef<{ setOpen: (v: boolean) => void } | null>(null)
   const adminPanelRef = useRef<{ setOpen: (v: boolean) => void } | null>(null)
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 500)
+    return () => clearInterval(t)
+  }, [])
 
   const selectedComputerId = useWorldViewStore(s => s.selectedComputerId)
   const prevSelectedIdRef = useRef(selectedComputerId)
@@ -181,17 +186,6 @@ export default function CCRemoteController() {
     window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
   }
 
-  async function pollModemStatus() {
-    const w = useWorldStore.getState()
-    const res = await fetch(w.apiURL + 'modem/id').catch(() => null)
-    if (!res || !res.ok) return
-    const data = await res.json().catch(() => null)
-    if (data) {
-      const newId = data.id ?? null
-      if (useWorldStore.getState().modemServerId !== newId) useWorldStore.setState({ modemServerId: newId })
-    }
-  }
-
   function startGuestCooldown(seconds: number) {
     setGuestRefreshDisabled(true)
     if (guestRefreshTimerRef.current) clearTimeout(guestRefreshTimerRef.current)
@@ -294,23 +288,17 @@ export default function CCRemoteController() {
   useEffect(() => {
     useUserStore.getState().startPolling()
     connectWebSocket()
-    pollModemStatus()
-    modemStatusIntervalRef.current = setInterval(pollModemStatus, 15000)
     return () => {
       useUserStore.getState().stopPolling()
       if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close() }
       if (wsReconnectRef.current) clearTimeout(wsReconnectRef.current)
-      if (modemStatusIntervalRef.current) clearInterval(modemStatusIntervalRef.current)
       if (guestRefreshTimerRef.current) clearTimeout(guestRefreshTimerRef.current)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const modemOnline = modemServerId !== null
   const floatingIds = new Set(floatingPanels.map(p => p.id))
   const dockedSelectedId = floatingIds.has(selectedComputerId) ? -1 : selectedComputerId
   const tabComputers = tabOrder.map(id => computers[id]).filter(Boolean)
-  const nonModemCount = Object.values(computers).filter(c => c?.type !== 'modem').length
-  const viaModemCount = Object.values(computers).filter(c => c?.via_modem).length
 
   function computerName(id: number) {
     const c = computers[id]
@@ -349,21 +337,10 @@ export default function CCRemoteController() {
 
         <div className="topbar-section sys-stats">
           <div className="sys-stat">
-            <Led kind={modemOnline ? 'on' : 'off'} />
-            <span className="sys-stat-k">Modem</span>
-            <span className="sys-stat-v">{modemOnline ? `online · #${modemServerId}` : 'offline'}</span>
-          </div>
-          <div className="sys-stat">
             <Led kind={wsConnected ? 'on' : 'amber'} />
             <span className="sys-stat-k">WebSocket</span>
             <span className="sys-stat-v">{wsConnected ? 'connected' : 'reconnecting…'}</span>
           </div>
-          {nonModemCount > 0 && (
-            <div className="sys-stat">
-              <span className="sys-stat-k">Modem relay</span>
-              <span className="sys-stat-v">{viaModemCount} / {nonModemCount}</span>
-            </div>
-          )}
           {isGuest && (
             <div className="sys-stat">
               <Led kind="amber" />
@@ -417,7 +394,6 @@ export default function CCRemoteController() {
                   const c = computers[id]
                   const isFloating = floatingIds.has(id)
                   const isSelected = selectedComputerId === id && !isFloating
-                  const wsOn = c?.ws_connected
                   return (
                     <div
                       key={id}
@@ -433,7 +409,7 @@ export default function CCRemoteController() {
                       onContextMenu={e => { e.preventDefault(); setContextMenu({ id, x: e.clientX, y: e.clientY }) }}
                       title={`${computerTitle(id)} · right-click for options`}
                     >
-                      <Led kind={wsOn ? 'on' : 'amber'} />
+                      <Led kind={connLedKind(!!c?.ws_connected, c?.lastPoll, now)} />
                       <span className="tab-type">{TYPE_SHORT[c?.type ?? ''] ?? '?'}</span>
                       <span className="tab-label">{computerName(id)}</span>
                       {isFloating && <span className="tab-float-mark">↗</span>}
@@ -478,7 +454,7 @@ export default function CCRemoteController() {
                             if (filtered.length === 0) return <div className="explainer" style={{ padding: '4px 0' }}>No matches.</div>
                             return filtered.map(id => (
                               <div key={id} className="ctx-item" onClick={() => addTab(id)}>
-                                <Led kind={computers[id]?.ws_connected ? 'on' : 'amber'} />
+                                <Led kind={connLedKind(!!computers[id]?.ws_connected, computers[id]?.lastPoll, now)} />
                                 <span className="mono" style={{ color: 'var(--fg-mute)', fontSize: 11 }}>#{id}</span>
                                 <span>{computerName(id)}</span>
                               </div>
@@ -502,7 +478,7 @@ export default function CCRemoteController() {
             <div className="panel">
               <div className="panel-header">
                 <div className="panel-header-title">
-                  <Led kind={computers[dockedSelectedId]?.ws_connected ? 'on' : 'amber'} />
+                  <Led kind={connLedKind(!!computers[dockedSelectedId]?.ws_connected, computers[dockedSelectedId]?.lastPoll, now)} />
                   <span>{computerTitle(dockedSelectedId)}</span>
                 </div>
               </div>
@@ -567,7 +543,7 @@ export default function CCRemoteController() {
           >
             <div className="floating-titlebar" onMouseDown={e => startPanelDrag(e, panel.id)}>
               <span className="floating-title">
-                <Led kind={c.ws_connected ? 'on' : 'amber'} />
+                <Led kind={connLedKind(!!c.ws_connected, c.lastPoll, now)} />
                 {computerTitle(panel.id)}
               </span>
               <button className="floating-close" onMouseDown={e => e.stopPropagation()} onClick={() => dockPanel(panel.id)} title="Dock">×</button>

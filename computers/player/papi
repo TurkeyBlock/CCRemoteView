@@ -6,14 +6,7 @@
 -- %%APP_URL%% is replaced by the server before this file is served; not valid Lua as-is.
 url = "%%APP_URL%%/api/"
 
--- Modem config
-use_modem   = false
-MODEM_SERVER_ID = 0
-
 local api_common = dofile("/api_common.lua")
-local _m = api_common.make_modem(url)
-use_modem = _m.use_modem
-local _modem_device = _m.modem_device
 
 -- Stop-signal semaphore (mirrors tapi)
 -- Commands that run loops should check locSemaphore.stopSignal and
@@ -38,10 +31,9 @@ end
 function send_status_update()
     local x, y, z = get_location()
     local payload = {
-        id                   = os.getComputerID(),
-        type                 = "player",
-        loc                  = x and { x = math.floor(x), y = math.floor(y), z = math.floor(z) } or nil,
-        has_modem_peripheral = _modem_device ~= nil,
+        id   = os.getComputerID(),
+        type = "player",
+        loc  = x and { x = math.floor(x), y = math.floor(y), z = math.floor(z) } or nil,
     }
     local json = textutils.serializeJSON(payload)
     local res  = http.post(url .. "statusUpdate", json,

@@ -9,17 +9,13 @@ local state_url = url .. "state/"
 local headers = { ["Content-Type"] = "application/json" }
 
 local api_common = dofile("/api_common.lua")
-local _m = api_common.make_modem(url)
-use_modem = _m.use_modem
-local modem_device = _m.modem_device
 
 local state = {
-  id                   = -1,
-  label                = "",
-  type                 = "minecart",
-  loc                  = { x = 0, y = 0, z = 0 },
-  peripherals          = {},
-  has_modem_peripheral = modem_device ~= nil,
+  id          = -1,
+  label       = "",
+  type        = "minecart",
+  loc         = { x = 0, y = 0, z = 0 },
+  peripherals = {},
 }
 
 -- Scan attached peripherals once at startup and store their types in state.

@@ -12,9 +12,6 @@ local headers = {
 }
 
 local api_common = dofile("/api_common.lua")
-local _m = api_common.make_modem(url)
-use_modem = _m.use_modem
-local modem_device = _m.modem_device
 local state = {
   id = -1,
   label = "",
@@ -34,7 +31,6 @@ local state = {
   },
   fuelLevel = -1,
   fuelLimit = -1,
-  has_modem_peripheral = modem_device ~= nil,
   actionSeq = 0,  -- monotonic counter incremented on each completed command; lets the browser discard late-arriving state updates
 }
 -- semaphore implementation

@@ -5,9 +5,6 @@
 -- %%APP_URL%% is replaced by the server before this file is served; not valid Lua as-is.
 url = "%%APP_URL%%/api/"
 
-use_modem       = false
-MODEM_SERVER_ID = 0
-
 -- Populated once at boot by init_location()
 loc = nil   -- { x, y, z } or nil if GPS unavailable
 
@@ -17,8 +14,8 @@ locSemaphore = {
     count      = 0,
 }
 
-local headers        = { ["Content-Type"] = "application/json" }
-local api_common     = dofile("/api_common.lua")
+local headers    = { ["Content-Type"] = "application/json" }
+local api_common = dofile("/api_common.lua")
 
 -- ─── Boot-time location capture ──────────────────────────────
 
@@ -40,20 +37,13 @@ function init_location(max_attempts)
     return false
 end
 
--- ─── Modem setup ─────────────────────────────────────────────
-
-local _m = api_common.make_modem(url)
-use_modem = _m.use_modem
-local modem_device = _m.modem_device
-
 -- ─── Status / result helpers ──────────────────────────────────
 
 function send_status_update()
     local payload = {
-        id                   = os.getComputerID(),
-        type                 = "stationary",
-        loc                  = loc,
-        has_modem_peripheral = modem_device ~= nil,
+        id   = os.getComputerID(),
+        type = "stationary",
+        loc  = loc,
     }
     local json = textutils.serializeJSON(payload)
     local res  = http.post(url .. "statusUpdate", json, headers)

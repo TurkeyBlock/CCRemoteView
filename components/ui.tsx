@@ -43,8 +43,8 @@ export function Section({
 
 // ── Meter row ────────────────────────────────────────────────
 export function MeterRow({
-  label, value, max, amber, solid, solidLabel, title,
-}: { label: string; value: number; max: number; amber?: boolean; solid?: boolean; solidLabel?: string; title?: string }) {
+  label, value, max, amber, solid, solidLabel, valueLabel, title,
+}: { label: string; value: number; max: number; amber?: boolean; solid?: boolean; solidLabel?: string; valueLabel?: string; title?: string }) {
   const pct = solid ? 100 : Math.min(100, Math.max(0, (value / max) * 100))
   return (
     <div className="meter-row" title={title}>
@@ -53,7 +53,7 @@ export function MeterRow({
         <div className={`meter-fill${amber ? ' meter-fill-amber' : ''}`} style={{ width: `${pct}%` }} />
       </div>
       <span className="meter-row-value">
-        {solid ? (solidLabel ?? 'active') : `${value.toFixed(1)}s / ${max}s`}
+        {solid ? (solidLabel ?? 'active') : (valueLabel ?? `${value.toFixed(1)}s / ${max}s`)}
       </span>
     </div>
   )

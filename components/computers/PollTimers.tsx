@@ -3,14 +3,25 @@
 import { useEffect, useState } from 'react'
 import { useWorldStore } from '@/store/useWorld'
 import { Led, MeterRow } from '@/components/ui'
+import type { LedKind } from '@/components/ui'
 
 interface Props { computerId: number }
 
-function fmtCountdown(ms: number): string {
-  if (ms <= 0) return '0s'
-  const s = Math.ceil(ms / 1000)
-  if (s >= 60) return `${Math.floor(s / 60)}m ${s % 60}s`
-  return `${s}s`
+const POLL_INTERVAL_MS = 30_000
+const STALE_MS = 90_000
+
+export function connLedKind(wsConnected: boolean, lastPoll: number | null | undefined, now: number): LedKind {
+  if (wsConnected) return 'on'
+  if (!lastPoll || now - lastPoll > STALE_MS) return 'off'
+  return 'amber'
+}
+
+function fmtPollCountdown(ms: number): string {
+  const neg = ms < 0
+  const abs = Math.abs(ms)
+  const s = Math.ceil(abs / 1000)
+  const str = s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`
+  return neg ? `-${str}` : str
 }
 
 export default function PollTimers({ computerId }: Props) {
@@ -25,41 +36,26 @@ export default function PollTimers({ computerId }: Props) {
 
   if (!computer) return null
 
-  // ── Modem device ──────────────────────────────────────────
-  if (computer.type === 'modem') {
-    const interval  = computer.poll_interval ?? 1
-    const lastSeen  = computer.lastSeen ?? 0
-    const remaining = Math.max(0, (lastSeen + interval * 1000) - now)
-    return (
-      <div className="group-tight">
-        <MeterRow label="Next poll" value={remaining / 1000} max={interval} />
-      </div>
-    )
-  }
-
   const wsConnected = !!computer.ws_connected
-  const wsRequestAt = computer.ws_request_at ?? null
-
-  if (wsConnected) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Led kind="on" />
-        <span className="meter-row-value">WebSocket connected</span>
-      </div>
-    )
-  }
-
-  const deadline  = wsRequestAt ? wsRequestAt + 30_000 : null
-  const countdown = deadline !== null ? Math.max(0, deadline - now) : null
+  const lastPoll    = computer.lastPoll ?? null
+  const kind        = connLedKind(wsConnected, lastPoll, now)
+  const label       = wsConnected ? 'WebSocket connected' : lastPoll ? 'Polling' : 'No contact'
+  const pollMs      = lastPoll !== null ? POLL_INTERVAL_MS - (now - lastPoll) : null
 
   return (
     <div className="group-tight">
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Led kind="amber" />
-        <span className="meter-row-value">Polling</span>
+        <Led kind={kind} />
+        <span className="meter-row-value">{label}</span>
       </div>
-      {countdown !== null && (
-        <MeterRow label="WS open in ≤" value={countdown / 1000} max={30} amber />
+      {pollMs !== null && (
+        <MeterRow
+          label="Next poll"
+          value={Math.max(0, pollMs) / 1000}
+          max={POLL_INTERVAL_MS / 1000}
+          amber={pollMs <= 0}
+          valueLabel={fmtPollCountdown(pollMs)}
+        />
       )}
     </div>
   )

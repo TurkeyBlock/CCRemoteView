@@ -24,7 +24,6 @@ interface WorldState {
   lastTransactionId: number
   isLoading: boolean
   isUnauthorized: boolean
-  modemServerId: number | null
   getComputerIds: () => number[]
   setComputerStatus: (remoteComputerState: Record<string, any>) => void
   transactionRemoveBlock: (locString: string) => void
@@ -51,7 +50,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   lastTransactionId: -1,
   isLoading: true,
   isUnauthorized: false,
-  modemServerId: null,
   wsSend: null,
 
   getComputerIds: () => Object.keys(get().computers).map(Number),
@@ -102,7 +100,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         || existing.label !== computerState.label
         || existing.type !== computerState.type
         || existing.ws_connected !== computerState.ws_connected
-        || existing.via_modem !== computerState.via_modem
         || existing.rot !== computerState.rot
         || existing.selectedSlot !== computerState.selectedSlot
         || locChanged

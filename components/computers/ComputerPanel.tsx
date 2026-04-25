@@ -5,7 +5,6 @@ import { useWorldStore } from '@/store/useWorld'
 import { useWorldViewStore } from '@/store/useWorldView'
 import TurtlePanel from './turtles/TurtlePanel'
 import MinecartPanel from './minecart/MinecartPanel'
-import ModemPanel from './modem/ModemPanel'
 import PlayerPanel from './player/PlayerPanel'
 import StationaryPanel from './stationary/StationaryPanel'
 import PollTimers from './PollTimers'
@@ -22,27 +21,9 @@ export default function ComputerPanel({ computerId }: Props) {
     followComputer(computerId)
   }, [computerId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const viaModem = computer?.via_modem
   const wsOn = computer?.ws_connected
-
-  const badge = viaModem
-    ? 'badge-pill badge-pill-info'
-    : wsOn
-      ? 'badge-pill badge-pill-accent'
-      : 'badge-pill'
-
-  const badgeLabel = viaModem ? 'via Modem' : wsOn ? 'WebSocket' : 'HTTP'
-
-  if (computer?.type === 'modem') {
-    return (
-      <div className="group">
-        <Section label="Connection">
-          <PollTimers computerId={computerId} />
-        </Section>
-        <ModemPanel computerId={computerId} />
-      </div>
-    )
-  }
+  const badge = wsOn ? 'badge-pill badge-pill-accent' : 'badge-pill'
+  const badgeLabel = wsOn ? 'WebSocket' : 'HTTP'
 
   return (
     <div className="group">

@@ -84,11 +84,6 @@ let cmds = {};
 let stopSignal = {};
 let sideCommands = {};
 let chatQueue = {};
-let modemServerId = null;
-let modemServerIp = null;
-let lastKnownModemId = null; // persists through stale-clears so same modem reconnecting isn't treated as new
-let modemEnabled = {}; // { [id: string]: boolean } — auto-enabled when modem peripheral detected
-let lastModemLastSeenBroadcast = 0;
 let wsRequests = {};      // { [id]: true } — computer should open a WebSocket
 let computerWs = {};      // { [id]: WebSocket } — live computer WebSocket connections
 const commandInFlight = new Set(); // computer IDs with a command currently in flight over WS
@@ -121,9 +116,7 @@ try {
   state = deserializeState(raw);
   state.lastTransactionId = 0;
   state.lastReadyTransactionId = 0;
-  for (const [id, c] of Object.entries(state.computers || {})) {
-    if (c.has_modem_peripheral === true) modemEnabled[id] = true;
-  }
+
 } catch { }
 
 function serializeState(s) {
@@ -451,7 +444,6 @@ nextApp.prepare().then(() => {
     const id = safeId(req.body.id);
     if (id === null) return res.status(400).json({ error: 'invalid id' });
     req.body.id = Number(id);
-    req.body.via_modem = modemServerIp !== null && req.ip === modemServerIp;
     req.body.lastSeen = Date.now();
     const t = extractState(req.body, state);
     applyTransaction(t, state, transactionCache);
@@ -568,13 +560,6 @@ nextApp.prepare().then(() => {
       Object.entries(req.body).filter(([k]) => !BLOCKED_KEYS.has(k))
     );
     body.id = Number(id);
-    body.via_modem = modemServerIp !== null && req.ip === modemServerIp;
-    delete body.modem_enabled; // server-controlled; never trust from computer
-    // Default modem_enabled to true for computers that report a modem peripheral
-    if (body.has_modem_peripheral === true && modemEnabled[id] === undefined) {
-      modemEnabled[id] = true;
-    }
-    if (modemEnabled[id] !== undefined) body.modem_enabled = modemEnabled[id];
     const existing = state.computers[id] || {};
     const merged = { ...existing, ...body, lastSeen: Date.now() };
     if (!merged.loc && existing.loc) merged.loc = existing.loc;
@@ -620,6 +605,13 @@ nextApp.prepare().then(() => {
     const rawId = typeof req.body === 'string' ? req.body : (req.body?.id ?? req.body?.computerId);
     const id = safeId(rawId);
     if (id === null) return res.status(400).json({ error: 'invalid id' });
+    if (state.computers[id]) {
+      state.computers[id].lastPoll = Date.now();
+      const t = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: { ...state.computers[id] } } };
+      applyTransaction(t, state, transactionCache);
+      state.lastReadyTransactionId++;
+      broadcastTransaction(t);
+    }
     res.json({ open: wsRequests[id] === true });
   });
 
@@ -627,100 +619,6 @@ nextApp.prepare().then(() => {
     const s = req.body;
     if (!sideCommands[s.id] || sideCommands[s.id].length === 0) { res.send(''); return; }
     res.send(sideCommands[s.id].shift());
-  });
-
-  app.post('/api/modem/register', requireApprovedComputer, (req, res) => {
-    const { id } = req.body;
-    if (id === undefined) return res.status(400).json({ error: 'id required' });
-    const isNew = String(lastKnownModemId) !== String(id);
-    const now = Date.now();
-    if (isNew) {
-      log.info(`Modem server registered: ID ${id} — queuing reboot for modem-enabled computers`);
-      for (const computerId of Object.keys(state.computers)) {
-        if (String(computerId) === String(id)) continue;
-        if (modemEnabled[computerId] === false) continue; // respect opt-out
-        if (!cmds[computerId]) cmds[computerId] = [];
-        cmds[computerId].push('os.reboot()');
-        if (computerWs[computerId]?.readyState === 1) {
-          sendNextCommandToWs(computerId);
-        } else {
-          setWsRequest(computerId);
-        }
-      }
-    }
-    modemServerId = id;
-    modemServerIp = req.ip;
-    lastKnownModemId = id;
-    const pollInterval = typeof req.body.poll_interval === 'number' ? req.body.poll_interval : undefined;
-    if (isNew) {
-      const prevLoc = state.computers[String(id)]?.loc;
-      const loc = req.body.loc || prevLoc || undefined;
-      const modemState = { id: Number(id), type: 'modem', label: `Modem ${id}`, lastSeen: now, ...(loc && { loc }), ...(pollInterval !== undefined && { poll_interval: pollInterval }) };
-      const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: modemState } };
-      applyTransaction(transaction, state, transactionCache);
-      state.lastReadyTransactionId++;
-      broadcastTransaction(transaction);
-    } else if (pollInterval !== undefined && state.computers[String(id)]) {
-      const sid = String(id);
-      if (state.computers[sid].poll_interval !== pollInterval) {
-        state.computers[sid].poll_interval = pollInterval;
-        const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [sid]: { ...state.computers[sid] } } };
-        applyTransaction(transaction, state, transactionCache);
-        state.lastReadyTransactionId++;
-        broadcastTransaction(transaction);
-      }
-    }
-    res.json({ ok: true });
-  });
-
-  const MODEM_STALE_MS = 120_000;
-  app.get('/api/modem/id', (req, res) => {
-    if (modemServerId !== null) {
-      const modem = state.computers[modemServerId];
-      if (!modem || Date.now() - (modem.lastSeen ?? 0) > MODEM_STALE_MS) {
-        modemServerId = null;
-        modemServerIp = null;
-      }
-    }
-    const computerId = req.query.computerId ? safeId(req.query.computerId) : null;
-    const enabled = computerId === null ? true : modemEnabled[computerId] !== false;
-    res.json({ id: modemServerId, enabled });
-  });
-
-  app.get('/api/modem/computers', requireApprovedComputer, (_req, res) => {
-    const ids = Object.keys(state.computers)
-      .map(Number)
-      .filter(n => {
-        if (isNaN(n)) return false;
-        const id = String(n);
-        return state.computers[id]?.has_modem_peripheral === true
-          && modemEnabled[id] !== false;
-      });
-    res.json({ ids });
-  });
-
-  app.post('/api/poll', express.text({ type: '*/*' }), requireApprovedComputer, (req, res) => {
-    if (typeof req.body !== 'string') return res.status(400).json({ error: 'body must be a comma-separated list of ids' });
-    if (modemServerId !== null && state.computers[modemServerId]) {
-      const now = Date.now();
-      state.computers[modemServerId].lastSeen = now;
-      if (now - lastModemLastSeenBroadcast > 15_000) {
-        lastModemLastSeenBroadcast = now;
-        const sid = String(modemServerId);
-        const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [sid]: { ...state.computers[sid], lastSeen: now } } };
-        applyTransaction(transaction, state, transactionCache);
-        state.lastReadyTransactionId++;
-        broadcastTransaction(transaction);
-      }
-    }
-    const ids = req.body.length > 0 ? req.body.split(',').map(Number).filter(n => !isNaN(n)) : [];
-    const wsReqs = {};
-    for (const id of ids) {
-      const sid = String(id);
-      if (wsRequests[sid] && !computerWs[sid]) wsReqs[sid] = true;
-    }
-    log.info(`Modem: poll (${ids.length} computers, ${Object.keys(wsReqs).length} wsReqs, size: ${req.body.length} bytes)`);
-    res.json({ wsRequests: wsReqs });
   });
 
   // --- Browser endpoints ---
@@ -763,7 +661,6 @@ nextApp.prepare().then(() => {
   // app.post('/api/setSideCommand', requireOperator, (req, res) => { ... });
   // app.post('/api/setStopSignal', requireOperator, (req, res) => { ... });
   // app.post('/api/clearCommandQueue', requireOperator, (req, res) => { ... });
-  // app.post('/api/setModemEnabled', requireOperator, (req, res) => { ... });
   // app.post('/api/getCommandResult', requireAuth, compression(), (req, res) => { ... });
   //   ^ results are now pushed to browser clients via broadcastToClients({ commandResult }) in /api/commandResult.
 
@@ -880,20 +777,6 @@ nextApp.prepare().then(() => {
     if (id === undefined) return res.status(400).json({ error: 'id required' });
     delete state.computers[id];
     cmds[id] = [];
-    if (String(id) === String(modemServerId)) {
-      modemServerId = null;
-      modemServerIp = null;
-      log.info(`Modem server ${id} deleted — clearing modem state and queuing reboot for all computers`);
-      for (const computerId of Object.keys(state.computers)) {
-        if (!cmds[computerId]) cmds[computerId] = [];
-        cmds[computerId].push('os.reboot()');
-        if (computerWs[computerId]?.readyState === 1) {
-          sendNextCommandToWs(computerId);
-        } else {
-          setWsRequest(computerId);
-        }
-      }
-    }
     log.info(`Computer ${id} deleted by ${req.token.sub}`);
     res.json({ ok: true });
   });
