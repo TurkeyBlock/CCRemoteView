@@ -102,9 +102,9 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
     const { yMin, yMax, transparencyList } = get()
     const [x, y, z] = locString.split(',').map(Number)
     if (y < yMin || y > yMax) return false
-    const { useWorldStore } = require('./useWorld') as typeof import('./useWorld')
+    const { useWorldStore, worldBlocks } = require('./useWorld') as typeof import('./useWorld')
     const world = useWorldStore.getState()
-    const block = world.blocks[locString]
+    const block = worldBlocks[locString]
     if (block && transparencyList.includes(block.name)) return false
     for (const id in world.computers) {
       const c = world.computers[id]
