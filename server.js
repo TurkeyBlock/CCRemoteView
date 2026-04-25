@@ -83,7 +83,6 @@ let commandResultCache = {};
 let cmds = {};
 let stopSignal = {};
 let sideCommands = {};
-let chatQueue = {};
 let wsRequests = {};      // { [id]: true } — computer should open a WebSocket
 let computerWs = {};      // { [id]: WebSocket } — live computer WebSocket connections
 const commandInFlight = new Set(); // computer IDs with a command currently in flight over WS
@@ -396,6 +395,8 @@ function extractState(computerState, state) {
 // --- Scan rate limiting ---
 const SCAN_MIN_INTERVAL_MS = 1000;
 const scanLastTime = {};
+const SCAN_INCLUDE_METADATA = true;
+const SCAN_INCLUDE_STATE    = false;
 const guestStateLastTime = {};
 
 function clearCommandQueue(id, sub) {
@@ -451,8 +452,6 @@ nextApp.prepare().then(() => {
     res.sendStatus(200);
   });
 
-  const SCAN_INCLUDE_METADATA = true;
-  const SCAN_INCLUDE_STATE    = false;
 
   app.post('/api/scan', requireApprovedComputer, (req, res) => {
     const { blocks } = req.body;
@@ -531,25 +530,6 @@ nextApp.prepare().then(() => {
     res.json({ ok: true });
   });
 
-  app.post('/api/sendChat', requireOperator, (req, res) => {
-    const { message } = req.body;
-    const id = safeId(req.body.id);
-    if (id === null) return res.status(400).json({ error: 'invalid id' });
-    if (!message) return res.status(400).json({ error: 'message required' });
-    if (typeof message !== 'string' || message.length > 2_000) return res.status(400).json({ error: 'message too long' });
-    if (!chatQueue[id]) chatQueue[id] = [];
-    chatQueue[id].push(message);
-    log.info(`/api/sendChat id=${id} user=${req.token.sub} <${sanitizeForLog(message)}>`);
-    userManagement.incrementActionCount(req.token.sub);
-    res.json({ ok: true });
-  });
-
-  app.post('/api/getChatMessage', requireApprovedComputer, (req, res) => {
-    const id = safeId(req.body.id);
-    if (id === null) { res.send(''); return; }
-    if (!chatQueue[id] || chatQueue[id].length === 0) { res.send(''); return; }
-    res.send(chatQueue[id].shift());
-  });
 
   app.post('/api/statusUpdate', requireApprovedComputer, (req, res) => {
     const id = safeId(req.body.id);
@@ -831,13 +811,7 @@ nextApp.prepare().then(() => {
       state.lastReadyTransactionId++;
       broadcastTransaction(t);
     }
-    // Feed the first queued command directly on connect, bypassing the in-flight guard.
-    if (cmds[id]?.length > 0) {
-      const cmd = cmds[id].shift();
-      commandInFlight.add(id);
-      log.info(`[ws/computer] id=${id} — fed first cmd on connect, remaining=${cmds[id].length} <${sanitizeForLog(cmd)}>`);
-      ws.send(JSON.stringify({ type: 'command', command: cmd }));
-    }
+    sendNextCommandToWs(id);
     ws.on('message', (raw) => {
       let msg;
       try { msg = JSON.parse(raw); } catch {
@@ -857,10 +831,66 @@ nextApp.prepare().then(() => {
           if (commandResultCache[cid].length > CMD_RESULT_CACHE_MAX) commandResultCache[cid].shift();
           broadcastToClients({ commandResult: { computerId: cid, result } });
         }
-        // Do NOT call sendNextCommandToWs here — wait for turtle's "ready" signal.
-      } else if (msg.type === 'ready') {
-        log.info(`[ws/computer] id=${id} ready signal — sending next cmd`);
         sendNextCommandToWs(id);
+      } else if (msg.type === 'scan') {
+        const data = msg.data || {};
+        const blocks = data.blocks;
+        if (!Array.isArray(blocks) || blocks.length > 50_000) return;
+        const now = Date.now();
+        if (scanLastTime[id] && now - scanLastTime[id] < SCAN_MIN_INTERVAL_MS) return;
+        scanLastTime[id] = now;
+        const origin = data.origin ?? state.computers[id]?.loc;
+        if (!origin) return;
+        const { x: tx, y: ty, z: tz } = origin;
+        const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: {} };
+        for (const block of blocks) {
+          const locString = `${Math.round(tx + block.x)},${Math.round(ty + block.y)},${Math.round(tz + block.z)}`;
+          if (!block.name || block.name === 'minecraft:air') {
+            if (state.world.blocks[locString]) transaction.blocks[locString] = null;
+          } else {
+            const entry = { name: block.name };
+            if (SCAN_INCLUDE_METADATA && block.metadata != null) entry.metadata = block.metadata;
+            if (SCAN_INCLUDE_STATE && block.state != null && Object.keys(block.state).length > 0) entry.state = block.state;
+            transaction.blocks[locString] = entry;
+          }
+        }
+        if (Object.keys(transaction.blocks).length > 0) {
+          applyTransaction(transaction, state, transactionCache);
+          state.lastReadyTransactionId++;
+          broadcastTransaction(transaction);
+          log.info(`[ws/computer] scan id=${id} mapped ${Object.keys(transaction.blocks).length} block changes`);
+        }
+      } else if (msg.type === 'statusUpdate') {
+        const BLOCKED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+        const data = Object.fromEntries(
+          Object.entries(msg.data || {}).filter(([k]) => !BLOCKED_KEYS.has(k))
+        );
+        data.id = Number(id);
+        const existing = state.computers[id] || {};
+        const merged = { ...existing, ...data, lastSeen: Date.now() };
+        if (!merged.loc && existing.loc) merged.loc = existing.loc;
+        const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: merged } };
+        applyTransaction(transaction, state, transactionCache);
+        state.lastReadyTransactionId++;
+        broadcastTransaction(transaction);
+      } else if (msg.type === 'state') {
+        const data = msg.data || {};
+        data.id = Number(id);
+        data.lastSeen = Date.now();
+        const t = extractState(data, state);
+        applyTransaction(t, state, transactionCache);
+        broadcastTransaction(t);
+      } else if (msg.type === 'sense') {
+        const data = msg.data || {};
+        const entities = data.entities;
+        if (!Array.isArray(entities) || entities.length > 1_000) return;
+        if (!state.computers[id]) return;
+        state.computers[id].entities = entities;
+        const transaction = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: state.computers[id] } };
+        applyTransaction(transaction, state, transactionCache);
+        state.lastReadyTransactionId++;
+        broadcastTransaction(transaction);
+        log.info(`[ws/computer] sense id=${id} reported ${entities.length} entities`);
       }
     });
     ws.on('close', (code) => {

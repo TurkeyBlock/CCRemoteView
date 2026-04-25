@@ -200,11 +200,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
 
   sendChatMessage: (computerId, message) => {
-    fetch(get().apiURL + 'sendChat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: computerId, message }),
-    }).catch(console.error)
+    const escaped = message.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+    get().wsSend?.({ type: 'setCommand', id: computerId, cmd: `sapi.say("${escaped}")` })
   },
 
   sendStopSignal: (computerId) => {

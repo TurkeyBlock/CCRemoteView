@@ -9,6 +9,7 @@ local state_url = url .. "state/"
 local headers = { ["Content-Type"] = "application/json" }
 
 local api_common = dofile("/api_common.lua")
+local _ws = api_common.make_ws_sender(url, headers)
 
 local state = {
   id          = -1,
@@ -111,9 +112,7 @@ function scan()
   if ox then
     payload.origin = { x = ox, y = oy, z = oz }
   end
-  local json = textutils.serializeJSON(payload)
-  local res = http.post(url .. "scan", json, headers)
-  if res then res.close() end
+  _ws.send_scan(payload)
   return true
 end
 
@@ -141,9 +140,7 @@ function sense()
     -- Entity offsets are fractional (true entity positions, not block-snapped)
     payload.origin = { x = gx, y = gy, z = gz }
   end
-  local json = textutils.serializeJSON(payload)
-  local res = http.post(url .. "sense", json, headers)
-  if res then res.close() end
+  _ws.send_sense(payload)
   return true
 end
 
@@ -178,11 +175,9 @@ end
 -- Send full state report to the server. Always queries GPS first.
 function send_status_update()
   scan_specs()
-  local json = textutils.serializeJSON(state)
-  http.request(state_url, json, headers)
+  _ws.send_state(state)
 end
 
-local _ws = api_common.make_ws_sender(url, headers)
 set_ws              = _ws.set_ws
 send_command_result = _ws.send_command_result
 

@@ -39,20 +39,18 @@ end
 
 -- ─── Status / result helpers ──────────────────────────────────
 
+local _ws = api_common.make_ws_sender(url, headers)
+set_ws              = _ws.set_ws
+send_command_result = _ws.send_command_result
+
 function send_status_update()
     local payload = {
         id   = os.getComputerID(),
         type = "stationary",
         loc  = loc,
     }
-    local json = textutils.serializeJSON(payload)
-    local res  = http.post(url .. "statusUpdate", json, headers)
-    if res then res.close() end
+    _ws.send_status_update(payload)
 end
-
-local _ws = api_common.make_ws_sender(url, headers)
-set_ws              = _ws.set_ws
-send_command_result = _ws.send_command_result
 
 
 -- ─── Chat helper ─────────────────────────────────────────────
@@ -90,26 +88,9 @@ function sense()
     local payload = { id = os.getComputerID(), entities = entities }
     if loc then payload.origin = loc end
 
-    local json = textutils.serializeJSON(payload)
-    local res  = http.post(url .. "sense", json, headers)
-    if res then res.close() end
-
+    _ws.send_sense(payload)
     print("? entity scan (" .. #entities .. " entities)")
     return true
-end
-
--- ─── Chat send helper ────────────────────────────────────────
-
-function get_chat_message()
-    local data = { id = os.getComputerID() }
-    local json = textutils.serializeJSON(data)
-    local res  = http.post(url .. "getChatMessage", json, headers)
-    if res then
-        local body = res.readAll()
-        res.close()
-        if body and body ~= "" then return body end
-    end
-    return nil
 end
 
 -- ─── Say helper ──────────────────────────────────────────────

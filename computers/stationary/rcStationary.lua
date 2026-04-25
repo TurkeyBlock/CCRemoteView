@@ -20,16 +20,6 @@ local rc = require("rc_loop")(sapi, WS_URL, {
                 sapi.send_chat(player, message, uuid)
             end
         end,
-        function()
-            while true do
-                local msg = sapi.get_chat_message()
-                if msg then
-                    sapi.say(msg)
-                else
-                    os.sleep(1)
-                end
-            end
-        end,
     },
 })
 rc.run()

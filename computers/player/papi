@@ -28,6 +28,10 @@ end
 
 -- ─── Status / result helpers (HTTP) ──────────────────────────
 
+local _ws = api_common.make_ws_sender(url, { ["Content-Type"] = "application/json" })
+set_ws              = _ws.set_ws
+send_command_result = _ws.send_command_result
+
 function send_status_update()
     local x, y, z = get_location()
     local payload = {
@@ -35,15 +39,8 @@ function send_status_update()
         type = "player",
         loc  = x and { x = math.floor(x), y = math.floor(y), z = math.floor(z) } or nil,
     }
-    local json = textutils.serializeJSON(payload)
-    local res  = http.post(url .. "statusUpdate", json,
-                           { ["Content-Type"] = "application/json" })
-    if res then res.close() end
+    _ws.send_status_update(payload)
 end
-
-local _ws = api_common.make_ws_sender(url, { ["Content-Type"] = "application/json" })
-set_ws              = _ws.set_ws
-send_command_result = _ws.send_command_result
 
 
 -- ─── Scan helper ─────────────────────────────────────────────
@@ -86,20 +83,7 @@ function scan()
         blocks = blocks,
     }
 
-    local json = textutils.serializeJSON(payload)
-    local res  = http.post(url .. "scan", json,
-        { ["Content-Type"] = "application/json" })
-    if not res then
-        print("! scan: HTTP request failed")
-        return false, "http request failed"
-    end
-    local code = res.getResponseCode()
-    local body = res.readAll()
-    res.close()
-    if code ~= 200 then
-        print("! scan failed (HTTP " .. code .. "): " .. tostring(body))
-        return false, "server error: " .. code
-    end
+    _ws.send_scan(payload)
     print("? block scan (" .. #blocks .. " blocks @ " .. ox .. "," .. oy .. "," .. oz .. ")")
     return true
 end

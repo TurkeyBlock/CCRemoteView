@@ -91,8 +91,13 @@ function send_status_update()
   scan_inventory()
   scan_turtle_specs()
 
-  local json = textutils.serializeJSON(state)
-  http.request(state_url, json, headers)
+  if ws_conn then
+    ws_conn.send(textutils.serializeJSON({ type = "state", data = state }))
+  else
+    local json = textutils.serializeJSON(state)
+    local res = http.post(state_url, json, headers)
+    if res then res.close() end
+  end
 end
 
 -- WebSocket connection for result delivery; nil = use HTTP (set by rcTurtle startup)
@@ -981,12 +986,15 @@ function scan()
   print("scan: " .. #blocks .. " blocks after filtering self")
 
   local payload = { id = os.getComputerID(), blocks = blocks }
+  if ws_conn then
+    ws_conn.send(textutils.serializeJSON({ type = "scan", data = payload }))
+    return true
+  end
   local ok, json = pcall(textutils.serializeJSON, payload)
   if not ok then
     print("scan FAIL: serializeJSON error: " .. tostring(json))
     return false, "serialization error"
   end
-
   local res = http.post(url .. "scan", json, { ["Content-Type"] = "application/json" })
   if not res then
     print("scan FAIL: http.post to " .. url .. "scan returned nil")
