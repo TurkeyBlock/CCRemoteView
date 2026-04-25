@@ -20,7 +20,7 @@ export default function LuaTerminal({ computerId }: Props) {
           e.stopPropagation()
           if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') sendCommand(computerId, cmd)
         }}
-        placeholder="-- write lua here, e.g. return 42"
+        placeholder="-- write lua here, e.g. tapi.scan() | os.reboot() | return 42"
       />
       <div className="code-pad-foot">
         <span className="muted" style={{ fontSize: 11 }}><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">↵</kbd> to run</span>

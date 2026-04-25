@@ -206,6 +206,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
 
   sendStopSignal: (computerId) => {
     get().wsSend?.({ type: 'setStopSignal', id: computerId })
+    get().wsSend?.({ type: 'clearCommandQueue', id: computerId })
   },
 
   clearCommandQueue: (computerId) => {

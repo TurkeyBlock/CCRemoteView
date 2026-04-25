@@ -387,7 +387,12 @@ function extractState(computerState, state) {
     computerState.adjacentInventory = adjacentInventory;
   }
 
-  transaction.computers[computerState.id] = computerState;
+  const existing = state.computers[computerState.id];
+  transaction.computers[computerState.id] = {
+    ...computerState,
+    ws_connected: existing?.ws_connected,
+    ws_request_at: existing?.ws_request_at,
+  };
   state.lastReadyTransactionId++;
   return transaction;
 }
