@@ -23,7 +23,7 @@ local boot = dofile("/boot.lua")
 
 boot.check_approved(base_url, "computer")
 -- Re-downloads shared libs (keeping boot.lua current). "startup" in the type list causes this file to self-update; new version runs on next reboot.
-boot.get_files(base_url, "computers/shared/", {"boot.lua", "rc_loop.lua", "api_common.lua"})
+boot.get_files(base_url, "computers/shared/", {"boot.lua", "rc_loop.lua", "api_common.lua", "locks.lua"})
 boot.get_files(base_url, "computers/player/", {"papi", "rcPlayer.lua", "startup"})
 
 shell.run("rcPlayer.lua")
