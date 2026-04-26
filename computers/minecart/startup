@@ -23,7 +23,7 @@ local boot = dofile("/boot.lua")
 
 boot.check_approved(base_url, "minecart")
 -- Re-downloads shared libs (keeping boot.lua current). "startup" in the type list causes this file to self-update; new version runs on next reboot.
-boot.get_files(base_url, "computers/shared/", {"boot.lua", "rc_loop.lua", "api_common.lua", "locks.lua"})
+boot.get_files(base_url, "computers/shared/", {"boot.lua", "rc_loop.lua", "api_common.lua", "locks.lua", "scheduler.lua"})
 boot.get_files(base_url, "computers/minecart/", {"capi", "rcMinecart.lua", "startup"})
 
 os.loadAPI("capi")
