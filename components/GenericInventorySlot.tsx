@@ -9,10 +9,10 @@ interface Props {
   computerId?: number
   side?: string
   isAdjacent?: boolean
-  sendCommand?: (computerId: number, cmd: string) => void
+  invokeCommand?: (computerId: number, command: string, args?: (string | number | boolean | null | undefined)[]) => void
 }
 
-export default function GenericInventorySlot({ invSlot, slotNum, computerId, side, isAdjacent, sendCommand }: Props) {
+export default function GenericInventorySlot({ invSlot, slotNum, computerId, side, isAdjacent, invokeCommand }: Props) {
   const textureURL = useWorldStore(s => s.textureURL)
   const src = invSlot
     ? `${textureURL}items/${invSlot.name.replace(':', '/')}.png`
@@ -27,10 +27,8 @@ export default function GenericInventorySlot({ invSlot, slotNum, computerId, sid
 
   function onDrop(e: React.DragEvent) {
     const slotFrom = e.dataTransfer.getData('slotFrom')
-    if (!slotFrom || computerId == null || !side || !isAdjacent || !sendCommand) return
-    const count = e.ctrlKey ? 1 : 64
-    const dropFn = side === 'top' ? 'dropUp' : side === 'bottom' ? 'dropDown' : 'drop'
-    sendCommand(computerId, `tapi.select(${slotFrom}); turtle.${dropFn}(${count}); tapi.send_status_update()`)
+    if (!slotFrom || computerId == null || !side || !isAdjacent || !invokeCommand) return
+    invokeCommand(computerId, 'dropToChest', [parseInt(slotFrom, 10), side, e.ctrlKey ? 1 : 64])
   }
 
   return (

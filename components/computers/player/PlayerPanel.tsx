@@ -9,7 +9,7 @@ interface Props { computerId: number }
 
 export default function PlayerPanel({ computerId }: Props) {
   const computer = useWorldStore(s => s.computers[computerId])
-  const sendCommand = useWorldStore(s => s.sendCommand)
+  const invokeCommand = useWorldStore(s => s.invokeCommand)
   const sendStopSignal = useWorldStore(s => s.sendStopSignal)
   const focusOnComputer = useWorldViewStore(s => s.focusOnComputer)
   const followComputer = useWorldViewStore(s => s.followComputer)
@@ -26,7 +26,7 @@ export default function PlayerPanel({ computerId }: Props) {
         <div className="btn-row-2">
           <button
             className={`btn btn-compact${hasScanner ? '' : ' btn-disabled'}`}
-            onClick={() => sendCommand(computerId, 'return papi.scan()')}
+            onClick={() => invokeCommand(computerId, 'scan')}
           >Block Scan</button>
           <button className="btn btn-compact" onClick={() => focusOnComputer(computerId)}>Focus</button>
           <button

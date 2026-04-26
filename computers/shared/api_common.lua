@@ -1,5 +1,12 @@
 -- api_common: shared utilities for all computer API files (tapi/capi/papi/sapi).
 
+-- [concurrent] Live GPS fix, 2s timeout. Returns raw x, y, z or nil, nil, nil if unavailable.
+local function gps_locate()
+    local x, y, z = gps.locate(2)
+    if not x then return nil, nil, nil end
+    return x, y, z
+end
+
 local function make_ws_sender(url, headers)
     local ws_conn = nil
     local function set_ws(ws) ws_conn = ws end
@@ -56,4 +63,4 @@ local function make_ws_sender(url, headers)
     }
 end
 
-return { make_ws_sender = make_ws_sender }
+return { make_ws_sender = make_ws_sender, gps_locate = gps_locate }

@@ -11,8 +11,7 @@ local function handle_chat_send(msg)
 end
 
 local rc = require("rc_loop")(sapi, WS_URL, {
-    on_signal = handle_chat_send,
-    on_msg    = handle_chat_send,
+    on_msg = handle_chat_send,
     extra_parallel = {
         function()
             while true do

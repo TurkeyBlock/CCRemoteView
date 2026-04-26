@@ -446,10 +446,7 @@ function SceneSetup() {
       const wv = useWorldViewStore.getState()
       if (!wv.selectedComputerId || wv.selectedComputerId === -1 || !wv.gotoBlockPos) return
       const loc = wv.gotoBlockPos
-      useWorldStore.getState().sendCommand(
-        wv.selectedComputerId,
-        `tapi.goTo(${loc.x},${loc.y},${loc.z})`,
-      )
+      useWorldStore.getState().invokeCommand(wv.selectedComputerId, 'goTo', [loc.x, loc.y, loc.z])
     }
 
     let lastMouseMove = 0

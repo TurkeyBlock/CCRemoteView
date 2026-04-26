@@ -248,8 +248,13 @@ export default function CCRemoteController() {
     }
 
     ws.onmessage = (event) => {
-      const data = JSON.parse(event.data)
+      let data: any
+      try { data = JSON.parse(event.data) } catch { return }
       const w = useWorldStore.getState(); const view = useWorldViewStore.getState()
+      if (data.type === 'error') {
+        const { computerId, message } = data
+        if (computerId != null && message) useWorldStore.setState(s => ({ commandResult: { ...s.commandResult, [computerId]: message } }))
+      }
       if (data.commandResult) {
         const { computerId, result } = data.commandResult
         if (result != null) useWorldStore.setState(s => ({ commandResult: { ...s.commandResult, [computerId]: result.ret } }))

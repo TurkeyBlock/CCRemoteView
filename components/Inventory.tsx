@@ -13,7 +13,7 @@ interface Props {
 }
 
 export default function InventoryView({ inventory, inventorySize, computerId, blockPos }: Props) {
-  const sendCommand = useWorldStore(s => s.sendCommand)
+  const invokeCommand = useWorldStore(s => s.invokeCommand)
   const computers = useWorldStore(s => s.computers)
   const block = blockPos ? worldBlocks[`${blockPos.x},${blockPos.y},${blockPos.z}`] : null
 
@@ -66,7 +66,7 @@ export default function InventoryView({ inventory, inventorySize, computerId, bl
               computerId={computerId}
               side={side}
               isAdjacent={isAdjacent}
-              sendCommand={sendCommand}
+              invokeCommand={invokeCommand}
             />
           ))}
         </div>

@@ -14,7 +14,7 @@ interface Props {
 
 export default function InventorySlot({ computerId, invSlot, slotNum, isSelected, onClick }: Props) {
   const textureURL = useWorldStore(s => s.textureURL)
-  const sendCommand = useWorldStore(s => s.sendCommand)
+  const invokeCommand = useWorldStore(s => s.invokeCommand)
   const turtleLoc = useWorldStore(s => s.computers[computerId]?.loc)
   const selectedInventoryPos = useWorldViewStore(s => s.selectedInventoryPos)
 
@@ -37,19 +37,15 @@ export default function InventorySlot({ computerId, invSlot, slotNum, isSelected
     const chestItemData = e.dataTransfer.getData('chestItem')
     if (chestItemData) {
       if (!isAdjacentToChest) return
-      const { itemName, side } = JSON.parse(chestItemData)
-      sendCommand(computerId, `tapi.suckItem(${JSON.stringify(itemName)}, ${JSON.stringify(side)}, ${e.ctrlKey ? 1 : 64})`)
+      let parsed: { itemName?: string; side?: string }
+      try { parsed = JSON.parse(chestItemData) } catch { return }
+      const { itemName, side } = parsed
+      invokeCommand(computerId, 'suckItem', [itemName, side, e.ctrlKey ? 1 : 64])
       return
     }
     const slotFrom = e.dataTransfer.getData('slotFrom')
-    sendCommand(
-      computerId,
-      `local oldSelected = turtle.getSelectedSlot();
-      tapi.select(${slotFrom});
-      turtle.transferTo(${slotNum}, ${e.ctrlKey ? 64 : 1});
-      tapi.select(oldSelected);
-      tapi.send_status_update();`
-    )
+    if (!slotFrom) return
+    invokeCommand(computerId, 'transferSlot', [parseInt(slotFrom, 10), slotNum, e.ctrlKey ? 64 : 1])
   }
 
   return (

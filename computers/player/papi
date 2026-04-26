@@ -8,22 +8,12 @@ url = "%%APP_URL%%/api/"
 
 local api_common = dofile("/api_common.lua")
 
--- Stop-signal semaphore (mirrors tapi)
--- Commands that run loops should check locSemaphore.stopSignal and
--- bracket critical sections with count inc/dec.
-locSemaphore = {
-    stopSignal = false,
-    count      = 0,
-}
-
 
 -- ─── GPS helpers ─────────────────────────────────────────────
 
--- Returns x, y, z from GPS, or nil if unavailable.
+-- [concurrent]
 function get_location()
-    local x, y, z = gps.locate(2)   -- 2-second timeout
-    if x then return x, y, z end
-    return nil, nil, nil
+    return api_common.gps_locate()
 end
 
 -- ─── Status / result helpers (HTTP) ──────────────────────────
@@ -48,6 +38,7 @@ end
 local SCAN_INCLUDE_METADATA = true
 local SCAN_INCLUDE_STATE    = false
 
+-- [concurrent]
 function scan()
     local neural = peripheral.find("neuralInterface")
     if not neural then

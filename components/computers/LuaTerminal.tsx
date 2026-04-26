@@ -7,8 +7,11 @@ interface Props { computerId: number }
 
 export default function LuaTerminal({ computerId }: Props) {
   const [cmd, setCmd] = useState('')
+  const [forceConcurrent, setForceConcurrent] = useState(false)
   const sendCommand = useWorldStore(s => s.sendCommand)
   const commandResult = useWorldStore(s => s.commandResult[computerId])
+
+  const run = () => sendCommand(computerId, cmd, forceConcurrent ? true : undefined)
 
   return (
     <div className="code-pad">
@@ -18,13 +21,17 @@ export default function LuaTerminal({ computerId }: Props) {
         onChange={e => setCmd(e.target.value)}
         onKeyDown={e => {
           e.stopPropagation()
-          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') sendCommand(computerId, cmd)
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') run()
         }}
         placeholder="-- write lua here, e.g. tapi.scan() | os.reboot() | return 42"
       />
       <div className="code-pad-foot">
         <span className="muted" style={{ fontSize: 11 }}><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">↵</kbd> to run</span>
-        <button className="btn btn-compact btn-primary" onClick={() => sendCommand(computerId, cmd)}>Execute</button>
+        <label className="code-pad-concurrent">
+          <input type="checkbox" checked={forceConcurrent} onChange={e => setForceConcurrent(e.target.checked)} />
+          Concurrent
+        </label>
+        <button className="btn btn-compact btn-primary" onClick={run}>Execute</button>
       </div>
       {commandResult && (
         <div className="code-pad-result">{commandResult}</div>

@@ -35,41 +35,19 @@ local function scan_peripherals()
 end
 scan_peripherals()
 
--- semaphore (used for stop signal coordination, same as tapi)
-local lmetatable = {
-  __index = {
-    incr = function(self)
-      if self.stopSignal then os.sleep(1) end
-      self.count = self.count + 1
-    end,
-    decr = function(self)
-      self.count = self.count - 1
-    end,
-    tostring = function(self)
-      return "currLocks:" .. tostring(self.count)
-    end,
-    value = function(self)
-      return self.count
-    end
-  },
-  __tostring = function(l) return l:tostring() end,
-}
-locSemaphore = { count = 0, stopSignal = false }
-setmetatable(locSemaphore, lmetatable)
 
 if os.getComputerLabel() == nil or os.getComputerLabel() == "" then
   os.setComputerLabel("minecart" .. tostring(os.getComputerID()))
 end
 
--- Query GPS for current position. Returns x, y, z or nil if unavailable.
-function get_gps_location()
-  local x, y, z = gps.locate(3)
-  return x, y, z
+-- [concurrent]
+function get_location()
+    return api_common.gps_locate()
 end
 
 -- Populate state with a fresh GPS fix and computer metadata.
 function scan_specs()
-  local x, y, z = get_gps_location()
+  local x, y, z = get_location()
   if x then
     state.loc.x = math.floor(x)
     state.loc.y = math.floor(y)
@@ -81,7 +59,7 @@ function scan_specs()
   state.label = os.getComputerLabel() or ""
 end
 
--- Post a block map scan to the server, anchored at the current GPS position.
+-- [concurrent]
 
 -- ============================================================
 -- Scan config
@@ -95,7 +73,7 @@ function scan()
   if not scanner then return false, "no scanner attached" end
   local raw = scanner.scan(4)
   print("? block scan")
-  local gx, gy, gz = get_gps_location()
+  local gx, gy, gz = get_location()
   local ox = gx and math.floor(gx)
   local oy = gy and math.floor(gy)
   local oz = gz and math.floor(gz)
@@ -125,6 +103,7 @@ function scan()
   return true
 end
 
+-- [concurrent]
 -- Scan for nearby entities and report to server.
 -- Entities are stored as temporary children of this computer and fully
 -- replaced on every call — positions are fractional offsets from the sensor.
@@ -133,7 +112,7 @@ function sense()
   if not sensor then return false, "no sensor attached" end
   local raw = sensor.sense()
   print("? entity scan")
-  local gx, gy, gz = get_gps_location()
+  local gx, gy, gz = get_location()
   local entities = {}
   for _, e in ipairs(raw) do
     table.insert(entities, {
@@ -174,9 +153,9 @@ function propel(power)
   return true
 end
 
--- Repeatedly propel until a stop signal is received.
+-- Repeatedly propel until the command is terminated via stop signal.
 function propel_loop(power)
-  while not locSemaphore.stopSignal do
+  while true do
     propel(power)
   end
 end

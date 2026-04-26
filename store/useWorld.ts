@@ -33,8 +33,9 @@ interface WorldState {
   transactionSetComputerState: (computerState: Record<string, any>) => void
   applyTransactions: (transactions: Record<string, any>) => void
   wsSend: ((msg: object) => void) | null
-  sendCommand: (computerId: number, cmd: string) => void
-  sendSideCommand: (computerId: number, cmd: string) => void
+  invokeCommand: (computerId: number, command: string, args?: (string | number | boolean | null | undefined)[]) => void
+  runProgram: (computerId: number, programName: string) => void
+  sendCommand: (computerId: number, cmd: string, concurrent?: boolean) => void
   sendChatMessage: (computerId: number, message: string) => void
   sendStopSignal: (computerId: number) => void
   clearCommandQueue: (computerId: number) => void
@@ -191,17 +192,24 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     set({ lastTransactionId: maxId })
   },
 
-  sendCommand: (computerId, cmd) => {
-    get().wsSend?.({ type: 'setCommand', id: computerId, cmd })
+  invokeCommand: (computerId, command, args) => {
+    const msg: Record<string, unknown> = { type: 'invokeCommand', id: computerId, command }
+    if (args && args.length > 0) msg.args = args
+    get().wsSend?.(msg)
   },
 
-  sendSideCommand: (computerId, cmd) => {
-    get().wsSend?.({ type: 'setSideCommand', id: computerId, cmd })
+  runProgram: (computerId, programName) => {
+    get().wsSend?.({ type: 'runProgram', id: computerId, program: programName })
+  },
+
+  sendCommand: (computerId, cmd, concurrent) => {
+    const msg: Record<string, unknown> = { type: 'setCommand', id: computerId, cmd }
+    if (concurrent !== undefined) msg.concurrent = concurrent
+    get().wsSend?.(msg)
   },
 
   sendChatMessage: (computerId, message) => {
-    const escaped = message.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-    get().wsSend?.({ type: 'setCommand', id: computerId, cmd: `sapi.say("${escaped}")` })
+    get().invokeCommand(computerId, 'say', [message])
   },
 
   sendStopSignal: (computerId) => {

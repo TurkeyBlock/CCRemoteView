@@ -10,8 +10,7 @@ interface Props { computerId: number }
 
 export default function MinecartPanel({ computerId }: Props) {
   const computer = useWorldStore(s => s.computers[computerId])
-  const sendCommand = useWorldStore(s => s.sendCommand)
-  const sendSideCommand = useWorldStore(s => s.sendSideCommand)
+  const invokeCommand = useWorldStore(s => s.invokeCommand)
   const sendStopSignal = useWorldStore(s => s.sendStopSignal)
   const focusOnComputer = useWorldViewStore(s => s.focusOnComputer)
   const followComputer = useWorldViewStore(s => s.followComputer)
@@ -31,7 +30,7 @@ export default function MinecartPanel({ computerId }: Props) {
       sendStopSignal(computerId)
       setLoopPropelActive(false)
     } else {
-      sendCommand(computerId, `return capi.propel_loop(${propelPower})`)
+      invokeCommand(computerId, 'propel_loop', [propelPower])
       setLoopPropelActive(true)
     }
   }
@@ -49,7 +48,7 @@ export default function MinecartPanel({ computerId }: Props) {
           />
           <button
             className={`btn btn-compact${hasKinetic ? '' : ' btn-disabled'}`}
-            onClick={() => sendCommand(computerId, `return capi.propel(${propelPower})`)}
+            onClick={() => invokeCommand(computerId, 'propel', [propelPower])}
           >Propel</button>
           <button
             className={`btn btn-compact${hasKinetic ? (loopPropelActive ? ' btn-toggled' : '') : ' btn-disabled'}`}
@@ -62,11 +61,11 @@ export default function MinecartPanel({ computerId }: Props) {
         <div className="btn-row-2">
           <button
             className={`btn btn-compact${hasScanner ? '' : ' btn-disabled'}`}
-            onClick={() => loopPropelActive ? sendSideCommand(computerId, 'return capi.scan()') : sendCommand(computerId, 'return capi.scan()')}
+            onClick={() => invokeCommand(computerId, 'scan')}
           >Block Scan</button>
           <button
             className={`btn btn-compact${hasSensor ? '' : ' btn-disabled'}`}
-            onClick={() => loopPropelActive ? sendSideCommand(computerId, 'return capi.sense()') : sendCommand(computerId, 'return capi.sense()')}
+            onClick={() => invokeCommand(computerId, 'sense')}
           >Entity Scan</button>
           <button className="btn btn-compact" onClick={() => focusOnComputer(computerId)}>Focus</button>
           <button

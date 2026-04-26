@@ -10,7 +10,7 @@ interface Props { computerId: number }
 
 export default function StationaryPanel({ computerId }: Props) {
   const computer = useWorldStore(s => s.computers[computerId])
-  const sendCommand = useWorldStore(s => s.sendCommand)
+  const invokeCommand = useWorldStore(s => s.invokeCommand)
   const sendStopSignal = useWorldStore(s => s.sendStopSignal)
   const sendChatMessage = useWorldStore(s => s.sendChatMessage)
   const focusOnComputer = useWorldViewStore(s => s.focusOnComputer)
@@ -36,7 +36,7 @@ export default function StationaryPanel({ computerId }: Props) {
         <div className="btn-row-2">
           <button
             className={`btn btn-compact${hasSensor ? '' : ' btn-disabled'}`}
-            onClick={() => sendCommand(computerId, 'return sapi.sense()')}
+            onClick={() => invokeCommand(computerId, 'sense')}
           >Entity Scan</button>
           <button className="btn btn-compact" onClick={() => focusOnComputer(computerId)}>Focus</button>
           <button

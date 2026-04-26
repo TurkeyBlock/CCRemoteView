@@ -21,6 +21,73 @@ const ComputerIpManager = require('./src/server/utils/computerIpManager.js');
 const OperatorManager = require('./src/server/utils/operatorManager.js');
 const ComputerIdManager = require('./src/server/utils/computerIdManager.js');
 const CommandLineInterface = require('./src/server/utils/cmdLineInterface.js');
+const commandRouting = require('./computers/command_routing.json');
+
+function extractFunctionName(cmd) {
+  const m = cmd.match(/(?:return\s+)?(?:\w+\.)?(\w+)\s*\(/);
+  return m ? m[1] : null;
+}
+
+function isConcurrentCommand(computerType, cmd) {
+  if (!computerType) return false;
+  const fn = extractFunctionName(cmd);
+  if (!fn) return false;
+  return commandRouting[computerType]?.commands?.[fn]?.concurrent === true;
+}
+
+// Validates invokeCommand args against the schema defined in command_routing.json.
+// Returns null on success, or an error string.
+function validateArgs(argSchemas, argValues) {
+  if (!Array.isArray(argValues)) return 'args must be an array';
+  if (argValues.length > argSchemas.length) return `too many args: expected ${argSchemas.length}, got ${argValues.length}`;
+  for (let i = 0; i < argSchemas.length; i++) {
+    const schema = argSchemas[i];
+    const val = argValues[i];
+    if (val == null) {
+      if (schema.required) return `arg ${i} is required`;
+      continue;
+    }
+    if (schema.type === 'number') {
+      if (typeof val !== 'number' || !isFinite(val)) return `arg ${i} must be a finite number`;
+      if (schema.integer && !Number.isInteger(val)) return `arg ${i} must be an integer`;
+      if (schema.min != null && val < schema.min) return `arg ${i} must be >= ${schema.min}`;
+      if (schema.max != null && val > schema.max) return `arg ${i} must be <= ${schema.max}`;
+    } else if (schema.type === 'string') {
+      if (typeof val !== 'string') return `arg ${i} must be a string`;
+      if (schema.maxLength && val.length > schema.maxLength) return `arg ${i} exceeds max length`;
+      if (schema.enum && !schema.enum.includes(val)) return `arg ${i} must be one of: ${schema.enum.join(', ')}`;
+    } else if (schema.type === 'boolean') {
+      if (typeof val !== 'boolean') return `arg ${i} must be a boolean`;
+    }
+  }
+  return null;
+}
+
+// Constructs the Lua command string from validated args.
+// Handles both standard module.function(args) and compound multi-statement commands.
+function buildLuaCommand(computerType, commandName, argSchemas, argValues) {
+  if (commandName === 'dropToChest') {
+    const [slot, side, count] = argValues;
+    const dropFn = side === 'top' ? 'dropUp' : side === 'bottom' ? 'dropDown' : 'drop';
+    return `tapi.select(${slot}); turtle.${dropFn}(${count}); tapi.send_status_update()`;
+  }
+  if (commandName === 'transferSlot') {
+    const [fromSlot, toSlot, count] = argValues;
+    return `local s=turtle.getSelectedSlot(); tapi.select(${fromSlot}); turtle.transferTo(${toSlot},${count}); tapi.select(s); tapi.send_status_update()`;
+  }
+  const module = commandRouting[computerType].module;
+  const luaArgs = argSchemas
+    .map((schema, i) => {
+      const val = argValues[i];
+      if (val == null) return null;
+      if (schema.type === 'string') return `"${String(val).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+      if (schema.type === 'number') return String(Number(val));
+      if (schema.type === 'boolean') return val ? 'true' : 'false';
+      return null;
+    })
+    .filter(v => v !== null);
+  return `return ${module}.${commandName}(${luaArgs.join(', ')})`;
+}
 
 const AUTOSAVE_INTERVAL_MIN = 5;
 const TRANSACTION_CACHE_COUNT = 10000;
@@ -82,12 +149,8 @@ let transactionCache = {};
 let commandResultCache = {};
 let cmds = {};
 let stopSignal = {};
-let sideCommands = {};
 let wsRequests = {};      // { [id]: true } — computer should open a WebSocket
 let computerWs = {};      // { [id]: WebSocket } — live computer WebSocket connections
-const commandInFlight = new Set(); // computer IDs with a command currently in flight over WS
-const commandInFlightTimers = {};  // { [id]: Timeout } — cleared when result arrives or WS closes
-const COMMAND_TIMEOUT_MS = 2_000; // clear commandInFlight after 2s with no result
 
 // Validate a computer ID: must be a non-negative integer ≤ 1 000 000.
 // Returns the numeric string form, or null if invalid.
@@ -295,13 +358,6 @@ function broadcastTransaction(transaction) {
   broadcastToClients({ transactions: { [transaction.id]: transaction } });
 }
 
-function clearInFlight(id) {
-  commandInFlight.delete(id);
-  if (commandInFlightTimers[id]) {
-    clearTimeout(commandInFlightTimers[id]);
-    delete commandInFlightTimers[id];
-  }
-}
 
 function setWsRequest(id) {
   wsRequests[id] = true;
@@ -314,25 +370,6 @@ function setWsRequest(id) {
   }
 }
 
-function sendNextCommandToWs(id) {
-  if (commandInFlight.has(id)) return;
-  const ws = computerWs[id];
-  if (!ws || ws.readyState !== 1) return;
-  if (!cmds[id] || cmds[id].length === 0) return;
-  const cmd = cmds[id].shift();
-  commandInFlight.add(id);
-  commandInFlightTimers[id] = setTimeout(() => {
-    if (commandInFlight.has(id)) {
-      log.info(`[sendNextCmd] id=${id} — command timed out after ${COMMAND_TIMEOUT_MS}ms, re-queuing`);
-      clearInFlight(id);
-      if (!cmds[id]) cmds[id] = [];
-      cmds[id].unshift(cmd);
-      sendNextCommandToWs(id);
-    }
-  }, COMMAND_TIMEOUT_MS);
-  log.info(`[sendNextCmd] id=${id} — sending cmd, remaining=${cmds[id].length} <${sanitizeForLog(cmd)}>`);
-  ws.send(JSON.stringify({ type: 'command', command: cmd }));
-}
 
 
 // --- Core logic ---
@@ -451,7 +488,9 @@ nextApp.prepare().then(() => {
     if (id === null) return res.status(400).json({ error: 'invalid id' });
     req.body.id = Number(id);
     req.body.lastSeen = Date.now();
-    const t = extractState(req.body, state);
+    const existing = state.computers[id] || {};
+    const merged = { ...existing, ...req.body };
+    const t = extractState(merged, state);
     applyTransaction(t, state, transactionCache);
     broadcastTransaction(t);
     res.sendStatus(200);
@@ -597,12 +636,6 @@ nextApp.prepare().then(() => {
     res.json({ open: wsRequests[id] === true });
   });
 
-  app.post('/api/getSideCommand', requireApprovedComputer, (req, res) => {
-    const s = req.body;
-    if (!sideCommands[s.id] || sideCommands[s.id].length === 0) { res.send(''); return; }
-    res.send(sideCommands[s.id].shift());
-  });
-
   // --- Browser endpoints ---
   app.get('/api/state', compression(), async (req, res) => {
     const token = await getSession(req);
@@ -640,7 +673,6 @@ nextApp.prepare().then(() => {
   // DEAD CODE — transferred to WebSocket (ws.on('message') handler above).
   // Browser clients send these as { type, id, cmd/enabled } messages over the existing WS connection.
   // app.post('/api/setCommand', requireOperator, (req, res) => { ... });
-  // app.post('/api/setSideCommand', requireOperator, (req, res) => { ... });
   // app.post('/api/setStopSignal', requireOperator, (req, res) => { ... });
   // app.post('/api/clearCommandQueue', requireOperator, (req, res) => { ... });
   // app.post('/api/getCommandResult', requireAuth, compression(), (req, res) => { ... });
@@ -727,23 +759,23 @@ nextApp.prepare().then(() => {
   });
   app.get('/api/admin/computerIds', requireAdmin, (_req, res) => res.json(computerIdManager.getAll()));
   app.post('/api/admin/approveComputerId', requireAdmin, (req, res) => {
-    const { id } = req.body;
-    if (!id) return res.status(400).json({ error: 'id required' });
-    computerIdManager.approve(id);
+    const id = safeId(req.body.id);
+    if (id === null) return res.status(400).json({ error: 'id required' });
+    computerIdManager.approve(Number(id));
     log.info(`Turtle ID approved: ${id} by ${req.token.sub}`);
     res.json({ ok: true });
   });
   app.post('/api/admin/denyComputerId', requireAdmin, (req, res) => {
-    const { id } = req.body;
-    if (!id) return res.status(400).json({ error: 'id required' });
-    computerIdManager.deny(id);
+    const id = safeId(req.body.id);
+    if (id === null) return res.status(400).json({ error: 'id required' });
+    computerIdManager.deny(Number(id));
     log.info(`Turtle ID denied: ${id} by ${req.token.sub}`);
     res.json({ ok: true });
   });
   app.post('/api/admin/revokeComputerId', requireAdmin, (req, res) => {
-    const { id } = req.body;
-    if (!id) return res.status(400).json({ error: 'id required' });
-    computerIdManager.revoke(id);
+    const id = safeId(req.body.id);
+    if (id === null) return res.status(400).json({ error: 'id required' });
+    computerIdManager.revoke(Number(id));
     log.info(`Turtle ID revoked: ${id} by ${req.token.sub}`);
     res.json({ ok: true });
   });
@@ -755,8 +787,8 @@ nextApp.prepare().then(() => {
     res.json({ ok: true });
   });
   app.post('/api/admin/deleteComputer', requireAdmin, (req, res) => {
-    const { id } = req.body;
-    if (id === undefined) return res.status(400).json({ error: 'id required' });
+    const id = safeId(req.body.id);
+    if (id === null) return res.status(400).json({ error: 'id required' });
     delete state.computers[id];
     cmds[id] = [];
     log.info(`Computer ${id} deleted by ${req.token.sub}`);
@@ -805,7 +837,6 @@ nextApp.prepare().then(() => {
     }
     console.log(`[ws/computer] Computer ${id} connected from ${ip} — queueDepth=${cmds[id]?.length ?? 0}`);
     if (computerWs[id] && computerWs[id] !== ws) computerWs[id].terminate();
-    clearInFlight(id);
     delete wsRequests[id];
     computerWs[id] = ws;
     if (state.computers[id]) {
@@ -816,12 +847,13 @@ nextApp.prepare().then(() => {
       state.lastReadyTransactionId++;
       broadcastTransaction(t);
     }
-    // Feed the first queued command directly on connect, bypassing the in-flight guard.
+    // Flush all commands queued while WS was offline.
     if (cmds[id]?.length > 0) {
-      const cmd = cmds[id].shift();
-      commandInFlight.add(id);
-      log.info(`[ws/computer] id=${id} — fed first cmd on connect, remaining=${cmds[id].length} <${sanitizeForLog(cmd)}>`);
-      ws.send(JSON.stringify({ type: 'command', command: cmd }));
+      log.info(`[ws/computer] id=${id} — flushing ${cmds[id].length} offline-queued cmd(s)`);
+      for (const cmd of cmds[id]) {
+        ws.send(JSON.stringify({ type: 'command', command: cmd }));
+      }
+      cmds[id] = [];
     }
     ws.on('message', (raw) => {
       let msg;
@@ -832,8 +864,7 @@ nextApp.prepare().then(() => {
       log.info(`[ws/computer] id=${id} received msg type=${msg.type ?? '(none)'}`);
       if (msg.type === 'commandResult') {
         const cid = safeId(msg.computerId) ?? id;
-        log.info(`[ws/computer] id=${id} commandResult cid=${cid} — clearing inFlight, remaining queue=${cmds[id]?.length ?? 0}`);
-        clearInFlight(id);
+        log.info(`[ws/computer] id=${id} commandResult cid=${cid}`);
         const result = msg.result;
         if (result !== undefined) {
           console.log(`[ws/computer] Computer ${cid} result:`, result);
@@ -842,10 +873,6 @@ nextApp.prepare().then(() => {
           if (commandResultCache[cid].length > CMD_RESULT_CACHE_MAX) commandResultCache[cid].shift();
           broadcastToClients({ commandResult: { computerId: cid, result } });
         }
-        // Do NOT call sendNextCommandToWs here — wait for turtle's "ready" signal.
-      } else if (msg.type === 'ready') {
-        log.info(`[ws/computer] id=${id} ready signal — sending next cmd`);
-        sendNextCommandToWs(id);
       } else if (msg.type === 'scan') {
         const data = msg.data || {};
         const blocks = data.blocks;
@@ -891,7 +918,9 @@ nextApp.prepare().then(() => {
         const data = msg.data || {};
         data.id = Number(id);
         data.lastSeen = Date.now();
-        const t = extractState(data, state);
+        const existing = state.computers[id] || {};
+        const merged = { ...existing, ...data };
+        const t = extractState(merged, state);
         applyTransaction(t, state, transactionCache);
         broadcastTransaction(t);
       } else if (msg.type === 'sense') {
@@ -911,7 +940,6 @@ nextApp.prepare().then(() => {
       console.log(`[ws/computer] Computer ${id} disconnected — code: ${code}`);
       if (computerWs[id] === ws) {
         delete computerWs[id];
-        clearInFlight(id);
         if (cmds[id] && cmds[id].length > 0) wsRequests[id] = true;
         if (state.computers[id]) {
           state.computers[id].ws_connected = false;
@@ -927,7 +955,6 @@ nextApp.prepare().then(() => {
       console.log(`[ws/computer] Computer ${id} error: ${err.message}`);
       if (computerWs[id] === ws) {
         delete computerWs[id];
-        clearInFlight(id);
         if (cmds[id] && cmds[id].length > 0) wsRequests[id] = true;
         if (state.computers[id]) {
           state.computers[id].ws_connected = false;
@@ -951,17 +978,19 @@ nextApp.prepare().then(() => {
     // All other upgrades (/_next/webpack-hmr etc.) are left for Next.js to handle.
   });
   wss.on('connection', async (ws, req) => {
-    let userSub, userName, wsIsOperator;
+    let userSub, userName, wsIsOperator, wsIsAdmin;
     if (!DEV_NO_AUTH || IS_PROD) {
       const token = await getSession(req);
       if (!token) { ws.close(4401, 'Unauthorized'); return; }
       userSub = token.sub;
       userName = token.username ?? token.name ?? userSub;
       wsIsOperator = isOperator(userSub);
+      wsIsAdmin = isAdmin(userSub);
     } else {
       userSub = DEV_TOKEN.sub;
       userName = DEV_TOKEN.username;
       wsIsOperator = true;
+      wsIsAdmin = true;
     }
     const clientIp = getClientIp(req);
     console.log(`[ws] Browser client connected from ${clientIp} (total: ${browserClients.size + 1})`);
@@ -971,31 +1000,100 @@ nextApp.prepare().then(() => {
       try { msg = JSON.parse(raw); } catch { return; }
       if (!wsIsOperator) return;
       switch (msg.type) {
-        case 'setCommand': {
+        case 'invokeCommand': {
           const id = safeId(msg.id);
-          if (!id || !msg.cmd || typeof msg.cmd !== 'string' || msg.cmd.length > MAX_CMD_LENGTH) return;
+          if (!id) return;
+          const commandName = msg.command;
+          if (!commandName || typeof commandName !== 'string' || commandName.length > 100) return;
+          const computerType = state.computers[id]?.type;
+          const commandDef = commandRouting[computerType]?.commands?.[commandName];
+          if (!commandDef) {
+            ws.send(JSON.stringify({ type: 'error', computerId: Number(id), message: `Unknown command: ${sanitizeForLog(commandName)}` }));
+            log.warn(`[ws] invokeCommand rejected — unknown command=${sanitizeForLog(commandName)} id=${id} user=${userSub}`);
+            return;
+          }
+          const args = Array.isArray(msg.args) ? msg.args : [];
+          const validationError = validateArgs(commandDef.args, args);
+          if (validationError) {
+            ws.send(JSON.stringify({ type: 'error', computerId: Number(id), message: `Invalid args: ${validationError}` }));
+            log.warn(`[ws] invokeCommand rejected — ${validationError} command=${commandName} id=${id} user=${userSub}`);
+            return;
+          }
+          const luaCmd = buildLuaCommand(computerType, commandName, commandDef.args, args);
           userManagement.incrementActionCount(userSub);
-          if (computerWs[id]?.readyState === 1) {
-            if (!cmds[id]) cmds[id] = [];
-            cmds[id].push(msg.cmd);
-            if (LOG_BROWSER_CMDS) log.info(`[ws] setCommand id=${id} user=${userSub} queueDepth=${cmds[id].length} <${sanitizeForLog(msg.cmd)}>`);
-            sendNextCommandToWs(id);
+          if (commandDef.concurrent) {
+            if (computerWs[id]?.readyState === 1) {
+              if (LOG_BROWSER_CMDS) log.info(`[ws] invokeCommand (concurrent) id=${id} user=${userSub} command=${commandName}`);
+              computerWs[id].send(JSON.stringify({ type: 'command', command: luaCmd, concurrent: true }));
+            }
+          } else if (computerWs[id]?.readyState === 1) {
+            if (LOG_BROWSER_CMDS) log.info(`[ws] invokeCommand id=${id} user=${userSub} command=${commandName}`);
+            computerWs[id].send(JSON.stringify({ type: 'command', command: luaCmd }));
           } else {
-            log.info(`[ws] setCommand id=${id} user=${userSub} — WS not active, triggering wsRequest (cmd not queued)`);
+            if (!cmds[id]) cmds[id] = [];
+            cmds[id].push(luaCmd);
+            log.info(`[ws] invokeCommand id=${id} user=${userSub} command=${commandName} — WS offline, queued depth=${cmds[id].length}`);
             setWsRequest(id);
           }
           break;
         }
-        case 'setSideCommand': {
+        case 'runProgram': {
+          const id = safeId(msg.id);
+          if (!id) return;
+          const programName = msg.program;
+          if (!programName || typeof programName !== 'string' || !/^[a-zA-Z0-9_]+$/.test(programName)) {
+            ws.send(JSON.stringify({ type: 'error', computerId: Number(id), message: 'Invalid program name' }));
+            return;
+          }
+          const programPath = path.resolve('turtlePrograms', programName + '.lua');
+          if (!programPath.startsWith(path.resolve('turtlePrograms') + path.sep)) {
+            ws.send(JSON.stringify({ type: 'error', computerId: Number(id), message: 'Invalid program path' }));
+            return;
+          }
+          fs.readFile(programPath, 'utf8', (err, code) => {
+            if (err) {
+              ws.send(JSON.stringify({ type: 'error', computerId: Number(id), message: `Program not found: ${programName}` }));
+              return;
+            }
+            userManagement.incrementActionCount(userSub);
+            if (LOG_BROWSER_CMDS) log.info(`[ws] runProgram id=${id} user=${userSub} program=${programName}`);
+            if (computerWs[id]?.readyState === 1) {
+              computerWs[id].send(JSON.stringify({ type: 'command', command: code }));
+            } else {
+              if (!cmds[id]) cmds[id] = [];
+              cmds[id].push(code);
+              log.info(`[ws] runProgram id=${id} user=${userSub} program=${programName} — WS offline, queued depth=${cmds[id].length}`);
+              setWsRequest(id);
+            }
+          });
+          break;
+        }
+        case 'setCommand': {
           const id = safeId(msg.id);
           if (!id || !msg.cmd || typeof msg.cmd !== 'string' || msg.cmd.length > MAX_CMD_LENGTH) return;
-          if (LOG_BROWSER_CMDS) log.info(`[ws] setSideCommand id=${id} user=${userSub} <${sanitizeForLog(msg.cmd)}>`);
+          if (!wsIsAdmin) {
+            ws.send(JSON.stringify({ type: 'error', computerId: Number(id), message: 'Admin required for raw Lua commands' }));
+            log.warn(`[ws] setCommand rejected — admin required id=${id} user=${userSub} <${sanitizeForLog(msg.cmd)}>`);
+            return;
+          }
           userManagement.incrementActionCount(userSub);
-          if (computerWs[id]?.readyState === 1) {
-            computerWs[id].send(JSON.stringify({ type: 'sideCommand', command: msg.cmd }));
+          // Explicit concurrent flag overrides auto-detection; absent = consult command_routing.json.
+          const concurrent = msg.concurrent !== undefined
+            ? Boolean(msg.concurrent)
+            : isConcurrentCommand(state.computers[id]?.type, msg.cmd);
+          if (concurrent) {
+            if (computerWs[id]?.readyState === 1) {
+              if (LOG_BROWSER_CMDS) log.info(`[ws] setCommand (concurrent) id=${id} user=${userSub} <${sanitizeForLog(msg.cmd)}>`);
+              computerWs[id].send(JSON.stringify({ type: 'command', command: msg.cmd, concurrent: true }));
+            }
+          } else if (computerWs[id]?.readyState === 1) {
+            if (LOG_BROWSER_CMDS) log.info(`[ws] setCommand id=${id} user=${userSub} <${sanitizeForLog(msg.cmd)}>`);
+            computerWs[id].send(JSON.stringify({ type: 'command', command: msg.cmd }));
           } else {
-            if (!sideCommands[id]) sideCommands[id] = [];
-            sideCommands[id].push(msg.cmd);
+            if (!cmds[id]) cmds[id] = [];
+            cmds[id].push(msg.cmd);
+            log.info(`[ws] setCommand id=${id} user=${userSub} — WS offline, queued depth=${cmds[id].length} <${sanitizeForLog(msg.cmd)}>`);
+            setWsRequest(id);
           }
           break;
         }
@@ -1003,7 +1101,6 @@ nextApp.prepare().then(() => {
           const id = safeId(msg.id);
           if (!id) return;
           clearCommandQueue(id, userSub);
-          clearInFlight(id);
           if (LOG_BROWSER_CMDS) log.info(`[ws] setStopSignal id=${id} user=${userSub}`);
           userManagement.incrementActionCount(userSub);
           if (computerWs[id]?.readyState === 1) {

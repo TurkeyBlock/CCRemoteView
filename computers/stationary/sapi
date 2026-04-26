@@ -8,11 +8,6 @@ url = "%%APP_URL%%/api/"
 -- Populated once at boot by init_location()
 loc = nil   -- { x, y, z } or nil if GPS unavailable
 
--- Stop-signal semaphore
-locSemaphore = {
-    stopSignal = false,
-    count      = 0,
-}
 
 local headers    = { ["Content-Type"] = "application/json" }
 local api_common = dofile("/api_common.lua")
@@ -69,6 +64,7 @@ end
 
 -- ─── Sense helper ────────────────────────────────────────────
 
+-- [concurrent]
 function sense()
     local sensor = peripheral.find("plethora:sensor")
     if not sensor then return false, "no plethora:sensor attached" end

@@ -13,7 +13,8 @@ local headers = {
 
 local api_common = dofile("/api_common.lua")
 local state = {
-  id = -1,
+  id    = -1,
+  type  = "turtle",
   label = "",
   loc = {
     x = 0,
@@ -33,27 +34,34 @@ local state = {
   fuelLimit = -1,
   actionSeq = 0,  -- monotonic counter incremented on each completed command; lets the browser discard late-arriving state updates
 }
--- semaphore implementation
-local lmetatable = {
-  __index = {
-    incr = function(self)
-      if self.stopSignal then os.sleep(1) end
-      self.count = self.count + 1
-    end,
-    decr = function(self)
-      self.count = self.count - 1
-    end,
-    tostring = function(self)
-      return "currLocks:" .. tostring(self.count)
-    end,
-    value = function(self)
-      return self.count
-    end
-  },
-  __tostring = function(l) return l:tostring() end,
-}
-locSemaphore = { count = 0, stopSignal = false }
-setmetatable(locSemaphore, lmetatable)
+
+-- ws_conn and last_sent are declared here so all functions below capture them as upvalues.
+local ws_conn   = nil
+-- last_sent = {} (empty) on boot and on every reconnect, which forces a full state send.
+local last_sent = {}
+
+local function inv_changed()
+  if not last_sent.inv then return true end
+  for i = 1, 16 do
+    local a, b = state.inv[i], last_sent.inv[i]
+    local an = type(a) == "table" and a.name  or nil
+    local bn = type(b) == "table" and b.name  or nil
+    if an ~= bn then return true end
+    local ac = type(a) == "table" and a.count or 0
+    local bc = type(b) == "table" and b.count or 0
+    if ac ~= bc then return true end
+  end
+  return false
+end
+
+local function copy_inv()
+  local c = {}
+  for i = 1, 16 do
+    local s = state.inv[i]
+    c[i] = type(s) == "table" and { name = s.name, count = s.count } or s
+  end
+  return c
+end
 
 if os.getComputerLabel() == "" then
 os.setComputerLabel("Turtle" .. tostring(os.getComputerID()))
@@ -91,18 +99,54 @@ function send_status_update()
   scan_inventory()
   scan_turtle_specs()
 
+  -- Always-present fields: identity, sequence counter, position, orientation, block view.
+  local delta = {
+    id        = state.id,
+    type      = state.type,
+    actionSeq = state.actionSeq,
+    loc       = state.loc,
+    rot       = state.rot,
+    view      = state.view,
+  }
+
+  -- Mutable scalars: only include if changed since last send.
+  if state.selectedSlot ~= last_sent.selectedSlot then
+    delta.selectedSlot     = state.selectedSlot
+    last_sent.selectedSlot = state.selectedSlot
+  end
+  if state.fuelLevel ~= last_sent.fuelLevel then
+    delta.fuelLevel     = state.fuelLevel
+    last_sent.fuelLevel = state.fuelLevel
+  end
+  -- Static-after-boot fields: included on first send (last_sent is empty) and after reconnect.
+  if state.label ~= last_sent.label then
+    delta.label     = state.label
+    last_sent.label = state.label
+  end
+  if state.fuelLimit ~= last_sent.fuelLimit then
+    delta.fuelLimit     = state.fuelLimit
+    last_sent.fuelLimit = state.fuelLimit
+  end
+  -- Inventory: slot-by-slot comparison; sends the full inv table only when something changed.
+  if inv_changed() then
+    delta.inv     = state.inv
+    last_sent.inv = copy_inv()
+  end
+
   if ws_conn then
-    ws_conn.send(textutils.serializeJSON({ type = "state", data = state }))
+    ws_conn.send(textutils.serializeJSON({ type = "state", data = delta }))
   else
-    local json = textutils.serializeJSON(state)
+    local json = textutils.serializeJSON(delta)
     local res = http.post(state_url, json, headers)
     if res then res.close() end
   end
 end
 
--- WebSocket connection for result delivery; nil = use HTTP (set by rcTurtle startup)
-local ws_conn = nil
-function set_ws(ws) ws_conn = ws end
+function set_ws(ws)
+  ws_conn = ws
+  -- Reset cache so the next status update is a full state send (safe reconnect baseline).
+  if ws then last_sent = {} end
+end
 
 -- Send a command result to the server.
 function send_command_result(succ, ret)
@@ -208,18 +252,17 @@ function scan_inventory()
 end
 
 function scan_turtle_specs()
-  state.loc.x = getLoc().x
-  state.loc.y = getLoc().y
-  state.loc.z = getLoc().z
-  state.rot = getLoc().h - 1
-  state.id = os.getComputerID()
-  state.label = os.getComputerLabel() or ""
+  state.loc.x     = getLoc().x
+  state.loc.y     = getLoc().y
+  state.loc.z     = getLoc().z
+  state.rot       = getLoc().h - 1
   state.fuelLevel = turtle.getFuelLevel()
-  state.fuelLimit = turtle.getFuelLimit()
+  state.label     = os.getComputerLabel() or ""
 end
 
 -- location functions
 
+-- [concurrent]
 function getLoc()
   return loc_internal
 end
@@ -343,14 +386,16 @@ function load_loc_from_file()
 end
 
 load_loc_from_file()
+-- Static fields: set once at boot, never re-scanned.
+state.id       = os.getComputerID()
+state.label    = os.getComputerLabel() or ""
+state.fuelLimit = turtle.getFuelLimit()
 
 -- movement
 
 function nativeUp()
-  locSemaphore:incr()
   local succ = loc_internal:up(native.turtle)
   save_loc_to_file()
-  locSemaphore:decr()
   return succ
 end
 function up(count, reliable)
@@ -378,10 +423,8 @@ turtle.up = nativeUp
 
 
 function nativeDown()
-  locSemaphore:incr()
   local succ = loc_internal:down(native.turtle)
   save_loc_to_file()
-  locSemaphore:decr()
   return succ
 end
 function down(count, reliable)
@@ -409,10 +452,8 @@ d = down
 turtle.down = nativeDown
 
 function nativeForward()
-  locSemaphore:incr()
   local succ = loc_internal:forward(native.turtle)
   save_loc_to_file()
-  locSemaphore:decr()
   return succ
 end
 function forward(count, reliable)
@@ -439,10 +480,8 @@ f = forward
 turtle.forward = nativeForward
 
 function nativeBack()
-  locSemaphore:incr()
   local succ = loc_internal:back(native.turtle)
   save_loc_to_file()
-  locSemaphore:decr()
   return succ
 end
 function back(count, reliable)
@@ -504,10 +543,8 @@ end
 
 -- rotation
 function nativeLeft()
-  locSemaphore:incr()
   local succ = loc_internal:left(native.turtle)
   save_loc_to_file()
-  locSemaphore:decr()
   return succ
 end
 function left(num_turns)
@@ -522,10 +559,8 @@ l = left
 turtle.turnLeft = nativeLeft
 
 function nativeRight()
-  locSemaphore:incr()
   local succ = loc_internal:right(native.turtle)
   save_loc_to_file()
-  locSemaphore:decr()
   return succ
 end
 function right(num_turns)
@@ -540,10 +575,7 @@ r = right
 turtle.turnRight = nativeRight
 
 function turnTo(heading)
-  locSemaphore:incr()
-  local res = loc_internal:setHeading(native.turtle, heading)
-  locSemaphore:decr()
-  return res
+  return loc_internal:setHeading(native.turtle, heading)
 end
 
 face = turnTo
@@ -773,8 +805,8 @@ end
 
 function request_fuel()
   while turtle.getFuelLevel() < 100 do
-    print("refuel needed: put fuel into selected slot and press enter")
-    read()
+    print("refuel needed: put fuel in any slot (retrying in 30s)")
+    os.sleep(30)
     turtle.refuel()
   end
 end
@@ -793,6 +825,7 @@ function select(slot)
   return succ
 end
 
+-- [concurrent]
 function findItem(name)
   for i = 1, 16 do
     local stack = turtle.getItemDetail(i)
@@ -803,6 +836,7 @@ function findItem(name)
   return false
 end
 
+-- [concurrent]
 -- get the first item where the string is contained in the id of the item
 -- e.g. when you input "chest" and there is a "ironchest:diamond_chest" in the turtle that slot will be returned
 function findItemFuzzy(string)
@@ -823,6 +857,7 @@ function selectItem(name)
   return select(found)
 end
 
+-- [concurrent]
 function contains_items(name, req_count, meta)
   local count = 0
   req_count = req_count or 1
@@ -838,6 +873,7 @@ function contains_items(name, req_count, meta)
   return false
 end
 
+-- [concurrent]
 function contains_all_items(item_list)
   for _, item in pairs(item_list) do
     if not contains_items(item.name, item.count, item.meta) then
@@ -865,6 +901,7 @@ function moveItemsBetweenInventories(sourceInvSide, destInvSide, itemName, count
   if not dst then print("src inventory (" .. tostring(sourceInvSide) .. ") is not available"); return false end
 end
 
+-- [concurrent]
 -- itemList format: e.g.: {{count=5, name="minecraft:torch"}, {count=1, name="minecraft:cobblestone"}}
 -- returns true if all items in itemList are in the chest or false, missingItemList else
 function doesChestContainItemList(itemList, inventorySide)
@@ -957,6 +994,7 @@ local INCLUDE_METADATA = true   -- include raw 1.12 integer metadata
 local INCLUDE_STATE    = false   -- include blockstate property table
 -- ============================================================
 
+-- [concurrent] — safe when scanner is pre-equipped; falls back to equipItem (sequential) if not
 function scan()
   if not peripheral.find("plethora:scanner") then
     print("scan: no scanner found, attempting to equip plethora:module on left")

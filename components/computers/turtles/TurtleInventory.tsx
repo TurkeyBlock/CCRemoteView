@@ -10,7 +10,7 @@ export default function TurtleInventory({ computerId }: Props) {
   const { inv, selectedSlot } = useWorldStore(
     useShallow(s => ({ inv: s.computers[computerId]?.inv, selectedSlot: s.computers[computerId]?.selectedSlot }))
   )
-  const sendCommand = useWorldStore(s => s.sendCommand)
+  const invokeCommand = useWorldStore(s => s.invokeCommand)
   if (!inv) return null
 
   return (
@@ -22,7 +22,7 @@ export default function TurtleInventory({ computerId }: Props) {
           invSlot={slot ?? undefined}
           slotNum={index + 1}
           isSelected={index === (selectedSlot ?? 0) - 1}
-          onClick={() => sendCommand(computerId, `tapi.select(${index + 1})`)}
+          onClick={() => invokeCommand(computerId, 'select', [index + 1])}
         />
       ))}
     </div>
