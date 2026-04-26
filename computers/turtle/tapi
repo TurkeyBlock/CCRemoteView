@@ -1033,7 +1033,15 @@ function scan()
   -- Scan payloads often exceed CC:Tweaked's 131072-byte (128 KiB) WebSocket message limit.
   -- Set SCAN_USE_HTTP = false to re-enable the WebSocket path once that constraint is addressed.
   local SCAN_USE_HTTP = true
-  local payload = { id = os.getComputerID(), blocks = blocks }
+  local gx, gy, gz = api_common.gps_locate()
+  local ox, oy, oz
+  if gx then
+    ox, oy, oz = math.floor(gx), math.floor(gy), math.floor(gz)
+  else
+    local dr = getLoc()
+    ox, oy, oz = dr.x, dr.y, dr.z
+  end
+  local payload = { id = os.getComputerID(), origin = { x = ox, y = oy, z = oz }, blocks = blocks }
   if not SCAN_USE_HTTP and ws_conn then
     ws_conn.send(textutils.serializeJSON({ type = "scan", data = payload }))
     return true

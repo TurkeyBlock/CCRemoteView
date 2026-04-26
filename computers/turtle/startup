@@ -26,7 +26,7 @@ boot.check_approved(base_url, "turtle")
 boot.get_files(base_url, "computers/shared/", {"boot.lua", "rc_loop.lua", "api_common.lua", "locks.lua", "scheduler.lua"})
 boot.get_files(base_url, "computers/turtle/", {"tapi", "location", "setLocRot", "rcTurtle.lua", "startup"})
 
--- Auto-equip wireless modem from inventory if found; required for modem-relay mode.
+-- Auto-equip wireless modem from inventory if found; required for GPS.
 for slot = 1, 16 do
     local item = turtle.getItemDetail(slot)
     if item and item.name == "computercraft:advanced_modem" then
