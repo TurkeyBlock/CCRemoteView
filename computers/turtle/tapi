@@ -137,7 +137,13 @@ end
 local function read_side_inventory(side)
   local ok, inv = pcall(peripheral.call, side, "list")
   local ok2, sz = pcall(peripheral.call, side, "size")
-  return ok and inv or nil, ok2 and sz or nil
+  if not ok or not inv then return nil, ok2 and sz or nil end
+  local size = ok2 and sz or 0
+  local normalized = {}
+  for i = 1, size do
+    normalized[i] = inv[i] or false
+  end
+  return normalized, size
 end
 
 function scan_surrounding_blocks()
@@ -194,17 +200,10 @@ local function equipItem(itemName, side)
 end
 
 function scan_inventory()
-  local dbg = "[scan_inventory]"
   for i = 1, 16 do
     local stack = turtle.getItemDetail(i)
     state.inv[i] = stack or 0
-    if stack then
-      dbg = dbg .. " " .. i .. ":" .. stack.name .. "x" .. stack.count
-    else
-      dbg = dbg .. " " .. i .. ":empty"
-    end
   end
-  print(dbg)
   state.selectedSlot = turtle.getSelectedSlot()
 end
 

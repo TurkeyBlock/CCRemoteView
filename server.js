@@ -451,7 +451,6 @@ nextApp.prepare().then(() => {
     if (id === null) return res.status(400).json({ error: 'invalid id' });
     req.body.id = Number(id);
     req.body.lastSeen = Date.now();
-    if (req.body.inv) log.info(`[DEBUG inv] id=${id} length=${req.body.inv.length} slots=${req.body.inv.map((s,i)=>s&&s!==0?`${i+1}:${s.name}`:`${i+1}:empty`).join(' ')}`);
     const t = extractState(req.body, state);
     applyTransaction(t, state, transactionCache);
     broadcastTransaction(t);
@@ -892,7 +891,6 @@ nextApp.prepare().then(() => {
         const data = msg.data || {};
         data.id = Number(id);
         data.lastSeen = Date.now();
-        if (data.inv) log.info(`[DEBUG inv ws] id=${id} length=${data.inv.length} slots=${data.inv.map((s,i)=>s&&s!==0?`${i+1}:${s.name}`:`${i+1}:empty`).join(' ')}`);
         const t = extractState(data, state);
         applyTransaction(t, state, transactionCache);
         broadcastTransaction(t);

@@ -21,7 +21,7 @@ export default function InventoryView({ inventory, inventorySize, computerId, bl
   if (inventory) {
     if (Array.isArray(inventory)) {
       for (let i = 0; i < (inventory as any[]).length; i++) {
-        if ((inventory as any[])[i] != null) normalized[i + 1] = (inventory as any[])[i]
+        if ((inventory as any[])[i] != null && (inventory as any[])[i] !== false) normalized[i + 1] = (inventory as any[])[i]
       }
     } else {
       Object.assign(normalized, inventory)
