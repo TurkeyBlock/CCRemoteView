@@ -734,7 +734,8 @@ function suckItem(itemName, side, count)
     if moved == 0 then return false, "failed to move item to slot 1" end
   end
 
-  local succ = turtle.suck(count)
+  local suckFn = side == "top" and turtle.suckUp or side == "bottom" and turtle.suckDown or turtle.suck
+  local succ = suckFn(count)
   send_status_update()
   return succ
 end
