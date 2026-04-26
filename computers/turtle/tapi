@@ -194,10 +194,17 @@ local function equipItem(itemName, side)
 end
 
 function scan_inventory()
+  local dbg = "[scan_inventory]"
   for i = 1, 16 do
     local stack = turtle.getItemDetail(i)
     state.inv[i] = stack or 0
+    if stack then
+      dbg = dbg .. " " .. i .. ":" .. stack.name .. "x" .. stack.count
+    else
+      dbg = dbg .. " " .. i .. ":empty"
+    end
   end
+  print(dbg)
   state.selectedSlot = turtle.getSelectedSlot()
 end
 
