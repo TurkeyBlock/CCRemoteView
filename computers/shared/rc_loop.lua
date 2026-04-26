@@ -122,6 +122,7 @@ return function(api, ws_url, opts)
                                 raw = received
                             end
                             if handle_msg(ws, raw) then break end
+                            os.sleep(0.05)  -- yield to prevent CC "too long without yielding" shutdown
                         end
                     end)
 

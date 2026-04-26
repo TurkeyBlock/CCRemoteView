@@ -100,16 +100,11 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
 
   isBlockVisible: (locString) => {
     const { yMin, yMax, transparencyList } = get()
-    const [x, y, z] = locString.split(',').map(Number)
+    const y = +locString.split(',')[1]
     if (y < yMin || y > yMax) return false
-    const { useWorldStore, worldBlocks } = require('./useWorld') as typeof import('./useWorld')
-    const world = useWorldStore.getState()
+    const { worldBlocks } = require('./useWorld') as typeof import('./useWorld')
     const block = worldBlocks[locString]
     if (block && transparencyList.includes(block.name)) return false
-    for (const id in world.computers) {
-      const c = world.computers[id]
-      if (c.type === 'minecart' && c.loc?.x === x && c.loc?.y === y && c.loc?.z === z) return false
-    }
     return true
   },
 

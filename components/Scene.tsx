@@ -260,7 +260,6 @@ function SceneSetup() {
     model.position.set(x, y, z)
     if (computerData.type === 'minecart') {
       model.rotation.set(0, 0, 0)
-      chunkManager.current?.removeBlock(`${x},${y},${z}`)
     } else {
       model.rotation.set(Math.PI / 2, 0, ((computerData.rot + 1) * Math.PI) / 2)
     }
@@ -273,17 +272,7 @@ function SceneSetup() {
     const computerData = useWorldStore.getState().computers[computerId]
     if (!computerData?.loc) return
     if (computerData.type === 'minecart') {
-      // Minecarts swap world blocks at integer positions, so move them immediately.
-      const oldX = Math.round(model.position.x)
-      const oldY = Math.round(model.position.y)
-      const oldZ = Math.round(model.position.z)
       const { x: newX, y: newY, z: newZ } = computerData.loc
-      if (oldX !== newX || oldY !== newY || oldZ !== newZ) {
-        const oldLoc = `${oldX},${oldY},${oldZ}`
-        const oldBlock = worldBlocks[oldLoc]
-        if (oldBlock && wv.isBlockVisible(oldLoc)) chunkManager.current?.addBlock(oldLoc, oldBlock)
-        chunkManager.current?.removeBlock(`${newX},${newY},${newZ}`)
-      }
       model.rotation.set(0, 0, 0)
       model.position.set(newX, newY, newZ)
       model.updateMatrix()
@@ -374,11 +363,6 @@ function SceneSetup() {
     // doesn't call getState()/require on every block in the world.
     const { yMin, yMax, transparencyList } = wv
     const transparencySet = new Set(transparencyList)
-    const minecartLocs = new Set<string>()
-    for (const id in world.computers) {
-      const c = world.computers[id]
-      if (c.type === 'minecart' && c.loc) minecartLocs.add(`${c.loc.x},${c.loc.y},${c.loc.z}`)
-    }
     const blockSnap = worldBlocks
     const isVisible = (locString: string): boolean => {
       const c1 = locString.indexOf(',')
@@ -386,7 +370,6 @@ function SceneSetup() {
       const y = +locString.slice(c1 + 1, c2)
       if (y < yMin || y > yMax) return false
       if (transparencySet.has(blockSnap[locString]?.name)) return false
-      if (minecartLocs.has(locString)) return false
       return true
     }
 
