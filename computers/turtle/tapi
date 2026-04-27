@@ -272,14 +272,39 @@ function setLoc(loc_in)
 end
 
 
-function save_loc_to_file()
-  send_status_update()
+local function write_loc_to_disk()
   local f = fs.open("loc.sav", "w")
   f.writeLine(loc_internal.x)
   f.writeLine(loc_internal.y)
   f.writeLine(loc_internal.z)
   f.writeLine(loc_internal.h)
   f.close()
+end
+
+local function send_position_update()
+  scan_surrounding_blocks()
+  scan_turtle_specs()
+  local delta = {
+    id        = state.id,
+    type      = state.type,
+    actionSeq = state.actionSeq,
+    loc       = state.loc,
+    rot       = state.rot,
+    view      = state.view,
+  }
+  if ws_conn then
+    ws_conn.send(textutils.serializeJSON({ type = "state", data = delta }))
+  else
+    local json = textutils.serializeJSON(delta)
+    local res = http.post(state_url, json, headers)
+    if res then res.close() end
+  end
+end
+
+function set_location(x, y, z, h)
+  loc_internal = location.new(x, y, z, h)
+  write_loc_to_disk()
+  send_status_update()
 end
 
 function parse_user_location_input()
@@ -358,7 +383,7 @@ function load_loc_from_file()
     end
 
     loc_internal = location.new(ix, iy, iz, h)
-    save_loc_to_file()
+    write_loc_to_disk()
     return
   end
 
@@ -378,7 +403,7 @@ function load_loc_from_file()
       local status, res = pcall(parse_user_location_input)
       if status then
         loc_internal = location.new(unpack(res))
-        save_loc_to_file()
+        write_loc_to_disk()
         break
       else print(res) end
     end
@@ -395,7 +420,8 @@ state.fuelLimit = turtle.getFuelLimit()
 
 function nativeUp()
   local succ = loc_internal:up(native.turtle)
-  save_loc_to_file()
+  write_loc_to_disk()
+  send_position_update()
   return succ
 end
 function up(count, reliable)
@@ -424,7 +450,8 @@ turtle.up = nativeUp
 
 function nativeDown()
   local succ = loc_internal:down(native.turtle)
-  save_loc_to_file()
+  write_loc_to_disk()
+  send_position_update()
   return succ
 end
 function down(count, reliable)
@@ -439,7 +466,6 @@ function down(count, reliable)
 
       if not msg_written then
         print("cannot move down - pls remove block")
-        save_loc_to_file()
         msg_written = true
       end
       os.sleep(1);
@@ -453,7 +479,8 @@ turtle.down = nativeDown
 
 function nativeForward()
   local succ = loc_internal:forward(native.turtle)
-  save_loc_to_file()
+  write_loc_to_disk()
+  send_position_update()
   return succ
 end
 function forward(count, reliable)
@@ -481,7 +508,8 @@ turtle.forward = nativeForward
 
 function nativeBack()
   local succ = loc_internal:back(native.turtle)
-  save_loc_to_file()
+  write_loc_to_disk()
+  send_position_update()
   return succ
 end
 function back(count, reliable)
@@ -544,7 +572,8 @@ end
 -- rotation
 function nativeLeft()
   local succ = loc_internal:left(native.turtle)
-  save_loc_to_file()
+  write_loc_to_disk()
+  send_position_update()
   return succ
 end
 function left(num_turns)
@@ -560,7 +589,8 @@ turtle.turnLeft = nativeLeft
 
 function nativeRight()
   local succ = loc_internal:right(native.turtle)
-  save_loc_to_file()
+  write_loc_to_disk()
+  send_position_update()
   return succ
 end
 function right(num_turns)
@@ -1019,20 +1049,9 @@ function scan()
   end
   print("scan: got " .. #raw .. " raw blocks")
 
-  local blocks = {}
-  for _, b in ipairs(raw) do
-    if not (b.x == 0 and b.y == 0 and b.z == 0) then
-      local entry = { x = b.x, y = b.y, z = b.z, name = b.name }
-      if INCLUDE_METADATA then entry.metadata = b.metadata end
-      if INCLUDE_STATE and b.state and next(b.state) then entry.state = b.state end
-      table.insert(blocks, entry)
-    end
-  end
+  local blocks = api_common.build_scan_blocks(raw, INCLUDE_METADATA, INCLUDE_STATE, true)
   print("scan: " .. #blocks .. " blocks after filtering self")
 
-  -- Scan payloads often exceed CC:Tweaked's 131072-byte (128 KiB) WebSocket message limit.
-  -- Set SCAN_USE_HTTP = false to re-enable the WebSocket path once that constraint is addressed.
-  local SCAN_USE_HTTP = true
   local gx, gy, gz = api_common.gps_locate()
   local ox, oy, oz
   if gx then
@@ -1042,22 +1061,11 @@ function scan()
     ox, oy, oz = dr.x, dr.y, dr.z
   end
   local payload = { id = os.getComputerID(), origin = { x = ox, y = oy, z = oz }, blocks = blocks }
-  if not SCAN_USE_HTTP and ws_conn then
-    ws_conn.send(textutils.serializeJSON({ type = "scan", data = payload }))
-    return true
-  end
-  local ok, json = pcall(textutils.serializeJSON, payload)
+  local ok, err = api_common.send_scan_http(url, headers, payload)
   if not ok then
-    print("scan FAIL: serializeJSON error: " .. tostring(json))
-    return false, "serialization error"
+    print("scan FAIL: " .. tostring(err))
+    return false, err
   end
-  local res = http.post(url .. "scan", json, { ["Content-Type"] = "application/json" })
-  if not res then
-    print("scan FAIL: http.post to " .. url .. "scan returned nil")
-    return false, "http post failed"
-  end
-  local status = res.getResponseCode and res.getResponseCode() or "?"
-  print("scan: http response " .. tostring(status))
-  res.close()
+  print("scan: http response ok")
   return true
 end

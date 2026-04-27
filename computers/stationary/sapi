@@ -50,44 +50,12 @@ end
 
 -- ─── Chat helper ─────────────────────────────────────────────
 
-function send_chat(player, message, uuid)
-    local data = {
-        id      = os.getComputerID(),
-        player  = player,
-        message = message,
-        uuid    = uuid or "",
-    }
-    local json = textutils.serializeJSON(data)
-    local res  = http.post(url .. "chat", json, headers)
-    if res then res.close() end
-end
+send_chat = api_common.make_send_chat(url, headers)
 
 -- ─── Sense helper ────────────────────────────────────────────
 
 -- [concurrent]
-function sense()
-    local sensor = peripheral.find("plethora:sensor")
-    if not sensor then return false, "no plethora:sensor attached" end
-
-    local raw      = sensor.sense()
-    local entities = {}
-    for _, e in ipairs(raw) do
-        table.insert(entities, {
-            id   = e.id,
-            name = e.name,
-            x    = e.x,
-            y    = e.y,
-            z    = e.z,
-        })
-    end
-
-    local payload = { id = os.getComputerID(), entities = entities }
-    if loc then payload.origin = loc end
-
-    _ws.send_sense(payload)
-    print("? entity scan (" .. #entities .. " entities)")
-    return true
-end
+sense = api_common.make_sense_fn(_ws, function() return loc end)
 
 -- ─── Say helper ──────────────────────────────────────────────
 

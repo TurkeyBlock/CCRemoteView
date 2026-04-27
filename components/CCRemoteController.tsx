@@ -17,6 +17,8 @@ import BlockTransparency from './staticGui/BlockTransparency'
 import RenderFilters from './staticGui/RenderFilters'
 import { Led } from './ui'
 import { connLedKind } from './computers/PollTimers'
+import { ServerMessage } from '@/types/wsMessages'
+import type { Block } from '@/types/types'
 
 const ComputerLed = memo(function ComputerLed({ computerId }: { computerId: number }) {
   const kind = useWorldStore(s => connLedKind(!!s.computers[computerId]?.ws_connected, s.computers[computerId]?.ws_request_at))
@@ -248,22 +250,28 @@ export default function CCRemoteController() {
     }
 
     ws.onmessage = (event) => {
-      let data: any
-      try { data = JSON.parse(event.data) } catch { return }
-      const w = useWorldStore.getState(); const view = useWorldViewStore.getState()
-      if (data.type === 'error') {
-        const { computerId, message } = data
-        if (computerId != null && message) useWorldStore.setState(s => ({ commandResult: { ...s.commandResult, [computerId]: message } }))
-      }
-      if (data.commandResult) {
+      let raw: unknown
+      try { raw = JSON.parse(event.data) } catch { return }
+
+      const parsed = ServerMessage.safeParse(raw)
+      if (!parsed.success) return
+      const data = parsed.data
+
+      const w = useWorldStore.getState()
+      const view = useWorldViewStore.getState()
+
+      if ('type' in data) {
+        // ServerError
+        useWorldStore.setState(s => ({ commandResult: { ...s.commandResult, [data.computerId]: data.message } }))
+      } else if ('commandResult' in data) {
+        // ServerCommandResult
         const { computerId, result } = data.commandResult
-        if (result != null) useWorldStore.setState(s => ({ commandResult: { ...s.commandResult, [computerId]: result.ret } }))
-      }
-      if (data.state) {
-        const alreadyCurrent = data.state.lastTransactionId === w.lastTransactionId
-        if (!alreadyCurrent) {
+        useWorldStore.setState(s => ({ commandResult: { ...s.commandResult, [computerId]: result.ret } }))
+      } else if ('state' in data) {
+        // ServerState — initial full load
+        if (data.state.lastTransactionId !== w.lastTransactionId) {
           w.setComputerStatus(data.state.computers)
-          replaceWorldBlocks(data.state.world.blocks)
+          replaceWorldBlocks(data.state.world.blocks as Record<string, Block>)
           useWorldStore.setState({ lastTransactionId: data.state.lastTransactionId })
           const freshComputers = useWorldStore.getState().computers
           const hasCoords = (c: { loc?: { x?: unknown; y?: unknown; z?: unknown } | null } | undefined) =>
@@ -278,7 +286,11 @@ export default function CCRemoteController() {
           }
           view.regenerateSceneFromBlocks()
         }
-      } else if (data.transactions) { w.applyTransactions(data.transactions) }
+      } else {
+        // ServerTransactions
+        w.applyTransactions(data.transactions)
+      }
+
       view.render()
       if (w.isLoading) useWorldStore.setState({ isLoading: false })
     }

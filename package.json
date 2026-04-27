@@ -24,6 +24,7 @@
     "react-dom": "^19",
     "three": "^0.184.0",
     "ws": "^8.18.0",
+    "zod": "^4.3.6",
     "zustand": "^5"
   },
   "devDependencies": {

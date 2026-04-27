@@ -63,4 +63,70 @@ local function make_ws_sender(url, headers)
     }
 end
 
-return { make_ws_sender = make_ws_sender, gps_locate = gps_locate }
+-- Build a filtered blocks array from a raw peripheral scan result.
+-- filter_self: exclude the block at relative (0,0,0) (the computer's own position).
+local function build_scan_blocks(raw, include_metadata, include_state, filter_self)
+    local blocks = {}
+    for _, b in ipairs(raw) do
+        if not (filter_self and b.x == 0 and b.y == 0 and b.z == 0) then
+            local entry = { x = b.x, y = b.y, z = b.z, name = b.name }
+            if include_metadata then entry.metadata = b.metadata end
+            if include_state and b.state and next(b.state) then entry.state = b.state end
+            table.insert(blocks, entry)
+        end
+    end
+    return blocks
+end
+
+-- POST a scan payload to /api/scan over HTTP.
+-- Scan payloads often exceed CC:Tweaked's 128 KiB WebSocket message limit, so HTTP is always used.
+-- Returns true, or false + error string on failure.
+local function send_scan_http(url, headers, payload)
+    local ok, json = pcall(textutils.serializeJSON, payload)
+    if not ok then return false, "serialization error: " .. tostring(json) end
+    local res = http.post(url .. "scan", json, headers)
+    if not res then return false, "http post failed" end
+    local code = res.getResponseCode and res.getResponseCode() or 200
+    res.close()
+    if code ~= 200 then return false, "server error: " .. tostring(code) end
+    return true
+end
+
+-- Returns a sense() function that reads a plethora:sensor and reports entity data.
+-- get_origin: function() -> {x,y,z} | nil  called each time to get the sensor's world position.
+local function make_sense_fn(ws_sender, get_origin)
+    return function()
+        local sensor = peripheral.find("plethora:sensor")
+        if not sensor then return false, "no plethora:sensor attached" end
+        local raw = sensor.sense()
+        local entities = {}
+        for _, e in ipairs(raw) do
+            table.insert(entities, { id = e.id, name = e.name, x = e.x, y = e.y, z = e.z })
+        end
+        local payload = { id = os.getComputerID(), entities = entities }
+        local origin = get_origin()
+        if origin then payload.origin = origin end
+        ws_sender.send_sense(payload)
+        print("? entity scan (" .. #entities .. " entities)")
+        return true
+    end
+end
+
+-- Returns a send_chat(player, message, uuid) function that POSTs to /api/chat.
+local function make_send_chat(url, headers)
+    return function(player, message, uuid)
+        local data = { id = os.getComputerID(), player = player, message = message, uuid = uuid or "" }
+        local json = textutils.serializeJSON(data)
+        local res = http.post(url .. "chat", json, headers)
+        if res then res.close() end
+    end
+end
+
+return {
+    make_ws_sender    = make_ws_sender,
+    gps_locate        = gps_locate,
+    build_scan_blocks = build_scan_blocks,
+    send_scan_http    = send_scan_http,
+    make_sense_fn     = make_sense_fn,
+    make_send_chat    = make_send_chat,
+}

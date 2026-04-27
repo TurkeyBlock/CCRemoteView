@@ -17,7 +17,6 @@ interface ComputerState {
     ws_connected?: boolean,
     ws_request_at?: number | null,
     modified?: number,
-    lastSeen?: number,
     lastPoll?: number,
     entities?: EntitySighting[],
     chatLog?: ChatMessage[],

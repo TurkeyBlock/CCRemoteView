@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { ComputerState, Block } from '../types/types'
+import type { ClientMessage } from '../types/wsMessages'
 
 export let worldBlocks: Record<string, Block> = {}
 
@@ -32,7 +33,7 @@ interface WorldState {
   transactionAddBlock: (locString: string, block: Block) => void
   transactionSetComputerState: (computerState: Record<string, any>) => void
   applyTransactions: (transactions: Record<string, any>) => void
-  wsSend: ((msg: object) => void) | null
+  wsSend: ((msg: ClientMessage) => void) | null
   invokeCommand: (computerId: number, command: string, args?: (string | number | boolean | null | undefined)[]) => void
   runProgram: (computerId: number, programName: string) => void
   sendCommand: (computerId: number, cmd: string, concurrent?: boolean) => void
@@ -193,8 +194,10 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
 
   invokeCommand: (computerId, command, args) => {
-    const msg: Record<string, unknown> = { type: 'invokeCommand', id: computerId, command }
-    if (args && args.length > 0) msg.args = args
+    const cleanArgs = args?.map(a => a === undefined ? null : a)
+    const msg: ClientMessage = cleanArgs && cleanArgs.length > 0
+      ? { type: 'invokeCommand', id: computerId, command, args: cleanArgs }
+      : { type: 'invokeCommand', id: computerId, command }
     get().wsSend?.(msg)
   },
 
@@ -203,8 +206,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
 
   sendCommand: (computerId, cmd, concurrent) => {
-    const msg: Record<string, unknown> = { type: 'setCommand', id: computerId, cmd }
-    if (concurrent !== undefined) msg.concurrent = concurrent
+    const msg: ClientMessage = concurrent !== undefined
+      ? { type: 'setCommand', id: computerId, cmd, concurrent }
+      : { type: 'setCommand', id: computerId, cmd }
     get().wsSend?.(msg)
   },
 

@@ -59,8 +59,6 @@ function scan_specs()
   state.label = os.getComputerLabel() or ""
 end
 
--- [concurrent]
-
 -- ============================================================
 -- Scan config
 -- ============================================================
@@ -68,69 +66,29 @@ local INCLUDE_METADATA = true   -- include raw 1.12 integer metadata
 local INCLUDE_STATE    = false   -- include blockstate property table
 -- ============================================================
 
+-- [concurrent]
 function scan()
   local scanner = peripheral.find("plethora:scanner")
   if not scanner then return false, "no scanner attached" end
   local raw = scanner.scan(4)
   print("? block scan")
   local gx, gy, gz = get_location()
-  local ox = gx and math.floor(gx)
-  local oy = gy and math.floor(gy)
-  local oz = gz and math.floor(gz)
-  local blocks = {}
-  for _, b in ipairs(raw) do
-    if not (b.x == 0 and b.y == 0 and b.z == 0) then
-      local entry = { x = b.x, y = b.y, z = b.z, name = b.name }
-      if INCLUDE_METADATA then entry.metadata = b.metadata end
-      if INCLUDE_STATE and b.state and next(b.state) then entry.state = b.state end
-      table.insert(blocks, entry)
-    end
-  end
+  local blocks = api_common.build_scan_blocks(raw, INCLUDE_METADATA, INCLUDE_STATE, true)
   local payload = { id = os.getComputerID(), blocks = blocks }
-  if ox then
-    payload.origin = { x = ox, y = oy, z = oz }
-  end
-  -- Scan payloads often exceed CC:Tweaked's 131072-byte (128 KiB) WebSocket message limit.
-  -- Set SCAN_USE_HTTP = false to re-enable the WebSocket path once that constraint is addressed.
-  local SCAN_USE_HTTP = true
-  if SCAN_USE_HTTP then
-    local json = textutils.serializeJSON(payload)
-    local res = http.post(url .. "scan", json, headers)
-    if res then res.close() end
-  else
-    _ws.send_scan(payload)
-  end
-  return true
+  if gx then payload.origin = { x = math.floor(gx), y = math.floor(gy), z = math.floor(gz) } end
+  local ok, err = api_common.send_scan_http(url, headers, payload)
+  if not ok then print("! scan: " .. tostring(err)) end
+  return ok, err
 end
 
 -- [concurrent]
 -- Scan for nearby entities and report to server.
 -- Entities are stored as temporary children of this computer and fully
 -- replaced on every call — positions are fractional offsets from the sensor.
-function sense()
-  local sensor = peripheral.find("plethora:sensor")
-  if not sensor then return false, "no sensor attached" end
-  local raw = sensor.sense()
-  print("? entity scan")
+sense = api_common.make_sense_fn(_ws, function()
   local gx, gy, gz = get_location()
-  local entities = {}
-  for _, e in ipairs(raw) do
-    table.insert(entities, {
-      id       = e.id,
-      name     = e.name,
-      x        = e.x,
-      y        = e.y,
-      z        = e.z,
-    })
-  end
-  local payload = { id = os.getComputerID(), entities = entities }
-  if gx then
-    -- Entity offsets are fractional (true entity positions, not block-snapped)
-    payload.origin = { x = gx, y = gy, z = gz }
-  end
-  _ws.send_sense(payload)
-  return true
-end
+  if gx then return { x = gx, y = gy, z = gz } end
+end)
 
 -- Send a chat message as this entity.
 function say(message)
@@ -169,11 +127,5 @@ end
 set_ws              = _ws.set_ws
 send_command_result = _ws.send_command_result
 
--- Send a chat event to the server.
-function send_chat(player, message, uuid)
-  local data = { id = os.getComputerID(), player = player, message = message, uuid = uuid or "" }
-  local json = textutils.serializeJSON(data)
-  local res = http.post(url .. "chat", json, headers)
-  if res then res.close() end
-end
+send_chat = api_common.make_send_chat(url, headers)
 

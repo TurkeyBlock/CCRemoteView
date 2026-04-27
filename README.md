@@ -23,7 +23,7 @@ A browser-based remote control and live world map for ComputerCraft computers ru
 
 ## Requirements
 
-- **Node.js** 18+
+- **Node.js** 20+
 - **Minecraft 1.12** with [CC:Tweaked](https://tweaked.cc/) (or compatible ComputerCraft fork)
 - **[Plethora Peripherals](https://plethora.madefor.cc/)** — required for block scanning, entity scanning, minecart computers, and player neural interfaces; basic turtle movement and inventory control work without it
 - HTTP access from ComputerCraft to the host machine (see [Minecraft setup](#minecraft-setup))
@@ -184,7 +184,7 @@ Active when a computer is selected and no text input is focused.
 | Role | Capabilities |
 |------|-------------|
 | **Admin** | Approve/deny computer IPs, manage operators, full access |
-| **Operator** | Send commands, view world, manage inventory |
+| **Operator** | Send predefined commands, view world, manage inventory |
 | **Guest** | Read-only; state queries rate-limited to one per 30 seconds |
 
 On first connection a computer's IP is held pending admin approval. Approved IPs are persisted to disk.
@@ -237,9 +237,3 @@ npm run dev
 ```
 
 The server starts with Next.js hot reload at `http://localhost:8081`.
-
-To simulate a turtle locally without Minecraft:
-
-```bash
-npm run test:turtle
-```

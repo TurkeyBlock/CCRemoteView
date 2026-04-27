@@ -7,6 +7,7 @@
 url = "%%APP_URL%%/api/"
 
 local api_common = dofile("/api_common.lua")
+local headers    = { ["Content-Type"] = "application/json" }
 
 
 -- ─── GPS helpers ─────────────────────────────────────────────
@@ -18,7 +19,7 @@ end
 
 -- ─── Status / result helpers (HTTP) ──────────────────────────
 
-local _ws = api_common.make_ws_sender(url, { ["Content-Type"] = "application/json" })
+local _ws = api_common.make_ws_sender(url, headers)
 set_ws              = _ws.set_ws
 send_command_result = _ws.send_command_result
 
@@ -49,50 +50,19 @@ function scan()
         print("! scan: neural interface has no scan method (scanner module not equipped?)")
         return false, "no scanner module equipped"
     end
-
     local x, y, z = get_location()
     if not x then
         print("! scan: GPS fix failed")
         return false, "GPS fix failed"
     end
-
     local raw    = neural.scan(4)
-    local blocks = {}
-    for _, b in ipairs(raw) do
-        local entry = { x = b.x, y = b.y, z = b.z, name = b.name }
-        if SCAN_INCLUDE_METADATA then entry.metadata = b.metadata end
-        if SCAN_INCLUDE_STATE and b.state and next(b.state) then
-            entry.state = b.state
-        end
-        table.insert(blocks, entry)
-    end
-
+    local blocks = api_common.build_scan_blocks(raw, SCAN_INCLUDE_METADATA, SCAN_INCLUDE_STATE, false)
     local ox, oy, oz = math.floor(x), math.floor(y), math.floor(z)
-    local payload = {
-        id     = os.getComputerID(),
-        origin = { x = ox, y = oy, z = oz },
-        blocks = blocks,
-    }
-
-    -- Scan payloads often exceed CC:Tweaked's 131072-byte (128 KiB) WebSocket message limit.
-    -- Set SCAN_USE_HTTP = false to re-enable the WebSocket path once that constraint is addressed.
-    local SCAN_USE_HTTP = true
-    if not SCAN_USE_HTTP then
-        _ws.send_scan(payload)
-    else
-        local json = textutils.serializeJSON(payload)
-        local res = http.post(url .. "scan", json, { ["Content-Type"] = "application/json" })
-        if not res then
-            print("! scan: HTTP request failed")
-            return false, "http request failed"
-        end
-        local code = res.getResponseCode()
-        local body = res.readAll()
-        res.close()
-        if code ~= 200 then
-            print("! scan failed (HTTP " .. code .. "): " .. tostring(body))
-            return false, "server error: " .. code
-        end
+    local payload = { id = os.getComputerID(), origin = { x = ox, y = oy, z = oz }, blocks = blocks }
+    local ok, err = api_common.send_scan_http(url, headers, payload)
+    if not ok then
+        print("! scan failed: " .. tostring(err))
+        return false, err
     end
     print("? block scan (" .. #blocks .. " blocks @ " .. ox .. "," .. oy .. "," .. oz .. ")")
     return true

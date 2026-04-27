@@ -1,7 +1,6 @@
 'use client'
 
-import { useWorldStore } from '@/store/useWorld'
-import { useWorldViewStore } from '@/store/useWorldView'
+import { useComputerPanel } from '../useComputerPanel'
 import TurtleInventory from './TurtleInventory'
 import FuelGauge from './FuelGauge'
 import MovementControl from './MovementControl'
@@ -11,12 +10,7 @@ import { Section } from '@/components/ui'
 interface Props { computerId: number }
 
 export default function TurtlePanel({ computerId }: Props) {
-  const computer = useWorldStore(s => s.computers[computerId])
-  const focusOnComputer = useWorldViewStore(s => s.focusOnComputer)
-  const followComputer = useWorldViewStore(s => s.followComputer)
-  const followedComputer = useWorldViewStore(s => s.followedComputer)
-  const sendStopSignal = useWorldStore(s => s.sendStopSignal)
-  const isFollowing = followedComputer.computerId === computerId
+  const { computer, focusOnComputer, followComputer, sendStopSignal, isFollowing } = useComputerPanel(computerId)
 
   return (
     <>
