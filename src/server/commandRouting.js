@@ -68,4 +68,4 @@ function buildLuaCommand(computerType, commandName, argSchemas, argValues) {
   return `return ${module}.${commandName}(${luaArgs.join(', ')})`;
 }
 
-module.exports = { validateArgs, buildLuaCommand, isConcurrentCommand };
+module.exports = { commandRouting, validateArgs, buildLuaCommand, isConcurrentCommand };

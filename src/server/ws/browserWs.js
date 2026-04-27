@@ -3,7 +3,7 @@
 const path = require('path');
 const fs   = require('fs');
 const { IS_PROD, DEV_NO_AUTH, DEV_TOKEN, LOG_BROWSER_CMDS, MAX_CMD_LENGTH } = require('../config');
-const { validateArgs, buildLuaCommand, isConcurrentCommand } = require('../commandRouting');
+const { commandRouting, validateArgs, buildLuaCommand, isConcurrentCommand } = require('../commandRouting');
 
 function getClientIp(req) {
   return req.headers['cf-connecting-ip']
@@ -72,7 +72,7 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
           const commandName = msg.command;
           if (!commandName || typeof commandName !== 'string' || commandName.length > 100) return;
           const computerType = state.computers[id]?.type;
-          const commandDef   = require('../../computers/command_routing.json')[computerType]?.commands?.[commandName];
+          const commandDef   = commandRouting[computerType]?.commands?.[commandName];
           if (!commandDef) {
             ws.send(JSON.stringify({ type: 'error', computerId: Number(id), message: `Unknown command: ${sanitizeForLog(commandName)}` }));
             log.warn(`[ws] invokeCommand rejected — unknown command=${sanitizeForLog(commandName)} id=${id} user=${userSub}`);
