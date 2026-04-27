@@ -70,21 +70,24 @@ return function(api, ws_url, opts)
                 local lock_names = msg.locks or { "command" }
                 locks.acquire(lock_names)
 
-                local cmd, load_err = loadstring(msg.command)
-                if cmd then
-                    setfenv(cmd, getfenv())
-                    parallel.waitForAny(
-                        function() api.send_command_result(pcall(cmd)) end,
-                        function()
-                            os.pullEvent("stop_signal")
-                            queue = {}
-                            concurrent_queue = {}
-                        end
-                    )
-                else
-                    print("[rc_loop] loadstring error: " .. tostring(load_err))
-                    api.send_command_result(false, load_err)
-                end
+                local exec_ok, exec_err = pcall(function()
+                    local cmd, load_err = loadstring(msg.command)
+                    if cmd then
+                        setfenv(cmd, getfenv())
+                        parallel.waitForAny(
+                            function() api.send_command_result(pcall(cmd)) end,
+                            function()
+                                os.pullEvent("stop_signal")
+                                queue = {}
+                                concurrent_queue = {}
+                            end
+                        )
+                    else
+                        print("[rc_loop] loadstring error: " .. tostring(load_err))
+                        api.send_command_result(false, load_err)
+                    end
+                end)
+                if not exec_ok then print("[rc_loop] seq command error: " .. tostring(exec_err)) end
 
                 locks.release(lock_names)
                 local ok, err = pcall(api.send_status_update)
@@ -227,7 +230,8 @@ return function(api, ws_url, opts)
                 local data = textutils.unserializeJSON(body)
                 if data and data.open then
                     run_session()
-                    api.send_status_update()
+                    local ok, err = pcall(api.send_status_update)
+                    if not ok then print("[rc_loop] post-session send_status_update error: " .. tostring(err)) end
                 end
             end
             os.sleep(30)
