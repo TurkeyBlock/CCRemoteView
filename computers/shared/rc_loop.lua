@@ -87,7 +87,8 @@ return function(api, ws_url, opts)
                 end
 
                 locks.release(lock_names)
-                api.send_status_update()
+                local ok, err = pcall(api.send_status_update)
+                if not ok then print("[rc_loop] send_status_update error: " .. tostring(err)) end
             elseif opts.on_msg then
                 opts.on_msg(msg)
             end
