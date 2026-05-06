@@ -70,49 +70,18 @@ export const blockTint: { [id: string]: number } = {
 
 // ─── Geometry Map ────────────────────────────────────────────────────────────
 // Maps block IDs to their render geometry type.
-
-const cross = [
-  "minecraft:crops_potato",
-  "minecraft:crops_wheat",
-  "minecraft:fire",
-  "minecraft:torch",
-  "minecraft:tallgrass",
-  "minecraft:reeds",
-  "minecraft:red_flower",
-  "minecraft:cobweb",
-  "minecraft:oak_sapling",
-  "minecraft:brown_mushroom",
-  "minecraft:red_mushroom",
-  "minecraft:deadbush",
-  "minecraft:tall_grass",
-  "minecraft:double_plant",
-  "minecraft:vine",
-  "minecraft:yellow_flower",
-  "minecraft:brewing_stand",
-  "quark:root",
-  "projecte:interdiction_torch",
+// Manual geometry overrides — only needed when the auto-generated map gets it wrong.
+// These take priority over block-name-map.json.
+const cross: string[] = [
+  // "quark:root",
 ];
 
-const flat = [
-  "minecraft:rail",
-  "minecraft:golden_rail",
-  "minecraft:detector_rail",
-  "minecraft:activator_rail",
-  "minecraft:snow_layer",
-  "minecraft:carpet",
+const flat: string[] = [
+  // "minecraft:snow_layer",
 ];
 
-const slab_bottom = [
-  "minecraft:stone_slab",
-  "minecraft:wooden_slab",
-  "minecraft:stone_slab2",
-  "minecraft:purpur_slab",
-  "minecraft:brick_slab",
-  "minecraft:sandstone_slab",
-  "minecraft:red_sandstone_slab",
-  "minecraft:nether_brick_slab",
-  "minecraft:quartz_slab",
-  "minecraft:cobblestone_slab",
+const slab_bottom: string[] = [
+  // "minecraft:stone_slab",
 ];
 
 export const geometryMap: { [blockId: string]: string } = {
@@ -163,36 +132,11 @@ export function isLiquid(blockName: string): boolean {
 // (relative to the blocks/ folder, without .png extension).
 
 export const textureAliases: { [id: string]: string } = {
-  "minecraft:log:0": "minecraft/log_oak",
-  "minecraft:log:1": "minecraft/log_spruce",
-  "minecraft:log:2": "minecraft/log_birch",
-  "minecraft:log:3": "minecraft/log_jungle",
-  "minecraft:log:4": "minecraft/log_acacia",
-  "minecraft:log:5": "minecraft/log_dark_oak",
+  "projecte:interdiction_torch": "projecte/interdiction_torch",
 
-  "minecraft:planks:0": "minecraft/planks_oak",
-  "minecraft:planks:1": "minecraft/planks_spruce",
-  "minecraft:planks:2": "minecraft/planks_birch",
-  "minecraft:planks:3": "minecraft/planks_jungle",
-  "minecraft:planks:4": "minecraft/planks_acacia",
-  "minecraft:planks:5": "minecraft/planks_dark_oak",
-
-  "minecraft:rail": "minecraft/rail_normal",
-  "minecraft:golden_rail": "minecraft/rail_golden",
-  
-  "minecraft:red_flower": "minecraft/flower_rose",
-  "minecraft:leaves2": "minecraft/leaves_acacia",
-  "minecraft:leaves": "minecraft/leaves_oak",
-  "minecraft:torch": "minecraft/torch_on",
-  "minecraft:bed": "minecraft/bed_head_top",
-  "minecraft:wooden_slab": "minecraft/planks_oak",
-  "minecraft:log2": "minecraft/log_acacia",
-  "minecraft:log": "minecraft/log_oak",
-  "minecraft:wheat": "minecraft/crops_wheat",
-  "minecraft:snow_layer": "minecraft/snow",
-  "minecraft:brick_block": "minecraft/brick",
-  "minecraft:carpet": "minecraft/wool_colored_white",
-  "minecraft:double_stone_slab": "minecraft/stone_slab",
-  "buildcrafttransport:pipe_holder": "buildcraftcore/item_hatch",
-  "quark:polished_stone": "minecraft/stone_slab",
+  // Water and lava use builtin renderer models — not resolvable from the JAR.
+  "minecraft:water":         "minecraft/water_still",
+  "minecraft:flowing_water": "minecraft/water_flow",
+  "minecraft:lava":          "minecraft/lava_still",
+  "minecraft:flowing_lava":  "minecraft/lava_flow",
 };

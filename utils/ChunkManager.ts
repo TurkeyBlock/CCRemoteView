@@ -3,7 +3,8 @@ import { Block } from '@/types/types';
 import { useWorldViewStore } from '@/store/useWorldView';
 import { WorldChunk, CHUNK_SIZE, locToChunkKey } from './WorldChunk';
 import type { BuildRequest, BuildResult, MaterialMeta, SerializedBlock } from '@/workers/chunkBuilder.worker';
-import { geometryMap, isNonOccluding, isLiquid } from '@/store/blockMaps';
+import { isNonOccluding, isLiquid } from '@/store/blockMaps';
+import { getBlockGeometry } from '@/store/useWorldView';
 
 /**
  * Manages the full lifecycle of spatial chunks:
@@ -338,9 +339,7 @@ export class ChunkManager {
       if (matIndices[key] !== undefined) return matIndices[key];
       const idx = nextIdx++;
       matIndices[key] = idx;
-      const geomKey = metadata ? key : name;
-      const rawGeomId = geometryMap[geomKey] ?? geometryMap[name] ?? 'cube';
-      let geomType = rawGeomId;
+      let geomType = getBlockGeometry(name, metadata ?? 0);
       if (!geomType || geomType === 'cube') geomType = 'cube';
       // Slab metadata: values ≥ 8 are top slabs
       if (geomType === 'slab_bottom' && (metadata ?? 0) >= 8) geomType = 'slab_top';

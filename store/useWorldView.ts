@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import * as THREE from 'three'
 import type { Block, EntitySighting } from '../types/types'
-import { geometryMap, textureAliases, blockTint, BIOME_TINT } from './blockMaps'
+import { geometryMap, textureAliases, blockTint, BIOME_TINT, isLiquid } from './blockMaps'
 
 // Materials and texture caches live outside Zustand — no re-renders on load.
 const materialsCache: Record<string, THREE.MeshPhongMaterial> = {}
@@ -9,6 +9,53 @@ const textureCache: Record<string, THREE.Texture> = {}
 let textureIndex: string[] = []
 let textureIndexLoading = false
 let textureIndexPending: string[] = []
+
+// Generated block→texture+geometry maps from the texture extractor.
+// block-name-map.json keys: "mod:blockname:meta" → { texture: "blocks/mod/texture.png", geometry: "cube" }
+// Served at ~100KB under compression. Fetched once on load, held in memory for the session.
+type BlockMapEntry = { texture: string; geometry: string }
+let blockNameMap: Record<string, BlockMapEntry> = {}
+let blockMapsReady = false
+let blockMapsLoading = false
+let blockMapsPending: string[] = [] // blocks requested before maps finished loading
+
+function ensureBlockMapsLoaded(textureURL: string, onReady: () => void) {
+  if (blockMapsReady) { onReady(); return }
+  if (!blockMapsLoading) {
+    blockMapsLoading = true
+    Promise.all([
+      fetch(textureURL + 'block-name-map.json').then(r => r.ok ? r.json() : {}),
+    ]).then(([nameMap]) => {
+      blockNameMap = nameMap
+      blockMapsReady = true
+      onReady()
+      // Rebuild chunks once so any built before the map loaded get correct geometry.
+      useWorldViewStore.getState().regenerateSceneFromBlocks()
+    }).catch(() => { blockMapsReady = true; onReady() })
+  }
+}
+
+// Converts a map entry's texture path to the format loadTexture expects ("mod/texture").
+function mapToTexturePath(entry: BlockMapEntry): string {
+  return entry.texture.replace(/^blocks\//, '').replace(/\.png$/, '')
+}
+
+// Name-based geometry fallbacks — match before the map is loaded so chunks
+// built during startup get the right shape immediately.
+const CROSS_BY_NAME = /reeds|tallgrass|double_plant|dead.*bush|fern|flower|sapling|mushroom|crop|wheat|carrot|potato|beetroot|nether_wart|waterlily|vine|cobweb|torch|fire/
+const FLAT_BY_NAME  = /snow_layer|lily_pad/
+
+export function getBlockGeometry(name: string, metadata = 0): string {
+  const id = metadata ? `${name}:${metadata}` : name
+  const blockName = name.includes(':') ? name.split(':')[1] : name
+  return geometryMap[id] ?? geometryMap[name]
+    ?? blockNameMap[`${name}:${metadata}`]?.geometry
+    ?? blockNameMap[`${name}:0`]?.geometry
+    ?? (isLiquid(name)               ? 'liquid' : null)
+    ?? (CROSS_BY_NAME.test(blockName) ? 'cross'  : null)
+    ?? (FLAT_BY_NAME.test(blockName)  ? 'flat'   : null)
+    ?? 'cube'
+}
 
 /**
  * Dispose all cached materials and clear the cache.
@@ -139,17 +186,21 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
       const tint = blockTint[id] ?? blockTint[name]
       if (tint) mat.color.setHex(tint)
       else if (name.includes('leaves')) mat.color.setHex(BIOME_TINT)
-      const geomId = geometryMap[id] ?? geometryMap[name]
-      if (geomId === 'cross' || geomId === 'flat' || name.includes('leaves') || name.includes('sapling') || name.includes('kelp') || name.includes('seagrass'))
+
+      const geomId = getBlockGeometry(name, metadata)
+
+      if (geomId === 'cross' || geomId === 'flat' || geomId === 'leaves' ||
+          name.includes('sapling') || name.includes('kelp') || name.includes('seagrass'))
         mat.alphaTest = 1
-      if (geomId === 'cross' || geomId === 'flat' || name.includes('sapling') || name.includes('kelp') || name.includes('seagrass'))
+      if (geomId === 'cross' || geomId === 'flat' ||
+          name.includes('sapling') || name.includes('kelp') || name.includes('seagrass'))
         mat.side = THREE.DoubleSide
-      if (name.includes('water')) {
+      if (geomId === 'liquid') {
         mat.transparent = true
         mat.opacity = 0.55
         mat.depthWrite = false
       }
-      if (name.includes('glass')) {
+      if (geomId === 'glass' || geomId === 'pane') {
         mat.transparent = true
         mat.alphaTest = 0.5
       }
@@ -163,61 +214,112 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
       mat.needsUpdate = true
     }
 
-    const tryFuzzyMatch = () => {
-      const mod = name.split(':')[0]
-      const blockName = name.split(':')[1]
-      const fuzzy = textureIndex.find((f) => f.startsWith(mod + '/') && f.includes(blockName))
-      if (fuzzy) {
-        console.log(`Fuzzy match for ${id}: ${fuzzy}`)
-        loadTexture(fuzzy.replace('.png', ''), () => {
-          console.log(`No block texture found for ${id} (fuzzy match also failed)`)
-        })
-      } else {
-        console.log(`No block texture found for ${id}`)
-      }
-    }
+    // const tryFuzzyMatch = () => {
+    //   const mod = name.split(':')[0]
+    //   const blockName = name.split(':')[1]
+    //   const fuzzy = textureIndex.find((f) => f.startsWith(mod + '/') && f.includes(blockName))
+    //   if (fuzzy) {
+    //     console.log(`Fuzzy match for ${id}: ${fuzzy}`)
+    //     loadTexture(fuzzy.replace('.png', ''), () => {
+    //       console.log(`No block texture found for ${id} (fuzzy match also failed)`)
+    //     })
+    //   } else {
+    //     console.log(`No block texture found for ${id}`)
+    //   }
+    // }
 
-    const loadTexture = (texturePath: string, onError?: () => void) => {
+    const loadTexture = (texturePath: string) => {
       const loader = new THREE.TextureLoader()
       loader.load(
         textureURL + `blocks/${texturePath}.png`,
         applyTexture,
         undefined,
-        onError ?? (() => {
-          if (textureIndex.length === 0) {
-            if (!textureIndexPending.includes(id)) textureIndexPending.push(id)
-          } else {
-            tryFuzzyMatch()
-          }
-        }),
+        () => { console.log(`No block texture found for ${id} (${texturePath})`) },
+        // onError was: if textureIndex empty → push to textureIndexPending, else tryFuzzyMatch()
       )
     }
 
-    if (textureIndex.length === 0 && !textureIndexLoading) {
-      textureIndexLoading = true
-      fetch(textureURL + 'texture-index.json')
-        .then((r) => r.json())
-        .then((index: string[]) => {
-          textureIndex = index
-          for (const failedId of textureIndexPending) {
-            delete materialsCache[failedId]
-            const lastColon = failedId.lastIndexOf(':')
-            const afterColon = failedId.slice(lastColon + 1)
-            if (lastColon !== -1 && !isNaN(Number(afterColon))) {
-              get().getBlockMaterial(failedId.slice(0, lastColon), Number(afterColon))
-            } else {
-              get().getBlockMaterial(failedId)
-            }
-          }
-          textureIndexPending = []
-        })
-    }
+    // textureIndex / fuzzy fallback disabled — testing map coverage
+    // if (textureIndex.length === 0 && !textureIndexLoading) {
+    //   textureIndexLoading = true
+    //   fetch(textureURL + 'texture-index.json')
+    //     .then((r) => r.json())
+    //     .then((index: string[]) => {
+    //       textureIndex = index
+    //       for (const failedId of textureIndexPending) {
+    //         delete materialsCache[failedId]
+    //         const lastColon = failedId.lastIndexOf(':')
+    //         const afterColon = failedId.slice(lastColon + 1)
+    //         if (lastColon !== -1 && !isNaN(Number(afterColon))) {
+    //           get().getBlockMaterial(failedId.slice(0, lastColon), Number(afterColon))
+    //         } else {
+    //           get().getBlockMaterial(failedId)
+    //         }
+    //       }
+    //       textureIndexPending = []
+    //     })
+    // }
 
     if (textureCache[id]) {
       applyTexture(textureCache[id])
+      return mat
+    }
+
+    // Resolution order:
+    //   1. textureAliases — manual overrides (highest priority)
+    //   2. block-name-map.json — generated from blockstate/model chain
+    //   3. naive name→path guess (mod:block → mod/block)
+    //   4. fuzzy match against texture-index (on load failure)
+    const alias = textureAliases[id] ?? textureAliases[name]
+
+    ensureBlockMapsLoaded(textureURL, () => {
+      const pending = blockMapsPending
+      blockMapsPending = []
+      for (const pendingId of pending) {
+        const existingMat = materialsCache[pendingId]
+        if (!existingMat) continue
+
+        const lastColon = pendingId.lastIndexOf(':')
+        const afterColon = pendingId.slice(lastColon + 1)
+        const hasNumericSuffix = lastColon !== -1 && !isNaN(Number(afterColon))
+        const retryName = hasNumericSuffix ? pendingId.slice(0, lastColon) : pendingId
+        const retryMeta = hasNumericSuffix ? Number(afterColon) : 0
+
+        const mapped = blockNameMap[`${retryName}:${retryMeta}`]
+        if (!mapped) continue
+
+        // Update the existing material in-place so scene geometry referencing it
+        // automatically reflects the corrected texture without needing a re-render.
+        new THREE.TextureLoader().load(
+          textureURL + `blocks/${mapToTexturePath(mapped)}.png`,
+          (texture) => {
+            textureCache[pendingId] = texture
+            texture.minFilter = THREE.NearestFilter
+            texture.magFilter = THREE.NearestFilter
+            existingMat.map = texture
+            existingMat.color.setHex(0xffffff)
+            const tint = blockTint[pendingId] ?? blockTint[retryName]
+            if (tint) existingMat.color.setHex(tint)
+            else if (retryName.includes('leaves')) existingMat.color.setHex(BIOME_TINT)
+            existingMat.needsUpdate = true
+          }
+        )
+      }
+    })
+
+    if (alias) {
+      loadTexture(alias)
+    } else if (!blockMapsReady) {
+      // Maps still loading — queue for retry, show random colour in the meantime.
+      blockMapsPending.push(id)
     } else {
-      const texturePath = textureAliases[id] ?? textureAliases[name] ?? name.replace(':', '/')
-      loadTexture(texturePath)
+      // Also try :0 as a fallback for blocks sent without explicit metadata.
+      const mapped = blockNameMap[`${name}:${metadata}`] ?? blockNameMap[`${name}:0`]
+      if (mapped) {
+        loadTexture(mapToTexturePath(mapped))
+      } else {
+        console.log(`No map entry for ${id}`)
+      }
     }
     return mat
   },
