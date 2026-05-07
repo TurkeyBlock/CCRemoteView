@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Block } from '@/types/types';
+import { Block } from '@/types/world';
 import { useWorldViewStore } from '@/store/useWorldView';
 import { WorldChunk, CHUNK_SIZE, locToChunkKey } from './WorldChunk';
 import type { BuildRequest, BuildResult, MaterialMeta, SerializedBlock } from '@/workers/chunkBuilder.worker';

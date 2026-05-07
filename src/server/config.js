@@ -1,6 +1,6 @@
 'use strict';
 
-const IS_PROD = process.env.NODE_ENV === 'production';
+const IS_PROD = process.env.NODE_ENV !== 'development';
 
 // Flip to true for local dev without NextAuth credentials.
 // Only takes effect when IS_PROD is false.

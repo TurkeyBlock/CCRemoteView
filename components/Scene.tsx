@@ -5,11 +5,11 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { CameraControls } from '@react-three/drei'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import type { Block } from '@/types/types'
+import type { Block } from '@/types/world'
 import { useWorldStore, worldBlocks } from '@/store/useWorld'
 import { useWorldViewStore, clearMaterialsCache } from '@/store/useWorldView'
-import { ChunkManager } from '@/utils/ChunkManager'
-import { CHUNK_SIZE } from '@/utils/WorldChunk'
+import { ChunkManager } from '@/utils/rendering/ChunkManager'
+import { CHUNK_SIZE } from '@/utils/rendering/WorldChunk'
 
 class TextureAnimator {
   texture: THREE.Texture

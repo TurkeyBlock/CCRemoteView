@@ -114,8 +114,8 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
             ws.send(JSON.stringify({ type: 'error', computerId: Number(id), message: 'Invalid program name' }));
             return;
           }
-          const programPath = path.resolve('turtlePrograms', programName + '.lua');
-          if (!programPath.startsWith(path.resolve('turtlePrograms') + path.sep)) {
+          const programPath = path.resolve('computers', 'turtle', 'programs', programName + '.lua');
+          if (!programPath.startsWith(path.resolve('computers', 'turtle', 'programs') + path.sep)) {
             ws.send(JSON.stringify({ type: 'error', computerId: Number(id), message: 'Invalid program path' }));
             return;
           }

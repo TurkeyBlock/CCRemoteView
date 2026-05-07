@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ComputerState, Block } from '../types/types'
+import type { ComputerState, Block } from '../types/world'
 import type { ClientMessage } from '../types/wsMessages'
 
 export let worldBlocks: Record<string, Block> = {}

@@ -2,7 +2,7 @@
 
 import { useWorldStore } from '@/store/useWorld'
 import { useWorldViewStore } from '@/store/useWorldView'
-import type { ItemStack } from '@/types/types'
+import type { ItemStack } from '@/types/world'
 
 interface Props {
   computerId: number

@@ -2,7 +2,7 @@
 
 import { useShallow } from 'zustand/react/shallow'
 import { useWorldStore } from '@/store/useWorld'
-import InventorySlot from '../../InventorySlot'
+import InventorySlot from '../../inventory/InventorySlot'
 
 interface Props { computerId: number }
 

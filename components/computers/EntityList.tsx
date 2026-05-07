@@ -1,6 +1,6 @@
 'use client'
 
-import type { EntitySighting } from '@/types/types'
+import type { EntitySighting } from '@/types/world'
 import { Section } from '@/components/ui'
 
 interface Props {

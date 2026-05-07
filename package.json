@@ -3,11 +3,11 @@
   "private": true,
   "version": "2.0.0",
   "scripts": {
-    "dev": "node server.js",
+    "dev": "NODE_ENV=development node server.js",
     "build": "next build",
     "start": "NODE_ENV=production node server.js",
-    "build-textures": "node build-utils/textureExtractor/textureExtractor.js",
-    "pkg": "npm run build && node build-utils/buildSea.js"
+    "build-textures": "node scripts/textureExtractor/textureExtractor.js",
+    "pkg": "npm run build && node scripts/buildSea.js"
   },
   "dependencies": {
     "@auth/core": "^0.37.4",

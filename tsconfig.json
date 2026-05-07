@@ -38,7 +38,7 @@
   "exclude": [
     "node_modules",
     "src",
-    "build-utils",
+    "scripts",
     ".next"
   ]
 }

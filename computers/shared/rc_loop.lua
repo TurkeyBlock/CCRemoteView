@@ -98,11 +98,13 @@ return function(api, ws_url, opts)
         end
     end
 
-    -- CONCURRENT DISPATCHER: drains concurrent_queue into scheduler threads, then ticks them.
-    -- When idle, sleeps until a new concurrent command arrives.
+    -- CONCURRENT DISPATCHER: starts one queued command per iteration, then ticks scheduler threads.
+    -- One command per iteration guarantees an OS yield (via os.pullEvent) between each sched.start,
+    -- preventing "too long without yielding". Each push_concurrent queues a concurrent_queued event,
+    -- so N queued commands produce N events to drive N iterations.
     local function concurrent_dispatcher_fn()
         while true do
-            while #concurrent_queue > 0 do
+            if #concurrent_queue > 0 then
                 local raw = table.remove(concurrent_queue, 1)
                 sched.start(function()
                     local msg = textutils.unserializeJSON(raw)
@@ -124,7 +126,6 @@ return function(api, ws_url, opts)
                         opts.on_msg(msg)
                     end
                 end)
-                os.sleep(0) -- yield dispatcher between coroutine starts to prevent CC instruction-limit kill
             end
 
             if sched.is_idle() then

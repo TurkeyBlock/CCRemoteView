@@ -1,4 +1,4 @@
-import type { Block } from '../types/types'
+import type { Block } from '../types/world'
 
 const DB_NAME = 'turtleHost'
 const STORE_NAME = 'worldCache'

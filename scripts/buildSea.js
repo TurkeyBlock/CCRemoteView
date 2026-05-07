@@ -6,7 +6,7 @@
 //   postject     — injects the SEA blob into the node binary
 //
 // Usage: npm run pkg
-//   (which runs: npm run build && node build-utils/buildSea.js)
+//   (which runs: npm run build && node scripts/buildSea.js)
 
 'use strict';
 const { execSync } = require('child_process');

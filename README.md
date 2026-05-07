@@ -206,7 +206,7 @@ Do not expose this server to the public internet without configuring authenticat
 Several Lua programs are served by the app and can be downloaded from within a turtle:
 
 ```lua
-wget http://<APP_URL>/turtlePrograms/<program>.lua
+wget http://<APP_URL>/computers/turtle/programs/<program>.lua
 ```
 
 | Program | Description |

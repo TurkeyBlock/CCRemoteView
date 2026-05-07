@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import * as THREE from 'three'
-import type { Block, EntitySighting } from '../types/types'
+import type { Block, EntitySighting } from '../types/world'
 import { geometryMap, textureAliases, uvOverrides, blockTint, BIOME_TINT, isLiquid } from './blockMaps'
 
 // Materials and texture caches live outside Zustand — no re-renders on load.

@@ -2,7 +2,7 @@
 
 import { useWorldStore, worldBlocks } from '@/store/useWorld'
 import { useWorldViewStore } from '@/store/useWorldView'
-import type { Inventory } from '@/types/types'
+import type { Inventory } from '@/types/world'
 import GenericInventorySlot from './GenericInventorySlot'
 
 interface Props {

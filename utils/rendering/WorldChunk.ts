@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Block } from '@/types/types';
+import { Block } from '@/types/world';
 
 export const CHUNK_SIZE = 16;
 

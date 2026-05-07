@@ -1,4 +1,4 @@
-import type { Vec } from '@/types/types'
+import type { Vec } from '@/types/world'
 
 interface Props {
   loc?: Vec | null

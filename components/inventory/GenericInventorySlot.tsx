@@ -1,7 +1,7 @@
 'use client'
 
 import { useWorldStore } from '@/store/useWorld'
-import type { ItemStack } from '@/types/types'
+import type { ItemStack } from '@/types/world'
 
 interface Props {
   invSlot?: ItemStack

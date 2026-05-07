@@ -1,10 +1,10 @@
 // Texture extractor — replaces minecraft-blocks-render/canvas with Sharp.
 //
 // Usage:
-//   node build-utils/textureExtractor/textureExtractor.js <mcJarOrZip> [modJarsDir]
+//   node scripts/textureExtractor/textureExtractor.js <mcJarOrZip> [modJarsDir]
 //
 // Example:
-//   node build-utils/textureExtractor/textureExtractor.js "C:/mc/1.20.jar" "C:/mc/mods"
+//   node scripts/textureExtractor/textureExtractor.js "C:/mc/1.20.jar" "C:/mc/mods"
 
 'use strict';
 const fs = require('fs');
