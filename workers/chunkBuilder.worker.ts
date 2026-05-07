@@ -198,22 +198,27 @@ function pushSlab(acc: Accumulator, bx: number, by: number, bz: number, isTop: b
   // Side faces show only the matching half of the texture (bottom half for bottom slab, top half for top).
   const vLo = isTop ? 0.5 : 0;
   const vHi = isTop ? 1.0 : 0.5;
-  const uvSide: [number,number][] = [[0,vLo],[1,vLo],[1,vHi],[0,vHi]];
-  const uvFull: [number,number][] = [[0,0],[1,0],[1,1],[0,1]];
+  // UV conventions match the cube FACES definition:
+  //   +X/-X faces: U follows Z, V follows Y  → "vertical" layout
+  //   +Z/-Z faces: U follows X, V follows Y  → "horizontal" layout  (same as cube)
+  //   +Y/-Y faces: U follows X, V follows Z  → matches cube top/bottom
+  const uvSideV: [number,number][] = [[0,vLo],[0,vHi],[1,vHi],[1,vLo]]; // +X, -X
+  const uvSideH: [number,number][] = [[0,vLo],[1,vLo],[1,vHi],[0,vHi]]; // +Z, -Z
+  const uvFull:  [number,number][] = [[0,0],[0,1],[1,1],[1,0]];           // +Y, -Y
 
   const slabFaces = [
-    // +X
-    { verts: [[0.5, yMin, -0.5],[0.5, yMax, -0.5],[0.5, yMax,  0.5],[0.5, yMin,  0.5]], n: [1,0,0], uv: uvSide },
-    // -X
-    { verts: [[-0.5, yMin,  0.5],[-0.5, yMax,  0.5],[-0.5, yMax, -0.5],[-0.5, yMin, -0.5]], n: [-1,0,0], uv: uvSide },
-    // +Y
-    { verts: [[-0.5, yMax, -0.5],[-0.5, yMax,  0.5],[0.5, yMax,  0.5],[0.5, yMax, -0.5]], n: [0,1,0], uv: uvFull },
-    // -Y
+    // +X: verts step yMin→yMax then -z→+z; U=Z, V=Y
+    { verts: [[0.5, yMin, -0.5],[0.5, yMax, -0.5],[0.5, yMax,  0.5],[0.5, yMin,  0.5]], n: [1,0,0],  uv: uvSideV },
+    // -X: verts step yMin→yMax then +z→-z; U=(-Z), V=Y
+    { verts: [[-0.5, yMin,  0.5],[-0.5, yMax,  0.5],[-0.5, yMax, -0.5],[-0.5, yMin, -0.5]], n: [-1,0,0], uv: uvSideV },
+    // +Y: verts step -z→+z then -x→+x; U=X, V=Z
+    { verts: [[-0.5, yMax, -0.5],[-0.5, yMax,  0.5],[0.5, yMax,  0.5],[0.5, yMax, -0.5]], n: [0,1,0],  uv: uvFull },
+    // -Y: verts step +z→-z then -x→+x; U=X, V=(-Z)
     { verts: [[-0.5, yMin,  0.5],[-0.5, yMin, -0.5],[0.5, yMin, -0.5],[0.5, yMin,  0.5]], n: [0,-1,0], uv: uvFull },
-    // +Z
-    { verts: [[-0.5, yMin, 0.5],[0.5, yMin, 0.5],[0.5, yMax, 0.5],[-0.5, yMax, 0.5]], n: [0,0,1], uv: uvSide },
-    // -Z
-    { verts: [[0.5, yMin, -0.5],[-0.5, yMin, -0.5],[-0.5, yMax, -0.5],[0.5, yMax, -0.5]], n: [0,0,-1], uv: uvSide },
+    // +Z: verts step -x→+x then yMin→yMax; U=X, V=Y
+    { verts: [[-0.5, yMin, 0.5],[0.5, yMin, 0.5],[0.5, yMax, 0.5],[-0.5, yMax, 0.5]], n: [0,0,1],   uv: uvSideH },
+    // -Z: verts step +x→-x then yMin→yMax; U=(-X), V=Y
+    { verts: [[0.5, yMin, -0.5],[-0.5, yMin, -0.5],[-0.5, yMax, -0.5],[0.5, yMax, -0.5]], n: [0,0,-1],  uv: uvSideH },
   ];
   for (const f of slabFaces) {
     pushQuad(acc, f.verts as any, f.n as [number,number,number], f.uv as any, bx, by, bz);
@@ -238,8 +243,8 @@ function isSolid(
   const meta = matMeta[idx];
   if (!meta) return false;
   const geom = meta.geomType;
-  // Cross, flat, and non-full-cube custom shapes don't occlude neighbours.
-  if (geom === 'cross' || geom === 'flat') return false;
+  // Partial-block shapes don't fully occlude neighbours.
+  if (geom === 'cross' || geom === 'flat' || geom === 'slab_bottom' || geom === 'slab_top') return false;
   return !meta.nonOccluding;
 }
 
@@ -308,11 +313,15 @@ function buildGeometry(req: BuildRequest): BuildResult {
           const nbMeta = matMeta[nbIdx];
           if (nbMeta) {
             const nbGeom = nbMeta.geomType;
-            // Slabs are partial blocks and must not occlude adjacent faces.
             const nbIsFullCube = nbGeom !== 'cross' && nbGeom !== 'flat'
               && nbGeom !== 'slab_bottom' && nbGeom !== 'slab_top';
+            // Slabs occlude only the single face they fully cover:
+            // a bottom slab covers the top face (+Y) of the block below it,
+            // a top slab covers the bottom face (-Y) of the block above it.
+            const slabOccludes = (nbGeom === 'slab_bottom' && face.dy === 1) ||
+                                 (nbGeom === 'slab_top'    && face.dy === -1);
 
-            if (nbIsFullCube && !nbMeta.nonOccluding) {
+            if ((nbIsFullCube || slabOccludes) && !nbMeta.nonOccluding) {
               // Solid full-cube neighbour hides any non-liquid face.
               if (!isLiquid) continue;
               // Liquid side faces are hidden by solid neighbours (water into ground).

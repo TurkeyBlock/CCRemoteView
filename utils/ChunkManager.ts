@@ -339,10 +339,7 @@ export class ChunkManager {
       if (matIndices[key] !== undefined) return matIndices[key];
       const idx = nextIdx++;
       matIndices[key] = idx;
-      let geomType = getBlockGeometry(name, metadata ?? 0);
-      if (!geomType || geomType === 'cube') geomType = 'cube';
-      // Slab metadata: values ≥ 8 are top slabs
-      if (geomType === 'slab_bottom' && (metadata ?? 0) >= 8) geomType = 'slab_top';
+      const geomType = getBlockGeometry(name, metadata ?? 0);
       const meta: MaterialMeta = {
         transparent: name.includes('water') || name.includes('glass') || name.includes('ice'),
         liquid: isLiquid(name),

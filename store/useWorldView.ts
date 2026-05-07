@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import * as THREE from 'three'
 import type { Block, EntitySighting } from '../types/types'
-import { geometryMap, textureAliases, blockTint, BIOME_TINT, isLiquid } from './blockMaps'
+import { geometryMap, textureAliases, uvOverrides, blockTint, BIOME_TINT, isLiquid } from './blockMaps'
 
 // Materials and texture caches live outside Zustand — no re-renders on load.
 const materialsCache: Record<string, THREE.MeshPhongMaterial> = {}
@@ -13,7 +13,7 @@ let textureIndexPending: string[] = []
 // Generated block→texture+geometry maps from the texture extractor.
 // block-name-map.json keys: "mod:blockname:meta" → { texture: "blocks/mod/texture.png", geometry: "cube" }
 // Served at ~100KB under compression. Fetched once on load, held in memory for the session.
-type BlockMapEntry = { texture: string; geometry: string }
+type BlockMapEntry = { texture: string; geometry: string; uv?: [number, number, number, number] }
 let blockNameMap: Record<string, BlockMapEntry> = {}
 let blockMapsReady = false
 let blockMapsLoading = false
@@ -42,19 +42,30 @@ function mapToTexturePath(entry: BlockMapEntry): string {
 
 // Name-based geometry fallbacks — match before the map is loaded so chunks
 // built during startup get the right shape immediately.
-const CROSS_BY_NAME = /reeds|tallgrass|double_plant|dead.*bush|fern|flower|sapling|mushroom|crop|wheat|carrot|potato|beetroot|nether_wart|waterlily|vine|cobweb|torch|fire/
-const FLAT_BY_NAME  = /snow_layer|lily_pad/
+const CROSS_BY_NAME = /reeds|tallgrass|double_plant|dead.*bush|(?:^|_)fern|flower|sapling|mushroom|crop|wheat|carrot|potato|beetroot|nether_wart|waterlily|vine|cobweb|torch|fire/
+const FLAT_BY_NAME  = /snow_layer|lily_pad|carpet/
 
 export function getBlockGeometry(name: string, metadata = 0): string {
   const id = metadata ? `${name}:${metadata}` : name
   const blockName = name.includes(':') ? name.split(':')[1] : name
-  return geometryMap[id] ?? geometryMap[name]
+  const raw = geometryMap[id] ?? geometryMap[name]
     ?? blockNameMap[`${name}:${metadata}`]?.geometry
     ?? blockNameMap[`${name}:0`]?.geometry
+    ?? blockNameMap[name]?.geometry
     ?? (isLiquid(name)               ? 'liquid' : null)
     ?? (CROSS_BY_NAME.test(blockName) ? 'cross'  : null)
     ?? (FLAT_BY_NAME.test(blockName)  ? 'flat'   : null)
     ?? 'cube'
+  // Resolve slab top/bottom from metadata.
+  // "slab" is the legacy extractor output; "slab_bottom" is the current one.
+  // In 1.12, metadata bit 3 (≥ 8) means top slab.
+  // In 1.13+, the extractor emits "slab_top" directly for top-slab model variants,
+  // so those entries are already correct and this branch is never reached.
+  if (raw === 'slab' || raw === 'slab_bottom') {
+    if (blockName.includes('double')) return 'cube'
+    return metadata >= 8 ? 'slab_top' : 'slab_bottom'
+  }
+  return raw
 }
 
 /**
@@ -210,7 +221,24 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
         mat.polygonOffsetUnits = -4
       }
       const img = texture.image as { width: number; height: number }
-      if (img.width !== img.height) get().addAnimatedTexture(texture)
+
+      // UV sub-region for sprite-sheet textures.
+      // Coordinates are in pixels matching the actual PNG dimensions.
+      // Priority: uvOverrides (manual, always trusted) > block-name-map UV (only for
+      // non-square images — square images are single sprites, not sprite sheets, so
+      // any UV in the map was wrongly extracted from model element geometry).
+      const manualUV = uvOverrides[id] ?? uvOverrides[`${name}:0`] ?? uvOverrides[name] ?? null
+      const mapUV = blockNameMap[`${name}:${metadata}`]?.uv ?? blockNameMap[`${name}:0`]?.uv ?? blockNameMap[name]?.uv ?? null
+      const blockUV = manualUV ?? (mapUV && img.width !== img.height ? mapUV : null)
+      if (blockUV) {
+        const [u1, v1, u2, v2] = blockUV
+        texture.wrapS = texture.wrapT = THREE.RepeatWrapping
+        texture.repeat.set((u2 - u1) / img.width, (v2 - v1) / img.height)
+        texture.offset.set(u1 / img.width, v1 / img.height)
+        texture.needsUpdate = true
+      }
+
+      if (!blockUV && img.width !== img.height) get().addAnimatedTexture(texture)
       mat.needsUpdate = true
     }
 
@@ -270,7 +298,7 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
     //   2. block-name-map.json — generated from blockstate/model chain
     //   3. naive name→path guess (mod:block → mod/block)
     //   4. fuzzy match against texture-index (on load failure)
-    const alias = textureAliases[id] ?? textureAliases[name]
+    const alias = textureAliases[id] ?? textureAliases[`${name}:0`] ?? textureAliases[name]
 
     ensureBlockMapsLoaded(textureURL, () => {
       const pending = blockMapsPending
@@ -313,12 +341,12 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
       // Maps still loading — queue for retry, show random colour in the meantime.
       blockMapsPending.push(id)
     } else {
-      // Also try :0 as a fallback for blocks sent without explicit metadata.
-      const mapped = blockNameMap[`${name}:${metadata}`] ?? blockNameMap[`${name}:0`]
+      // Also try :0 as a fallback, and bare name for blocks with metadata baked in (e.g. name="chisel:marble:8", meta=0).
+      const mapped = blockNameMap[`${name}:${metadata}`] ?? blockNameMap[`${name}:0`] ?? blockNameMap[name]
       if (mapped) {
         loadTexture(mapToTexturePath(mapped))
       } else {
-        console.log(`No map entry for ${id}`)
+        console.log(`No map entry for ${id} (map has ${Object.keys(blockNameMap).length} entries, tried: ${name}:${metadata}, ${name}:0, ${name})`)
       }
     }
     return mat

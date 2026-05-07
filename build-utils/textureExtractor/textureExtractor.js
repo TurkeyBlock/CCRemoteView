@@ -58,6 +58,17 @@ function extractFromJar(fileName) {
           return;
         }
 
+        // ── Sprite-sheet PNGs (IC2 and similar mods) ─────────────────────────
+        // assets/{mod}/textures/sprites/{name}.png → textures/blocks/{mod}/sprites_{name}.png
+        const spriteMatch = /assets\/(?<mod>[^/]+)\/textures\/sprites\/(?<name>[^/]+\.png)$/.exec(p);
+        if (spriteMatch) {
+          const { mod, name } = spriteMatch.groups;
+          const outDir = `textures/blocks/${mod}`;
+          fs.mkdirSync(outDir, { recursive: true });
+          entry.pipe(fs.createWriteStream(`${outDir}/sprites_${name}`));
+          return;
+        }
+
         // ── Blockstate JSON ──────────────────────────────────────────────────
         // assets/{mod}/blockstates/{blockname}.json
         // Maps block state property combos to model file references.
@@ -109,6 +120,15 @@ function extractFromZip(zipPath) {
           const outDir = `textures/${type}/${mod}`;
           fs.mkdirSync(outDir, { recursive: true });
           entry.pipe(fs.createWriteStream(`${outDir}/${rest.replaceAll('/', '_')}`));
+          return;
+        }
+
+        const spriteMatch = /assets\/(?<mod>[^/]+)\/textures\/sprites\/(?<name>[^/]+\.png)$/.exec(p);
+        if (spriteMatch) {
+          const { mod, name } = spriteMatch.groups;
+          const outDir = `textures/blocks/${mod}`;
+          fs.mkdirSync(outDir, { recursive: true });
+          entry.pipe(fs.createWriteStream(`${outDir}/sprites_${name}`));
           return;
         }
 
@@ -300,13 +320,16 @@ const GEOMETRY_PATTERNS = [
   [/pane/,                   'pane'],
   [/glass/,                  'glass'],
   [/leaves/,                 'leaves'],
+  [/double.*slab/,           'cube'],         // double slabs fill a full block — before /slab/
+  [/slab_top/,               'slab_top'],    // more specific — must come before /slab/
+  [/slab/,                   'slab_bottom'],
   [/cube|orientable/,        'cube'],
 ];
 
 // Fallback geometry classification by block registry name, for blocks whose model
 // parent chain doesn't contain a recognizable geometry keyword (e.g. reeds defines
 // its cross geometry inline without inheriting from minecraft:block/cross).
-const CROSS_BY_NAME  = /reeds|tallgrass|double_plant|dead.*bush|fern|flower|sapling|mushroom|crop|wheat|carrot|potato|beetroot|nether_wart|waterlily|vine|cobweb|torch|fire/;
+const CROSS_BY_NAME  = /reeds|tallgrass|double_plant|dead.*bush|(?:^|_)fern|flower|sapling|mushroom|crop|wheat|carrot|potato|beetroot|nether_wart|waterlily|vine|cobweb|torch|fire/;
 const FLAT_BY_NAME   = /snow_layer|lily_pad/;
 
 // Returns the geometry type for a model key by checking the key path against
@@ -341,6 +364,50 @@ function resolveGeometry(modelKey, visited = new Set()) {
   return resolveGeometry(normalizedParentKey, visited);
 }
 
+// Walks a model's element list (ascending the parent chain if the leaf model
+// defines none) and returns the UV [u1, v1, u2, v2] from the first face that
+// carries an explicit UV that isn't the full-texture default [0, 0, 16, 16].
+// Returns null when no non-trivial UV is found (i.e. use the full texture).
+function resolveModelElementUV(modelKey, visited = new Set()) {
+  if (visited.has(modelKey)) return null;
+  visited.add(modelKey);
+
+  const model = models.get(modelKey);
+  if (!model) return null;
+
+  if (model.elements && model.elements.length > 0) {
+    for (const element of model.elements) {
+      const faces = element.faces || {};
+      for (const faceName of ['up', 'north', 'south', 'east', 'west', 'down']) {
+        const face = faces[faceName];
+        if (!face?.uv) continue;
+        const [u1, v1, u2, v2] = face.uv;
+        if (u1 === 0 && v1 === 0 && u2 === 16 && v2 === 16) return null;
+        return face.uv;
+      }
+    }
+    return null; // elements exist but all faces use auto/default UV
+  }
+
+  if (!model.parent) return null;
+  let parentKey = model.parent;
+  if (!parentKey.includes(':')) parentKey = `minecraft:${parentKey}`;
+  const [pMod, pPath] = parentKey.split(':', 2);
+  const normalizedParentKey = (pPath.startsWith('block/') || pPath.startsWith('item/') || pPath.startsWith('builtin/'))
+    ? parentKey
+    : `${pMod}:block/${pPath}`;
+  return resolveModelElementUV(normalizedParentKey, visited);
+}
+
+// Manual UV overrides for blocks where the auto-detected UV from model elements
+// is wrong or absent. Coordinates are PIXEL offsets into the PNG, matching the
+// actual image dimensions (same convention as uvOverrides in store/blockMaps.ts).
+// Use this when a sprite-sheet texture is mis-detected or uses an odd layout.
+const UV_OVERRIDES = {
+  // Example — railcraft:infernal 6-tile horizontal sheet (96×16):
+  // 'railcraft:infernal:1': [16, 0, 32, 16],
+};
+
 // Iterates every blockstate we collected and resolves each variant's display
 // texture and geometry, returning a map keyed by "mod:blockname:meta" (meta = variant index).
 // For simple single-property blocks the variant order matches metadata 0..N.
@@ -357,24 +424,36 @@ function buildNameTextureMap() {
     if (bsData.variants) {
       // Each key in variants is a property combo like "variant=stone" or "normal".
       // We assign metadata values 0, 1, 2... in the order the keys appear.
+      // Forge blockstate format (forge_marker: 1) may store the model in bsData.defaults
+      // and/or inline textures per-variant rather than a separate model JSON file.
+      const defaults = bsData.defaults || {};
       Object.entries(bsData.variants).forEach(([, variantData], meta) => {
         // Variants can be a single object or a weighted-random array; take the first.
         const entry = Array.isArray(variantData) ? variantData[0] : variantData;
-        if (!entry?.model) return;
+
+        // Fall back to defaults.model when the variant has no model of its own.
+        const rawModelRef = entry?.model || defaults.model;
+        if (!rawModelRef) return;
 
         // Blockstate model refs use "mod:name" without "block/"; normalize to our key format.
-        let modelRef = entry.model.includes(':') ? entry.model : `minecraft:${entry.model}`;
+        let modelRef = rawModelRef.includes(':') ? rawModelRef : `minecraft:${rawModelRef}`;
         const [mMod, mPath] = modelRef.split(':', 2);
         const modelKey = mPath.startsWith('block/') ? modelRef : `${mMod}:block/${mPath}`;
 
-        const texRef = resolveModelTexture(modelKey);
+        // Inline textures from defaults and variant entry (variant takes priority).
+        // Passed as texVars so resolveModelTexture can resolve #variable references against them.
+        const inlineTexVars = { ...(defaults.textures || {}), ...(entry?.textures || {}) };
+
+        const texRef = resolveModelTexture(modelKey, inlineTexVars);
         const blockName = blockKey.split(':')[1];
         const geometry = resolveGeometry(modelKey)
           ?? (CROSS_BY_NAME.test(blockName) ? 'cross' : null)
           ?? (FLAT_BY_NAME.test(blockName)  ? 'flat'  : null)
           ?? 'cube';
         const normalized = texRef ? normalizeTexRef(texRef, mod) : null;
-        if (normalized) result[`${blockKey}:${meta}`] = { texture: normalized, geometry };
+        if (normalized) {
+          result[`${blockKey}:${meta}`] = { texture: normalized, geometry };
+        }
       });
 
     } else if (bsData.multipart) {
@@ -395,7 +474,9 @@ function buildNameTextureMap() {
         ?? (FLAT_BY_NAME.test(blockName)  ? 'flat'  : null)
         ?? 'cube';
       const normalized = texRef ? normalizeTexRef(texRef, mod) : null;
-      if (normalized) result[`${blockKey}:0`] = { texture: normalized, geometry };
+      if (normalized) {
+        result[`${blockKey}:0`] = { texture: normalized, geometry };
+      }
     }
   }
 
@@ -643,11 +724,24 @@ const LEGACY_1_12_ALIASES = {
   for (const [legacyKey, newBlock] of Object.entries(LEGACY_1_12_ALIASES)) {
     const sourceKey = `${newBlock}:0`;
     if (aliasSnapshot[sourceKey]) {
-      nameTextureMap[legacyKey] = aliasSnapshot[sourceKey];
+      // Skip aliases that would overwrite a cross-shaped block with a cube entry.
+      // Happens with tallgrass:1 → minecraft:grass when running against a 1.12 JAR,
+      // where minecraft:grass is the solid grass block (cube) rather than the plant (cross).
+      const resolved = aliasSnapshot[sourceKey];
+      const blockName = legacyKey.includes(':') ? legacyKey.split(':')[1] : legacyKey;
+      const shouldBeCross = CROSS_BY_NAME.test(blockName);
+      if (shouldBeCross && resolved.geometry !== 'cross') continue;
+      nameTextureMap[legacyKey] = resolved;
       aliasCount++;
     }
   }
   console.log(`${aliasCount} legacy 1.12 block name aliases applied`);
+
+  // Apply manual UV overrides — highest priority, wins over both extraction and aliases.
+  for (const [key, uv] of Object.entries(UV_OVERRIDES)) {
+    if (nameTextureMap[key]) nameTextureMap[key] = { ...nameTextureMap[key], uv };
+    else console.warn(`UV_OVERRIDES: no map entry for '${key}' — check the key spelling`);
+  }
 
   fs.mkdirSync('textures', { recursive: true });
   fs.writeFileSync('textures/block-name-map.json', JSON.stringify(nameTextureMap, null, 2));
