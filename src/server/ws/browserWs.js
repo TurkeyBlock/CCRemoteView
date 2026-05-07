@@ -2,7 +2,7 @@
 
 const path = require('path');
 const fs   = require('fs');
-const { IS_PROD, DEV_NO_AUTH, DEV_TOKEN, LOG_BROWSER_CMDS, MAX_CMD_LENGTH } = require('../config');
+const { IS_PROD, DEV_NO_AUTH, DEV_TOKEN, LOG_BROWSER_CMDS, MAX_CMD_LENGTH, TRANSACTION_CACHE_COUNT } = require('../config');
 const { commandRouting, validateArgs, buildLuaCommand, isConcurrentCommand } = require('../commandRouting');
 
 function getClientIp(req) {
@@ -16,6 +16,7 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
     state, cmds, stopSignal, computerWs, browserClients,
     safeId, sanitizeForLog,
     setWsRequest, clearCommandQueue,
+    transactionCache,
   } = worldState;
   const { getSession, isAdmin, isOperator } = auth;
 
@@ -58,7 +59,20 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
     console.log(`[ws] Browser client connected from ${clientIp} (total: ${browserClients.size + 1})`);
     browserClients.add(ws);
 
-    ws.send(JSON.stringify({ state }));
+    const qs           = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
+    const clientLastTx = parseInt(new URLSearchParams(qs).get('lastTx') ?? '', 10);
+    const serverLastTx = state.lastTransactionId;
+    const cacheFloor   = serverLastTx - TRANSACTION_CACHE_COUNT;
+
+    if (Number.isInteger(clientLastTx) && clientLastTx >= 0 && clientLastTx >= cacheFloor && clientLastTx <= serverLastTx) {
+      const delta = {};
+      for (let i = clientLastTx + 1; i <= serverLastTx; i++) {
+        if (transactionCache[i]) delta[i] = transactionCache[i];
+      }
+      ws.send(JSON.stringify({ transactions: delta }));
+    } else {
+      ws.send(JSON.stringify({ state }));
+    }
 
     ws.on('message', (raw) => {
       let msg;

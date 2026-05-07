@@ -30,7 +30,7 @@ grab
 # textures
 textures/blocks/*/*
 textures/items/*/*
-textures/texture-index.json
+textures/block-name-map.json
 
 # saved state
 src/server/saved/*

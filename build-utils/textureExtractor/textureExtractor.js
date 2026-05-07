@@ -219,21 +219,6 @@ function pickMultiFaceBlockDisplaySide() {
   process.stdout.write('\n');
 }
 
-function buildTextureIndex() {
-  const index = [];
-  function walk(dir, base) {
-    for (const entry of fs.readdirSync(dir)) {
-      const full = path.join(dir, entry);
-      if (fs.lstatSync(full).isDirectory()) {
-        walk(full, base ? `${base}/${entry}` : entry);
-      } else if (entry.endsWith('.png')) {
-        index.push(base ? `${base}/${entry}` : entry);
-      }
-    }
-  }
-  walk('textures/blocks', '');
-  fs.writeFileSync('textures/texture-index.json', JSON.stringify(index));
-}
 
 // ── Block → texture + geometry mapping ───────────────────────────────────────
 
@@ -688,9 +673,7 @@ const LEGACY_1_12_ALIASES = {
     if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true });
     fs.mkdirSync(dir, { recursive: true });
   }
-  for (const f of ['textures/block-name-map.json', 'textures/texture-index.json']) {
-    if (fs.existsSync(f)) fs.rmSync(f);
-  }
+  if (fs.existsSync('textures/block-name-map.json')) fs.rmSync('textures/block-name-map.json');
   console.log('DONE');
 
   const modJars = MOD_DIR ? fs.readdirSync(MOD_DIR).filter(f => f.endsWith('.jar')) : [];
@@ -709,11 +692,7 @@ const LEGACY_1_12_ALIASES = {
 
   pickMultiFaceBlockDisplaySide();
 
-  process.stdout.write('Building texture index...');
-  buildTextureIndex();
-  console.log('DONE');
-
-  const nameTextureMap = buildNameTextureMap();
+const nameTextureMap = buildNameTextureMap();
 
   // Apply legacy 1.12 name aliases. Snapshot first so collision entries
   // (minecraft:grass = grass block in 1.12, short-grass plant in 1.13) resolve

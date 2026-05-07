@@ -6,9 +6,6 @@ import { geometryMap, textureAliases, uvOverrides, blockTint, BIOME_TINT, isLiqu
 // Materials and texture caches live outside Zustand — no re-renders on load.
 const materialsCache: Record<string, THREE.MeshPhongMaterial> = {}
 const textureCache: Record<string, THREE.Texture> = {}
-let textureIndex: string[] = []
-let textureIndexLoading = false
-let textureIndexPending: string[] = []
 
 // Generated block→texture+geometry maps from the texture extractor.
 // block-name-map.json keys: "mod:blockname:meta" → { texture: "blocks/mod/texture.png", geometry: "cube" }
@@ -242,19 +239,6 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
       mat.needsUpdate = true
     }
 
-    // const tryFuzzyMatch = () => {
-    //   const mod = name.split(':')[0]
-    //   const blockName = name.split(':')[1]
-    //   const fuzzy = textureIndex.find((f) => f.startsWith(mod + '/') && f.includes(blockName))
-    //   if (fuzzy) {
-    //     console.log(`Fuzzy match for ${id}: ${fuzzy}`)
-    //     loadTexture(fuzzy.replace('.png', ''), () => {
-    //       console.log(`No block texture found for ${id} (fuzzy match also failed)`)
-    //     })
-    //   } else {
-    //     console.log(`No block texture found for ${id}`)
-    //   }
-    // }
 
     const loadTexture = (texturePath: string) => {
       const loader = new THREE.TextureLoader()
@@ -267,26 +251,6 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
       )
     }
 
-    // textureIndex / fuzzy fallback disabled — testing map coverage
-    // if (textureIndex.length === 0 && !textureIndexLoading) {
-    //   textureIndexLoading = true
-    //   fetch(textureURL + 'texture-index.json')
-    //     .then((r) => r.json())
-    //     .then((index: string[]) => {
-    //       textureIndex = index
-    //       for (const failedId of textureIndexPending) {
-    //         delete materialsCache[failedId]
-    //         const lastColon = failedId.lastIndexOf(':')
-    //         const afterColon = failedId.slice(lastColon + 1)
-    //         if (lastColon !== -1 && !isNaN(Number(afterColon))) {
-    //           get().getBlockMaterial(failedId.slice(0, lastColon), Number(afterColon))
-    //         } else {
-    //           get().getBlockMaterial(failedId)
-    //         }
-    //       }
-    //       textureIndexPending = []
-    //     })
-    // }
 
     if (textureCache[id]) {
       applyTexture(textureCache[id])
@@ -297,7 +261,7 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
     //   1. textureAliases — manual overrides (highest priority)
     //   2. block-name-map.json — generated from blockstate/model chain
     //   3. naive name→path guess (mod:block → mod/block)
-    //   4. fuzzy match against texture-index (on load failure)
+    //   4. name→path guess (mod:block → blocks/mod/block.png) on load failure
     const alias = textureAliases[id] ?? textureAliases[`${name}:0`] ?? textureAliases[name]
 
     ensureBlockMapsLoaded(textureURL, () => {

@@ -3,7 +3,8 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
-import { useWorldStore, replaceWorldBlocks } from '@/store/useWorld'
+import { useWorldStore, replaceWorldBlocks, worldBlocks } from '@/store/useWorld'
+import { saveWorldToCache, loadWorldFromCache } from '@/store/worldCache'
 import { useWorldViewStore } from '@/store/useWorldView'
 import { useUserStore } from '@/store/useUser'
 import ComputerPanel from './computers/ComputerPanel'
@@ -87,6 +88,8 @@ export default function CCRemoteController() {
   const wsBackoffRef = useRef(1000)
   const wsReconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wsInitialStateLoadedRef = useRef(false)
+  const idbHydratedRef = useRef(false)
+  const cacheTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const guestRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const renderFiltersRef = useRef<{ setOpen: (v: boolean) => void } | null>(null)
   const blockTransparencyRef = useRef<{ setOpen: (v: boolean) => void } | null>(null)
@@ -236,9 +239,11 @@ export default function CCRemoteController() {
 
   function connectWebSocket() {
     const w = useWorldStore.getState()
-    const wsUrl = w.URL
+    const base = w.URL
       ? w.URL.replace(/^http/, 'ws')
       : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
+    const lastTx = w.lastTransactionId
+    const wsUrl = lastTx >= 0 ? `${base}?lastTx=${lastTx}` : base
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
@@ -246,7 +251,10 @@ export default function CCRemoteController() {
       wsBackoffRef.current = 1000
       setWsConnected(true)
       useWorldStore.setState({ wsSend: (msg: object) => ws.send(JSON.stringify(msg)) })
-      if (!wsInitialStateLoadedRef.current) { wsInitialStateLoadedRef.current = true; loadGuestState() }
+      if (!wsInitialStateLoadedRef.current) {
+        wsInitialStateLoadedRef.current = true
+        if (!idbHydratedRef.current) loadGuestState()
+      }
     }
 
     ws.onmessage = (event) => {
@@ -309,14 +317,47 @@ export default function CCRemoteController() {
     ws.onerror = () => ws.close()
   }
 
+  function persistWorldToCache() {
+    const w = useWorldStore.getState()
+    if (w.lastTransactionId < 0) return
+    saveWorldToCache(w.lastTransactionId, w.computers as Record<string, unknown>, worldBlocks).catch(() => {})
+  }
+
   useEffect(() => {
     useUserStore.getState().startPolling()
-    connectWebSocket()
+
+    let mounted = true
+    loadWorldFromCache().then(cached => {
+      if (!mounted) return
+      if (cached) {
+        const w = useWorldStore.getState()
+        w.setComputerStatus(cached.computers as Record<string, any>)
+        replaceWorldBlocks(cached.blocks)
+        useWorldStore.setState({ lastTransactionId: cached.lastTransactionId, isLoading: false })
+        idbHydratedRef.current = true
+        const view = useWorldViewStore.getState()
+        view.regenerateSceneFromBlocks()
+        view.render()
+      }
+    }).catch(() => {}).finally(() => {
+      if (mounted) connectWebSocket()
+    })
+
+    cacheTimerRef.current = setInterval(
+      () => requestIdleCallback(persistWorldToCache, { timeout: 5000 }),
+      60_000
+    )
+    function onHide() { if (document.visibilityState === 'hidden') persistWorldToCache() }
+    document.addEventListener('visibilitychange', onHide)
+
     return () => {
+      mounted = false
       useUserStore.getState().stopPolling()
       if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close() }
       if (wsReconnectRef.current) clearTimeout(wsReconnectRef.current)
       if (guestRefreshTimerRef.current) clearTimeout(guestRefreshTimerRef.current)
+      if (cacheTimerRef.current) clearInterval(cacheTimerRef.current)
+      document.removeEventListener('visibilitychange', onHide)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 

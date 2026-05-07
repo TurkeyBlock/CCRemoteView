@@ -4,6 +4,7 @@ const { parse }         = require('url');
 const next              = require('next');
 const express           = require('express');
 const cors              = require('cors');
+const compression       = require('compression');
 const fs                = require('fs');
 const path              = require('path');
 const pino              = require('pino');
@@ -59,6 +60,7 @@ nextApp.prepare().then(() => {
   const app    = express();
 
   app.set('trust proxy', 'loopback');
+  app.use(compression());
   app.use(cors({ origin: IS_PROD ? process.env.APP_URL : DEV_AUTH_URL }));
   app.use(express.json({ limit: '2mb' }));
 
