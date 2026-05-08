@@ -478,6 +478,16 @@ function SceneSetup() {
       updateChunkVisibility,
     })
 
+    // IDB cache may have resolved before R3F mounted (IDB fires as a macrotask,
+    // R3F registers callbacks on its first requestAnimationFrame — which comes
+    // after DOM effects).  If worldBlocks is already populated, the
+    // regenerateSceneFromBlocks() call in the cache handler hit the no-op
+    // placeholder.  Catch up now that the real function is registered.
+    if (Object.keys(worldBlocks).length > 0) {
+      regenerateSceneFromBlocks()
+      invalidate()
+    }
+
     return () => {
       domEl.removeEventListener('mousemove', handleMouseMove)
       domEl.removeEventListener('click', handleClick)

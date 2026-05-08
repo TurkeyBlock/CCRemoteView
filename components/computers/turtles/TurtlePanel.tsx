@@ -6,17 +6,36 @@ import FuelGauge from './FuelGauge'
 import MovementControl from './MovementControl'
 import LuaTerminal from '../LuaTerminal'
 import { Section } from '@/components/ui'
+import { useWorldStore } from '@/store/useWorld'
 
 interface Props { computerId: number }
 
 export default function TurtlePanel({ computerId }: Props) {
   const { computer, focusOnComputer, followComputer, sendStopSignal, isFollowing } = useComputerPanel(computerId)
+  const invokeCommand = useWorldStore(s => s.invokeCommand)
+  const commandResult = useWorldStore(s => s.commandResult[computerId])
+  const inspectResult = commandResult && typeof commandResult === 'object' && 'itemDetail' in (commandResult as object)
+    ? commandResult as Record<string, unknown>
+    : null
 
   return (
     <>
       {computer?.inv && (
-        <Section label="Inventory" right="16 slots">
+        <Section
+          label="Inventory"
+          right={
+            <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span>16 slots</span>
+              <button className="btn btn-compact" onClick={() => invokeCommand(computerId, 'inspectSelectedItem')}>Inspect</button>
+            </span>
+          }
+        >
           <TurtleInventory computerId={computerId} />
+          {inspectResult && (
+            <div className="code-pad-result" style={{ marginTop: 6 }}>
+              {JSON.stringify(inspectResult, null, 2)}
+            </div>
+          )}
         </Section>
       )}
 
