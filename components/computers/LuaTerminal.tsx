@@ -33,8 +33,10 @@ export default function LuaTerminal({ computerId }: Props) {
         </label>
         <button className="btn btn-compact btn-primary" onClick={run}>Execute</button>
       </div>
-      {commandResult && (
-        <div className="code-pad-result">{commandResult}</div>
+      {commandResult != null && commandResult !== false && (
+        <div className="code-pad-result">
+          {typeof commandResult === 'object' ? JSON.stringify(commandResult, null, 2) : String(commandResult)}
+        </div>
       )}
     </div>
   )

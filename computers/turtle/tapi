@@ -879,6 +879,33 @@ function findItemFuzzy(string)
   return false
 end
 
+-- [concurrent]
+-- Returns full item + peripheral details for the currently selected slot.
+-- Temporarily equips the item to the right side to probe peripheral type/methods, then restores.
+-- Two turtle.equipRight() calls are a guaranteed round-trip: slot↔right swap twice = original state.
+function inspectSelectedItem()
+  local slot = turtle.getSelectedSlot()
+  local ok, detailed = pcall(turtle.getItemDetail, slot, true)
+  if not ok then detailed = turtle.getItemDetail(slot) end
+  if not detailed then return false, "no item in selected slot " .. slot end
+
+  local result = { itemDetail = detailed }
+
+  -- Equip into right slot to read peripheral metadata; second call swaps back.
+  turtle.equipRight()
+  if peripheral.isPresent("right") then
+    result.peripheralType    = peripheral.getType("right")
+    result.peripheralMethods = peripheral.getMethods("right")
+    for _, method in ipairs({ "getDetails", "getModuleDetails", "getMeta", "getMetaOwner" }) do
+      local ok2, val = pcall(peripheral.call, "right", method)
+      if ok2 and val ~= nil then result[method] = val end
+    end
+  end
+  turtle.equipRight()
+
+  return true, result
+end
+
 function selectItem(name)
   local found = findItem(name)
   if found == false then

@@ -1,10 +1,10 @@
 // Texture extractor — replaces minecraft-blocks-render/canvas with Sharp.
 //
-// Usage:
+// Standalone usage:
 //   node scripts/textureExtractor/textureExtractor.js <mcJarOrZip> [modJarsDir]
 //
-// Example:
-//   node scripts/textureExtractor/textureExtractor.js "C:/mc/1.20.jar" "C:/mc/mods"
+// Or via the packaged binary:
+//   ./ccturtleremotecontroller --build-textures <mcJarOrZip> [modJarsDir]
 
 'use strict';
 const fs = require('fs');
@@ -16,12 +16,9 @@ const TECHNIC_BASE = path.join(os.homedir(), 'AppData', 'Roaming', '.technic');
 const DEFAULT_JAR = path.join(TECHNIC_BASE, 'cache', 'minecraft_1.12.2.jar');
 const DEFAULT_MODS = path.join(TECHNIC_BASE, 'modpacks', 'tekkit-2', 'mods');
 
-const MC_FILE = (process.argv[2] ?? DEFAULT_JAR).replaceAll('\\\\', '/').replaceAll('\\', '/');
-const MOD_DIR = (process.argv[3] ?? DEFAULT_MODS).replaceAll('\\\\', '/').replaceAll('\\', '/');
-
-// In-memory stores built while streaming JARs. Populated before the mapping phase.
-const blockstates = new Map(); // "mod:blockname"      → parsed blockstate JSON
-const models      = new Map(); // "mod:block/modelname" → parsed model JSON
+// In-memory stores built while streaming JARs. Reset at the start of each run().
+let blockstates = new Map(); // "mod:blockname"      → parsed blockstate JSON
+let models      = new Map(); // "mod:block/modelname" → parsed model JSON
 
 // ── Extraction helpers ────────────────────────────────────────────────────────
 
@@ -667,7 +664,13 @@ const LEGACY_1_12_ALIASES = {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-(async () => {
+async function run(jarPath, modDir) {
+  blockstates = new Map();
+  models      = new Map();
+
+  const MC_FILE = ((jarPath ?? DEFAULT_JAR) + '').replaceAll('\\\\', '/').replaceAll('\\', '/');
+  const MOD_DIR = ((modDir  ?? DEFAULT_MODS) + '').replaceAll('\\\\', '/').replaceAll('\\', '/');
+
   process.stdout.write('Clearing existing texture output...');
   for (const dir of ['textures/blocks', 'textures/items']) {
     if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true });
@@ -692,7 +695,7 @@ const LEGACY_1_12_ALIASES = {
 
   pickMultiFaceBlockDisplaySide();
 
-const nameTextureMap = buildNameTextureMap();
+  const nameTextureMap = buildNameTextureMap();
 
   // Apply legacy 1.12 name aliases. Snapshot first so collision entries
   // (minecraft:grass = grass block in 1.12, short-grass plant in 1.13) resolve
@@ -725,5 +728,10 @@ const nameTextureMap = buildNameTextureMap();
   fs.mkdirSync('textures', { recursive: true });
   fs.writeFileSync('textures/block-name-map.json', JSON.stringify(nameTextureMap, null, 2));
   console.log(`${Object.keys(nameTextureMap).length} entries → textures/block-name-map.json`);
+}
 
-})().catch(err => { console.error(err); process.exit(1); });
+module.exports = { run };
+
+if (require.main === module) {
+  run(process.argv[2], process.argv[3]).catch(err => { console.error(err); process.exit(1); });
+}

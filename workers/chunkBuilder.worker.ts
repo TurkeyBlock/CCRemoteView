@@ -244,7 +244,10 @@ function isSolid(
   if (!meta) return false;
   const geom = meta.geomType;
   // Partial-block shapes don't fully occlude neighbours.
-  if (geom === 'cross' || geom === 'flat' || geom === 'slab_bottom' || geom === 'slab_top') return false;
+  // fence/pane/stairs have no dedicated geometry yet (render as cube), but they
+  // must not occlude adjacent faces since they don't fill the full block volume.
+  if (geom === 'cross' || geom === 'flat' || geom === 'slab_bottom' || geom === 'slab_top'
+      || geom === 'fence' || geom === 'pane' || geom === 'stairs') return false;
   return !meta.nonOccluding;
 }
 

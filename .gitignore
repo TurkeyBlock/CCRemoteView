@@ -44,3 +44,4 @@ packagedZip
 # domain secrets (auth)
 .env
 .env.*
+!.env.local.example

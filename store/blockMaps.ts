@@ -37,6 +37,8 @@ export const blockTint: { [id: string]: number } = {
   "minecraft:grass":                        BIOME_TINT,
   "grass":                                  BIOME_TINT,
   "minecraft:tall_grass":                   BIOME_TINT,
+  "minecraft:tallgrass:1":                  BIOME_TINT,
+  "minecraft:tallgrass:2":                  BIOME_TINT,
   "minecraft:grass_block":                  BIOME_TINT,
   "minecraft:acacia_leaves":                BIOME_TINT,
   "minecraft:birch_leaves":                 0x80a755,
@@ -88,11 +90,39 @@ const slab_bottom: string[] = [
   // "minecraft:stone_slab",
 ];
 
+const slab_top: string[] = [
+  // "minecraft:stone_slab:8",
+];
+
+const pane: string[] = [
+  "chisel:ironpane",
+];
+
+// NOTE: fence geometry is not yet implemented — blocks render as cubes.
+// They are excluded from face occlusion so adjacent faces remain visible.
+const fence: string[] = [
+  // "yourmod:yourfence",
+];
+
+const glass: string[] = [
+  // "yourmod:yourglass",
+];
+
+// NOTE: stair geometry is not yet implemented — blocks render as cubes.
+// They are excluded from face occlusion so adjacent faces remain visible.
+const stairs: string[] = [
+  // "yourmod:yourstairs",
+];
+
 export const geometryMap: { [blockId: string]: string } = {
-  ...Object.fromEntries(cross.map(id => [id, "cross"])),
-  ...Object.fromEntries(flat.map(id => [id, "flat"])),
+  ...Object.fromEntries(cross.map(id       => [id, "cross"])),
+  ...Object.fromEntries(flat.map(id        => [id, "flat"])),
   ...Object.fromEntries(slab_bottom.map(id => [id, "slab_bottom"])),
-  "chisel:ironpane": "pane",
+  ...Object.fromEntries(slab_top.map(id    => [id, "slab_top"])),
+  ...Object.fromEntries(pane.map(id        => [id, "pane"])),
+  ...Object.fromEntries(fence.map(id       => [id, "fence"])),
+  ...Object.fromEntries(glass.map(id       => [id, "glass"])),
+  ...Object.fromEntries(stairs.map(id      => [id, "stairs"])),
 };
 
 // ─── Non-occluding blocks ─────────────────────────────────────────────────────
@@ -228,8 +258,8 @@ export const textureAliases: { [id: string]: string } = {
   "chisel:stonebrick2:8": "chisel/stone_bricks-triple",
   "chisel:stonebrick2:9": "chisel/stone_bricks-chaotic",
 
-  // IC2 — blockstate format not processed by the extractor; no block textures were extracted.
-  // Using closest vanilla equivalents as visual fallbacks (IC2 textures not extracted).
+  // IC2 — blockstates are in a really annoying spritemap.
+  // Using closest vanilla equivalents as visual fallbacks for now.
   "ic2:leaves":       "minecraft/leaves_oak",     // rubber tree leaves
   "ic2:blockrubwood": "minecraft/log_oak",         // rubber tree log
   "ic2:blockutility": "minecraft/stonebrick",      // reinforced stone (:2=4070, :3=49 in world)
@@ -279,23 +309,23 @@ export const textureAliases: { [id: string]: string } = {
 
   // chisel:antiblock — Forge blockstate format with per-color inline textures; extractor
   // skips variants that lack a per-variant model reference (model lives in blockstate defaults).
-  // Color order follows MC dye metadata (0=white … 15=black); light gray uses old name "silver".
-  "chisel:antiblock:0":  "chisel/antiblock_white",
-  "chisel:antiblock:1":  "chisel/antiblock_orange",
-  "chisel:antiblock:2":  "chisel/antiblock_magenta",
-  "chisel:antiblock:3":  "chisel/antiblock_light_blue",
-  "chisel:antiblock:4":  "chisel/antiblock_yellow",
-  "chisel:antiblock:5":  "chisel/antiblock_lime",
-  "chisel:antiblock:6":  "chisel/antiblock_pink",
-  "chisel:antiblock:7":  "chisel/antiblock_gray",
-  "chisel:antiblock:8":  "chisel/antiblock_silver",
-  "chisel:antiblock:9":  "chisel/antiblock_cyan",
-  "chisel:antiblock:10": "chisel/antiblock_purple",
-  "chisel:antiblock:11": "chisel/antiblock_blue",
-  "chisel:antiblock:12": "chisel/antiblock_brown",
-  "chisel:antiblock:13": "chisel/antiblock_green",
-  "chisel:antiblock:14": "chisel/antiblock_red",
-  "chisel:antiblock:15": "chisel/antiblock_black",
+  // Verified: :1=red, :8=gray, :10=lime. All others are unknown — fill in as confirmed.
+  // "chisel:antiblock:0":  unknown,
+  "chisel:antiblock:1":  "chisel/antiblock_red",
+  // "chisel:antiblock:2":  unknown,
+  // "chisel:antiblock:3":  unknown,
+  // "chisel:antiblock:4":  unknown,
+  // "chisel:antiblock:5":  unknown,
+  // "chisel:antiblock:6":  unknown,
+  // "chisel:antiblock:7":  unknown,
+  "chisel:antiblock:8":  "chisel/antiblock_gray",
+  // "chisel:antiblock:9":  unknown,
+  "chisel:antiblock:10": "chisel/antiblock_lime",
+  // "chisel:antiblock:11": unknown,
+  // "chisel:antiblock:12": unknown,
+  // "chisel:antiblock:13": unknown,
+  // "chisel:antiblock:14": unknown,
+  // "chisel:antiblock:15": unknown,
 
   // chisel:carpet_* — per-color blocks (color in name, metadata = pattern variant).
   // No dedicated carpet textures; chisel carpets reuse wool_legacy_* textures.

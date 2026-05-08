@@ -86,18 +86,24 @@ archive.pipe(output);
 // The SEA binary
 archive.file(binaryPath, { name: binaryName });
 
-// Next.js build output (required at runtime — SEA contains only the server bootstrap)
-archive.directory('.next', '.next');
+// Next.js build output — exclude cache/ (webpack + image cache, not needed at runtime)
+archive.glob('.next/**', { ignore: ['.next/cache/**'] });
 
 // Static assets served by Express
 if (fs.existsSync('textures')) archive.directory('textures', 'textures');
 if (fs.existsSync('computers')) archive.directory('computers', 'computers');
 if (fs.existsSync('public')) archive.directory('public', 'public');
 
-// Saved world + server data
-if (fs.existsSync('src/server/saved')) archive.directory('src/server/saved', 'src/server/saved');
-if (fs.existsSync('logs')) fs.mkdirSync('logs', { recursive: true });
-archive.directory('logs', 'logs');
+// Blank starter data — ships saved.example/ as saved/ so users get correct file structure
+// without any personal data (IPs, usernames, world state) from the build machine.
+archive.directory('src/server/saved.example', 'src/server/saved');
+
+// Empty logs placeholder (never archive logs/ directly — dev logs must not ship)
+archive.append('', { name: 'logs/.gitkeep' });
+
+// Setup docs and env template
+archive.file('README.md', { name: 'README.md' });
+archive.file('.env.local.example', { name: '.env.local.example' });
 
 // Start script so the user can also launch with node if preferred
 const startScript = platform === 'win32' ? 'start.bat' : 'start.sh';

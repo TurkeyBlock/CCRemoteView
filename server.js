@@ -1,5 +1,12 @@
 require('dotenv').config({ path: '.env.local' });
 
+if (process.argv[2] === '--build-textures') {
+  const { run } = require('./scripts/textureExtractor/textureExtractor');
+  run(process.argv[3], process.argv[4])
+    .then(() => process.exit(0))
+    .catch(err => { console.error(err); process.exit(1); });
+} else {
+
 const { parse }         = require('url');
 const next              = require('next');
 const express           = require('express');
@@ -122,3 +129,5 @@ nextApp.prepare().then(() => {
     process.exit(0);
   });
 });
+
+}

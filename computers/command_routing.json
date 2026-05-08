@@ -7,6 +7,7 @@
       "getLoc":                { "concurrent": true,  "args": [] },
       "findItem":              { "concurrent": true,  "args": [{ "name": "itemName",  "type": "string", "required": true,  "maxLength": 200 }] },
       "findItemFuzzy":         { "concurrent": true,  "args": [{ "name": "itemName",  "type": "string", "required": true,  "maxLength": 200 }] },
+      "inspectSelectedItem":   { "concurrent": true,  "args": [] },
       "forward":               { "concurrent": false, "args": [] },
       "back":                  { "concurrent": false, "args": [] },
       "up":                    { "concurrent": false, "args": [] },
