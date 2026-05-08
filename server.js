@@ -112,9 +112,10 @@ nextApp.prepare().then(() => {
   // Route upgrade requests: /ws → browser WS, /ws/computer → computer WS.
   // All other upgrades (/_next/webpack-hmr etc.) are left for Next.js.
   server.on('upgrade', (req, socket, head) => {
-    if (req.url === '/ws') {
+    const pathname = req.url.split('?')[0];
+    if (pathname === '/ws') {
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
-    } else if (req.url.startsWith('/ws/computer')) {
+    } else if (pathname.startsWith('/ws/computer')) {
       computerWss.handleUpgrade(req, socket, head, (ws) => computerWss.emit('connection', ws, req));
     }
   });
