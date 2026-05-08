@@ -887,7 +887,7 @@ function inspectSelectedItem()
   local slot = turtle.getSelectedSlot()
   local ok, detailed = pcall(turtle.getItemDetail, slot, true)
   if not ok then detailed = turtle.getItemDetail(slot) end
-  if not detailed then return false, "no item in selected slot " .. slot end
+  if not detailed then error("no item in selected slot " .. slot) end
 
   local result = { itemDetail = detailed }
 
@@ -903,7 +903,7 @@ function inspectSelectedItem()
   end
   turtle.equipRight()
 
-  return true, result
+  return result
 end
 
 function selectItem(name)
