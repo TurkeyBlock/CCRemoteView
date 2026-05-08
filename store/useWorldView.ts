@@ -235,7 +235,10 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
         texture.needsUpdate = true
       }
 
-      if (!blockUV && img.width !== img.height) get().addAnimatedTexture(texture)
+      // Non-square textures default to "animated sprite sheet" (fire, water, etc.).
+      // cube6 geometry uses a 96×16 face strip whose UVs are picked per-face by
+      // the chunk builder, so it must NOT be animated.
+      if (!blockUV && img.width !== img.height && geomId !== 'cube6') get().addAnimatedTexture(texture)
       mat.needsUpdate = true
     }
 

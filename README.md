@@ -202,7 +202,30 @@ export const geometryMap: { [blockId: string]: string } = {
 };
 ```
 
-Available geometry types: `cube`, `cross` (plants/torches), `flat` (carpet/rails), `slab_bottom`, `slab_top`, `glass`, `leaves`, `liquid`, `pane`, `fence`, `stairs`. Note that `fence` and `stairs` are not yet rendered with their true shape — blocks assigned these types render as cubes but correctly avoid hiding the faces of adjacent blocks.
+Available geometry types: `cube`, `cube6` (cube with 6 distinct face textures from a 96×16 horizontal strip — used for chests), `cross` (plants/torches), `flat` (carpet/rails), `slab_bottom`, `slab_top`, `glass`, `leaves`, `liquid`, `pane` (thin vertical centre column with up to 4 full-height arms toward adjacent panes and solid blocks — used for glass panes and iron bars), `fence` (thin centre post with up to 4 top + bottom rail pairs toward adjacent fences and solid blocks; covers walls too), `cable` (small centre cube with up to 6 arms toward neighbours that share a connection group — used for power cables, fluid pipes, item pipes), `stairs`. Note that `stairs` is not yet rendered with its true shape — blocks assigned this type render as cubes but correctly avoid hiding the faces of adjacent blocks.
+
+#### Connection groups (cable / pipe wiring)
+
+Cable geometry doesn't connect by shape — it connects by *connection group*. RF cables, EU cables, fluid pipes, and item pipes each have their own group (`"rf"`, `"eu"`, `"liquid"`, `"item"`). A cable extends an arm toward any neighbour that shares at least one of its groups, including non-cable acceptors (e.g. a chest is in the `"item"` group so item pipes attach to it).
+
+Each group can also be subdivided into **sub-protocols** when two networks shouldn't merge — for example IC2 EU cables and Galacticraft aluminium wires are both EU but mechanically incompatible. In `store/blockMaps.ts`, the group definitions are subgroup maps:
+
+```ts
+const EU = {
+  ic2:      ["ic2:blockcable", ...],            // tag: "eu_ic2"
+  galactic: ["galacticraftcore:aluminum_wire"], // tag: "eu_galactic"
+  _:        ["ic2:blockmachinehv", ...],         // universal: gets BOTH sibling tags
+};
+const LIQUID = {
+  _: [...],   // only "_" present → tag is just "liquid"
+};
+```
+
+The `"_"` key has two meanings depending on context:
+- **When named subgroups exist alongside `_`** (e.g. EU above): blocks under `_` are *universal acceptors* — they get every named sibling's tag and connect to all sub-protocols.
+- **When `_` is the only key** (e.g. LIQUID above): the group has no subdivision and `_` entries get the bare prefix tag.
+
+Blocks in different named sub-protocols don't connect to each other. Multi-group entries in `CONNECTION_GROUPS_OVERRIDES` reference the resolved tag names (e.g. `["eu_ic2", "eu_galactic", "item"]`).
 
 #### Wrong or missing texture (block is grey or shows a different block's face)
 
@@ -273,6 +296,17 @@ export const uvOverrides: Record<string, [number, number, number, number]> = {
 ```
 
 UV coordinates are **pixel offsets into the PNG** matching its actual dimensions, not normalised 0–1 values.
+
+### Custom textures
+
+For blocks that the extractor can't handle (e.g. vanilla `minecraft:chest`, which uses a block-entity renderer and has no standard block model), you can supply your own PNG assets and wire them up manually.
+
+1. Create a named folder under `textures/` — for example `textures/chest/`. Do **not** use `blocks`, `items`, or `turtle` (those are reserved).
+2. Place your PNG files in it. Any layout is fine; subdirectories work too.
+3. At the end of every `npm run build-textures` run, the extractor automatically copies those folders into `textures/blocks/` (e.g. `textures/blocks/chest/`). They can then be referenced via `textureAliases` or `block-name-map.json` using the path `"blocks/chest/your_file"` — the same scheme as any other extracted texture.
+4. The source folder is never overwritten by the extractor, so your files are safe.
+
+For per-face textures (each cube face drawing from its own tile), use the `cube6` geometry type — supply a 96×16 PNG with tiles in the order `+X, -X, +Y, -Y, +Z, -Z`. For other custom shapes, add a new geometry type to the `geomType` handling in `workers/chunkBuilder.worker.ts` and reference it from `geometryMap` or `block-name-map.json`.
 
 ---
 

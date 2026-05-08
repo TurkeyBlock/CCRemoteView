@@ -83,7 +83,8 @@ const cross: string[] = [
 ];
 
 const flat: string[] = [
-  // "minecraft:snow_layer",
+  "galacticraftcore:block_multi:2",
+  "galacticraftcore:landing_pad_full",
 ];
 
 const slab_bottom: string[] = [
@@ -96,12 +97,15 @@ const slab_top: string[] = [
 
 const pane: string[] = [
   "chisel:ironpane",
+  "minecraft:iron_bars",
+  "minecraft:glass_pane",
+  "minecraft:stained_glass_pane",
 ];
 
-// NOTE: fence geometry is not yet implemented — blocks render as cubes.
-// They are excluded from face occlusion so adjacent faces remain visible.
+// Fences also covers walls per project convention — both render as a thin centre
+// post with up to 4 connector rails toward adjacent fences and solid full cubes.
 const fence: string[] = [
-  // "yourmod:yourfence",
+  "ic2:blockfenceiron",
 ];
 
 const glass: string[] = [
@@ -114,6 +118,29 @@ const stairs: string[] = [
   // "yourmod:yourstairs",
 ];
 
+// cube6: cube whose 6 faces each draw from a distinct tile in a horizontal
+// 6-tile texture strip. Tile order: +X, -X, +Y, -Y, +Z, -Z.
+const cube6: string[] = [
+  "minecraft:chest",
+  "minecraft:trapped_chest",
+  "ironchest:iron_chest",
+];
+
+// cable: 6-directional thin cuboid (small centre cube + arms toward connected
+// neighbours). Connection is decided by connectionGroups overlap, not geomType —
+// see the connection-group definitions further below.
+const cable: string[] = [
+  // EU
+  "ic2:blockcable",
+  "galacticraftcore:aluminum_wire",
+  // RF (fill in when present)
+  // Liquid pipes
+  "galacticraftcore:fluid_pipe",
+  "galacticraftcore:fluid_pipe_pull",
+  // Item pipes
+  "buildcrafttransport:pipe_holder",
+];
+
 export const geometryMap: { [blockId: string]: string } = {
   ...Object.fromEntries(cross.map(id       => [id, "cross"])),
   ...Object.fromEntries(flat.map(id        => [id, "flat"])),
@@ -121,9 +148,133 @@ export const geometryMap: { [blockId: string]: string } = {
   ...Object.fromEntries(slab_top.map(id    => [id, "slab_top"])),
   ...Object.fromEntries(pane.map(id        => [id, "pane"])),
   ...Object.fromEntries(fence.map(id       => [id, "fence"])),
+  ...Object.fromEntries(cable.map(id       => [id, "cable"])),
   ...Object.fromEntries(glass.map(id       => [id, "glass"])),
   ...Object.fromEntries(stairs.map(id      => [id, "stairs"])),
+  ...Object.fromEntries(cube6.map(id       => [id, "cube6"])),
 };
+
+// ─── Connection Groups ───────────────────────────────────────────────────────
+// Lists of blocks that participate in a given connection group. Cable / pipe
+// geometry checks for group overlap with neighbours: an RF cable connects to
+// any block in the "rf" group (other RF cables AND RF-accepting machines).
+//
+// Both the cable itself AND its acceptors live in the same list — the geometry
+// (cube vs. cable) is decided separately by `geometryMap` above.
+//
+// Per-metadata exceptions can be added in CONNECTION_GROUPS_OVERRIDES below
+// when a block accepts multiple types at one specific metadata only.
+
+// Each top-level group can be subdivided into sub-protocols. Blocks in
+// different named sub-protocols within the same group do NOT connect to each
+// other — e.g. IC2 EU cables and Galacticraft aluminium wires are both "eu"
+// but visually wouldn't merge into one network.
+//
+// The "_" key has two meanings depending on context:
+//   • When named subgroups exist alongside "_" (e.g. EU below): blocks under
+//     "_" are UNIVERSAL ACCEPTORS — they get every named sibling's tag and
+//     therefore connect to all sub-protocols. Use this for machines that
+//     accept any flavour of the parent group.
+//   • When "_" is the only key (e.g. LIQUID, ITEM below): the group has no
+//     subdivision; "_" entries simply get the bare prefix tag and all entries
+//     connect to each other.
+//
+// Tags emitted:
+//   • Named subgroup → `<prefix>_<subgroup>`  (e.g. "eu_ic2", "eu_galactic")
+//   • "_" with named siblings → all named-sibling tags
+//   • "_" alone → just `<prefix>`              (e.g. "liquid", "item")
+//
+// Multi-group entries in CONNECTION_GROUPS_OVERRIDES must reference these
+// resolved tag names — e.g. ["eu_ic2", "eu_galactic", "item"] for a machine
+// that accepts any EU flavour plus item pipes at one specific metadata.
+
+const RF: Record<string, string[]> = {
+};
+
+const EU: Record<string, string[]> = {
+  ic2: [
+    "ic2:blockcable",
+    "ic2:blockelectric",
+    "ic2:blockgenerator",
+    "ic2:blockcompactedgenerator",
+    "ic2:blockmachinelv",
+    "ic2:blockmachinelv2",
+    "ic2:blockmachinemv",
+    "ic2:blockmachinehv",
+  ],
+  galactic: [
+    "galacticraftcore:aluminum_wire",
+  ],
+};
+
+const LIQUID: Record<string, string[]> = {
+  _: [
+    // pipes
+    "galacticraftcore:fluid_pipe",
+    "galacticraftcore:fluid_pipe_pull",
+    // tanks / fluid-accepting machines
+    "irontanks:obsidian_tank",
+  ],
+};
+
+const ITEM: Record<string, string[]> = {
+  _: [
+    // pipes
+    "buildcrafttransport:pipe_holder",
+    // chests accept item pipes
+    "minecraft:chest",
+    "minecraft:trapped_chest",
+    "ironchest:iron_chest",
+  ],
+};
+
+// Per-metadata multi-group entries. Use the resolved tag names from the
+// subgroup definitions above (e.g. "eu_ic2", not "eu"). These take priority
+// over bare-name lookups.
+const CONNECTION_GROUPS_OVERRIDES: Record<string, string[]> = {
+  "ic2:blockmachinehv:1":           ["eu_ic2", "eu_galactic", "item"],
+  "galacticraftcore:machine:0":     ["eu_ic2", "eu_galactic"],
+  "galacticraftcore:fuel_loader:0": ["eu_ic2", "eu_galactic", "liquid"],
+  "galacticraftcore:fuel_loader:1": ["eu_galactic", "liquid"],
+  "galacticraftcore:refinery:1":    ["eu_ic2", "eu_galactic", "liquid"],
+};
+
+function buildConnectionGroups(): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  const addNamespaced = (prefix: string, subgroups: Record<string, string[]>) => {
+    // Named sub-protocols within this prefix (everything except "_").
+    const namedSubs = Object.keys(subgroups).filter(s => s !== "_");
+    // Tags emitted by entries under "_": all named-sub tags if any exist
+    // (acceptor speaks every sub-protocol), otherwise just the bare prefix.
+    const universalTags = namedSubs.length > 0
+      ? namedSubs.map(s => `${prefix}_${s}`)
+      : [prefix];
+
+    for (const [sub, ids] of Object.entries(subgroups)) {
+      const tags = sub === "_" ? universalTags : [`${prefix}_${sub}`];
+      for (const id of ids) {
+        for (const t of tags) (out[id] ??= []).push(t);
+      }
+    }
+  };
+  addNamespaced("rf",     RF);
+  addNamespaced("eu",     EU);
+  addNamespaced("liquid", LIQUID);
+  addNamespaced("item",   ITEM);
+  // Overrides last so they win on direct id+meta hits.
+  for (const [id, groups] of Object.entries(CONNECTION_GROUPS_OVERRIDES)) out[id] = groups;
+  return out;
+}
+
+const connectionGroups: Record<string, string[]> = buildConnectionGroups();
+
+/**
+ * Returns the connection groups a block belongs to. Tries the metadata-specific
+ * key first, falls back to the bare name. Empty array means "no groups".
+ */
+export function getConnectionGroups(name: string, metadata: number = 0): string[] {
+  return connectionGroups[`${name}:${metadata}`] ?? connectionGroups[name] ?? [];
+}
 
 // ─── Non-occluding blocks ─────────────────────────────────────────────────────
 // Full-cube blocks that are transparent or semi-transparent and therefore must
@@ -242,6 +393,11 @@ export const uvOverrides: Record<string, [number, number, number, number]> = {
 };
 
 export const textureAliases: { [id: string]: string } = {
+  // Hand-authored textures for blocks the extractor can't resolve (block-entity renderers).
+  "minecraft:chest":         "chest/chest_faces",
+  "minecraft:trapped_chest": "chest/chest_faces",
+  "ironchest:iron_chest":    "chest/chest_faces",
+
   "projecte:interdiction_torch": "projecte/interdiction_torch",
 
   // chisel:ironpane — no blockstate extracted; textures follow chisel alphabetical ordering.

@@ -3,7 +3,7 @@ import { Block } from '@/types/world';
 import { useWorldViewStore } from '@/store/useWorldView';
 import { WorldChunk, CHUNK_SIZE, locToChunkKey } from './WorldChunk';
 import type { BuildRequest, BuildResult, MaterialMeta, SerializedBlock } from '@/workers/chunkBuilder.worker';
-import { isNonOccluding, isLiquid } from '@/store/blockMaps';
+import { isNonOccluding, isLiquid, getConnectionGroups } from '@/store/blockMaps';
 import { getBlockGeometry } from '@/store/useWorldView';
 
 /**
@@ -91,7 +91,7 @@ export class ChunkManager {
   addBlock(locString: string, block: Block): void {
     const chunk = this.getOrCreate(locToChunkKey(locString));
     chunk.blocks.set(locString, block);
-    this.markDirty(chunk.key);
+    this.markDirtyForBlock(locString);
   }
 
   /** Remove a block and mark the chunk dirty. */
@@ -100,7 +100,7 @@ export class ChunkManager {
     const chunk = this.chunks.get(key);
     if (!chunk) return;
     chunk.blocks.delete(locString);
-    this.markDirty(key);
+    this.markDirtyForBlock(locString);
   }
 
   /**
@@ -281,6 +281,29 @@ export class ChunkManager {
     this.scheduleSweep();
   }
 
+  /**
+   * Mark a block's chunk dirty, plus any neighbouring chunks that include this
+   * block in their borderBlocks (i.e. chunks where this block could affect
+   * geometry — face culling, fence connections, etc.).
+   */
+  private markDirtyForBlock(locString: string): void {
+    const [x, y, z] = locString.split(',').map(Number);
+    const cx = Math.floor(x / CHUNK_SIZE);
+    const cy = Math.floor(y / CHUNK_SIZE);
+    const cz = Math.floor(z / CHUNK_SIZE);
+    this.markDirty(`${cx},${cy},${cz}`);
+
+    const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const ly = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    if (lx === 0)              this.markDirty(`${cx-1},${cy},${cz}`);
+    if (lx === CHUNK_SIZE - 1) this.markDirty(`${cx+1},${cy},${cz}`);
+    if (ly === 0)              this.markDirty(`${cx},${cy-1},${cz}`);
+    if (ly === CHUNK_SIZE - 1) this.markDirty(`${cx},${cy+1},${cz}`);
+    if (lz === 0)              this.markDirty(`${cx},${cy},${cz-1}`);
+    if (lz === CHUNK_SIZE - 1) this.markDirty(`${cx},${cy},${cz+1}`);
+  }
+
   private scheduleSweep(): void {
     if (this.sweepPending) return;
     this.sweepPending = true;
@@ -340,11 +363,13 @@ export class ChunkManager {
       const idx = nextIdx++;
       matIndices[key] = idx;
       const geomType = getBlockGeometry(name, metadata ?? 0);
+      const groups = getConnectionGroups(name, metadata ?? 0);
       const meta: MaterialMeta = {
         transparent: name.includes('water') || name.includes('glass') || name.includes('ice'),
         liquid: isLiquid(name),
         nonOccluding: isNonOccluding(name),
         geomType,
+        ...(groups.length > 0 ? { connectionGroups: groups } : {}),
       };
       matMeta[idx] = meta;
       localMaterials[idx] = worldView.getBlockMaterial(name, metadata ?? 0);

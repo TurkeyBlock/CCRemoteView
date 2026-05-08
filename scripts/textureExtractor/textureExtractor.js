@@ -390,6 +390,7 @@ const UV_OVERRIDES = {
   // 'railcraft:infernal:1': [16, 0, 32, 16],
 };
 
+
 // Iterates every blockstate we collected and resolves each variant's display
 // texture and geometry, returning a map keyed by "mod:blockname:meta" (meta = variant index).
 // For simple single-property blocks the variant order matches metadata 0..N.
@@ -728,6 +729,17 @@ async function run(jarPath, modDir) {
   fs.mkdirSync('textures', { recursive: true });
   fs.writeFileSync('textures/block-name-map.json', JSON.stringify(nameTextureMap, null, 2));
   console.log(`${Object.keys(nameTextureMap).length} entries → textures/block-name-map.json`);
+
+  // Copy hand-authored texture folders into textures/blocks/ so the existing path
+  // resolver can find them. Any folder in textures/ that isn't a generated one gets mirrored.
+  const GENERATED_DIRS = new Set(['blocks', 'items', 'turtle']);
+  for (const entry of fs.readdirSync('textures', { withFileTypes: true })) {
+    if (!entry.isDirectory() || GENERATED_DIRS.has(entry.name)) continue;
+    const src = path.join('textures', entry.name);
+    const dst = path.join('textures', 'blocks', entry.name);
+    fs.cpSync(src, dst, { recursive: true });
+    console.log(`Copied custom textures/${entry.name}/ → textures/blocks/${entry.name}/`);
+  }
 }
 
 module.exports = { run };

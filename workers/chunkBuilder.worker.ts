@@ -16,8 +16,10 @@ export interface MaterialMeta {
   transparent: boolean;
   liquid: boolean;
   nonOccluding: boolean;
-  /** 'cube' | 'cross' | 'flat' | 'slab_bottom' | 'slab_top' | 'box' (fallback) */
+  /** 'cube' | 'cross' | 'flat' | 'slab_bottom' | 'slab_top' | 'fence' | 'pane' | 'cable' | 'cube6' (fallback: 'cube') */
   geomType: string;
+  /** Connection-group memberships. Cable geometry connects when any of its groups overlap a neighbour's. */
+  connectionGroups?: string[];
 }
 
 export interface GroupEntry {
@@ -225,6 +227,164 @@ function pushSlab(acc: Accumulator, bx: number, by: number, bz: number, isTop: b
   }
 }
 
+/**
+ * Append all 6 faces of an axis-aligned cuboid defined by min/max corners in
+ * block-local coords (block centre = origin, full cube spans -0.5..0.5 on each axis).
+ * UVs are sized proportionally to each face's dimensions so a fractional-width
+ * cuboid takes a matching fractional slice of its texture (no stretching).
+ */
+function pushBox(
+  acc: Accumulator,
+  bx: number, by: number, bz: number,
+  x0: number, y0: number, z0: number,
+  x1: number, y1: number, z1: number,
+) {
+  const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
+  const faces = [
+    // +X: U=Z, V=Y
+    { v: [[x1,y0,z0],[x1,y1,z0],[x1,y1,z1],[x1,y0,z1]], n: [1,0,0],  uv: [[0,0],[0,dy],[dz,dy],[dz,0]] },
+    // -X
+    { v: [[x0,y0,z1],[x0,y1,z1],[x0,y1,z0],[x0,y0,z0]], n: [-1,0,0], uv: [[0,0],[0,dy],[dz,dy],[dz,0]] },
+    // +Y: U=X, V=Z
+    { v: [[x0,y1,z0],[x0,y1,z1],[x1,y1,z1],[x1,y1,z0]], n: [0,1,0],  uv: [[0,0],[0,dz],[dx,dz],[dx,0]] },
+    // -Y
+    { v: [[x0,y0,z1],[x0,y0,z0],[x1,y0,z0],[x1,y0,z1]], n: [0,-1,0], uv: [[0,0],[0,dz],[dx,dz],[dx,0]] },
+    // +Z: U=X, V=Y
+    { v: [[x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1]], n: [0,0,1],  uv: [[0,0],[dx,0],[dx,dy],[0,dy]] },
+    // -Z
+    { v: [[x1,y0,z0],[x0,y0,z0],[x0,y1,z0],[x1,y1,z0]], n: [0,0,-1], uv: [[0,0],[dx,0],[dx,dy],[0,dy]] },
+  ];
+  for (const f of faces) {
+    pushQuad(acc, f.v as any, f.n as [number,number,number], f.uv as any, bx, by, bz);
+  }
+}
+
+/**
+ * Append a fence: a thin centre post plus up to 4 connector rails (top + bottom
+ * pair per direction). Connections are decided by the caller — typically true
+ * when the neighbour is another fence or a solid full cube.
+ *
+ * Direction convention follows FACES: connN = -Z, connS = +Z, connE = +X, connW = -X.
+ */
+function pushFence(
+  acc: Accumulator,
+  bx: number, by: number, bz: number,
+  connN: boolean, connS: boolean, connE: boolean, connW: boolean,
+) {
+  // Centre post: 4/16 wide on X/Z, full block height. Always rendered.
+  const POST = 2/16;
+  pushBox(acc, bx, by, bz, -POST, -0.5, -POST, POST, 0.5, POST);
+
+  // Connector rails: 2/16 thick perpendicular to length, 3/16 tall.
+  // Block-local Y: top rail at 12..15/16, bottom rail at 6..9/16 (Y origin = block centre).
+  const RAIL_T = 1/16;
+  const tY0 = 12/16 - 0.5, tY1 = 15/16 - 0.5;
+  const bY0 =  6/16 - 0.5, bY1 =  9/16 - 0.5;
+
+  if (connN) {
+    pushBox(acc, bx, by, bz, -RAIL_T, tY0, -0.5,  RAIL_T, tY1, -POST);
+    pushBox(acc, bx, by, bz, -RAIL_T, bY0, -0.5,  RAIL_T, bY1, -POST);
+  }
+  if (connS) {
+    pushBox(acc, bx, by, bz, -RAIL_T, tY0,  POST,  RAIL_T, tY1,  0.5);
+    pushBox(acc, bx, by, bz, -RAIL_T, bY0,  POST,  RAIL_T, bY1,  0.5);
+  }
+  if (connE) {
+    pushBox(acc, bx, by, bz,  POST, tY0, -RAIL_T,  0.5, tY1, RAIL_T);
+    pushBox(acc, bx, by, bz,  POST, bY0, -RAIL_T,  0.5, bY1, RAIL_T);
+  }
+  if (connW) {
+    pushBox(acc, bx, by, bz, -0.5, tY0, -RAIL_T, -POST, tY1, RAIL_T);
+    pushBox(acc, bx, by, bz, -0.5, bY0, -RAIL_T, -POST, bY1, RAIL_T);
+  }
+}
+
+/**
+ * Returns true if `nb` is something a connecting block (fence/pane/iron bars)
+ * should extend an arm toward. Connects to other blocks of the same matchType,
+ * plus any solid full cube.
+ */
+function isConnection(
+  matchType: string,
+  nb: SerializedBlock | undefined,
+  hiddenSet: Set<string>,
+  matIndices: Record<string, number>,
+  matMeta: Record<number, MaterialMeta>,
+): boolean {
+  if (!nb || hiddenSet.has(nb.name)) return false;
+  const key = nb.metadata ? `${nb.name}:${nb.metadata}` : nb.name;
+  const idx = matIndices[key] ?? matIndices[nb.name];
+  if (idx === undefined) return false;
+  const meta = matMeta[idx];
+  if (!meta) return false;
+  if (meta.geomType === matchType) return true;
+  // Connect to solid full cubes (excludes glass/leaves/etc. via nonOccluding flag).
+  return meta.geomType === 'cube' && !meta.nonOccluding;
+}
+
+/**
+ * Append a pane / iron-bars block: a thin vertical centre column plus up to 4
+ * full-height arms extending toward connecting neighbours. Same connection rules
+ * as a fence, but the arms are full-height flat panels rather than top/bottom rails.
+ */
+function pushPane(
+  acc: Accumulator,
+  bx: number, by: number, bz: number,
+  connN: boolean, connS: boolean, connE: boolean, connW: boolean,
+) {
+  const T = 1/16;  // half-thickness — pane is 2/16 thick total
+  // Centre column — always rendered.
+  pushBox(acc, bx, by, bz, -T, -0.5, -T, T, 0.5, T);
+
+  if (connN) pushBox(acc, bx, by, bz, -T, -0.5, -0.5,  T, 0.5, -T);
+  if (connS) pushBox(acc, bx, by, bz, -T, -0.5,  T,    T, 0.5,  0.5);
+  if (connE) pushBox(acc, bx, by, bz,  T, -0.5, -T,    0.5, 0.5, T);
+  if (connW) pushBox(acc, bx, by, bz, -0.5, -0.5, -T, -T, 0.5,  T);
+}
+
+/**
+ * Append a cable / pipe: a small centre cube plus up to 6 arms toward connected
+ * neighbours (one per axis direction). Connection is decided by group overlap, NOT
+ * geomType — RF cables connect to RF machines, EU cables to EU machines, etc.
+ */
+function pushCable(
+  acc: Accumulator,
+  bx: number, by: number, bz: number,
+  Xp: boolean, Xn: boolean, Yp: boolean, Yn: boolean, Zp: boolean, Zn: boolean,
+) {
+  const T = 2/16;  // half-thickness — cable is 4/16 wide
+  // Centre cube — always rendered.
+  pushBox(acc, bx, by, bz, -T, -T, -T, T, T, T);
+  if (Xp) pushBox(acc, bx, by, bz,    T,   -T,   -T,  0.5,    T,    T);
+  if (Xn) pushBox(acc, bx, by, bz, -0.5,   -T,   -T,   -T,    T,    T);
+  if (Yp) pushBox(acc, bx, by, bz,   -T,    T,   -T,    T,  0.5,    T);
+  if (Yn) pushBox(acc, bx, by, bz,   -T, -0.5,   -T,    T,   -T,    T);
+  if (Zp) pushBox(acc, bx, by, bz,   -T,   -T,    T,    T,    T,  0.5);
+  if (Zn) pushBox(acc, bx, by, bz,   -T,   -T, -0.5,    T,    T,   -T);
+}
+
+/**
+ * Returns true if `nb`'s connection groups overlap with `myGroups`. Used by cable
+ * geometry to decide whether to extend an arm toward a neighbour.
+ */
+function isCableConnection(
+  myGroups: readonly string[] | undefined,
+  nb: SerializedBlock | undefined,
+  hiddenSet: Set<string>,
+  matIndices: Record<string, number>,
+  matMeta: Record<number, MaterialMeta>,
+): boolean {
+  if (!myGroups || myGroups.length === 0) return false;
+  if (!nb || hiddenSet.has(nb.name)) return false;
+  const key = nb.metadata ? `${nb.name}:${nb.metadata}` : nb.name;
+  const idx = matIndices[key] ?? matIndices[nb.name];
+  if (idx === undefined) return false;
+  const meta = matMeta[idx];
+  if (!meta?.connectionGroups) return false;
+  for (const g of myGroups) if (meta.connectionGroups.includes(g)) return true;
+  return false;
+}
+
 // ─── Solid-block test ─────────────────────────────────────────────────────────
 
 function isSolid(
@@ -301,9 +461,31 @@ function buildGeometry(req: BuildRequest): BuildResult {
       pushSlab(acc, x, y, z, geomType === 'slab_top');
       continue;
     }
+    if (geomType === 'fence' || geomType === 'pane') {
+      const connN = isConnection(geomType, allBlocks[`${x},${y},${z-1}`], hiddenSet, matIndices, matMeta);
+      const connS = isConnection(geomType, allBlocks[`${x},${y},${z+1}`], hiddenSet, matIndices, matMeta);
+      const connE = isConnection(geomType, allBlocks[`${x+1},${y},${z}`], hiddenSet, matIndices, matMeta);
+      const connW = isConnection(geomType, allBlocks[`${x-1},${y},${z}`], hiddenSet, matIndices, matMeta);
+      if (geomType === 'fence') pushFence(acc, x, y, z, connN, connS, connE, connW);
+      else                      pushPane(acc, x, y, z, connN, connS, connE, connW);
+      continue;
+    }
+    if (geomType === 'cable') {
+      const myGroups = meta.connectionGroups;
+      const Xp = isCableConnection(myGroups, allBlocks[`${x+1},${y},${z}`], hiddenSet, matIndices, matMeta);
+      const Xn = isCableConnection(myGroups, allBlocks[`${x-1},${y},${z}`], hiddenSet, matIndices, matMeta);
+      const Yp = isCableConnection(myGroups, allBlocks[`${x},${y+1},${z}`], hiddenSet, matIndices, matMeta);
+      const Yn = isCableConnection(myGroups, allBlocks[`${x},${y-1},${z}`], hiddenSet, matIndices, matMeta);
+      const Zp = isCableConnection(myGroups, allBlocks[`${x},${y},${z+1}`], hiddenSet, matIndices, matMeta);
+      const Zn = isCableConnection(myGroups, allBlocks[`${x},${y},${z-1}`], hiddenSet, matIndices, matMeta);
+      pushCable(acc, x, y, z, Xp, Xn, Yp, Yn, Zp, Zn);
+      continue;
+    }
 
     // ── Cube face culling ──────────────────────────────────────────────────
-    for (const face of FACES) {
+    const isCube6 = geomType === 'cube6';
+    for (let fi = 0; fi < FACES.length; fi++) {
+      const face = FACES[fi];
       const nx = x + face.dx, ny = y + face.dy, nz = z + face.dz;
       const nLoc = `${nx},${ny},${nz}`;
       const nb = allBlocks[nLoc];
@@ -317,7 +499,8 @@ function buildGeometry(req: BuildRequest): BuildResult {
           if (nbMeta) {
             const nbGeom = nbMeta.geomType;
             const nbIsFullCube = nbGeom !== 'cross' && nbGeom !== 'flat'
-              && nbGeom !== 'slab_bottom' && nbGeom !== 'slab_top';
+              && nbGeom !== 'slab_bottom' && nbGeom !== 'slab_top'
+              && nbGeom !== 'fence' && nbGeom !== 'pane' && nbGeom !== 'cable';
             // Slabs occlude only the single face they fully cover:
             // a bottom slab covers the top face (+Y) of the block below it,
             // a top slab covers the bottom face (-Y) of the block above it.
@@ -338,7 +521,12 @@ function buildGeometry(req: BuildRequest): BuildResult {
         }
       }
 
-      pushQuad(acc, face.verts, face.normal, face.uvs, x, y, z);
+      // cube6: texture is a 96x16 strip of 6 distinct face tiles (one per cube face).
+      // Face index fi matches the FACES order: +X,-X,+Y,-Y,+Z,-Z.
+      const uvCoords = isCube6
+        ? face.uvs.map(([u, v]) => [(fi + u) / 6, v] as const)
+        : face.uvs;
+      pushQuad(acc, face.verts, face.normal, uvCoords, x, y, z);
     }
   }
 
