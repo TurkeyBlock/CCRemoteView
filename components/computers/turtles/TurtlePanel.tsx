@@ -1,5 +1,6 @@
 'use client'
 
+import { useRef, useState, useEffect } from 'react'
 import { useComputerPanel } from '../useComputerPanel'
 import TurtleInventory from './TurtleInventory'
 import FuelGauge from './FuelGauge'
@@ -14,9 +15,23 @@ export default function TurtlePanel({ computerId }: Props) {
   const { computer, focusOnComputer, followComputer, sendStopSignal, isFollowing } = useComputerPanel(computerId)
   const invokeCommand = useWorldStore(s => s.invokeCommand)
   const commandResult = useWorldStore(s => s.commandResult[computerId])
-  const inspectResult = commandResult && typeof commandResult === 'object' && 'itemDetail' in (commandResult as object)
-    ? commandResult as Record<string, unknown>
-    : null
+
+  const [inspectResult, setInspectResult] = useState<unknown>(null)
+  const inspectPendingRef = useRef(false)
+
+  // Capture the next commandResult that arrives after the Inspect button is clicked
+  useEffect(() => {
+    if (inspectPendingRef.current && commandResult !== undefined) {
+      inspectPendingRef.current = false
+      setInspectResult(commandResult)
+    }
+  }, [commandResult])
+
+  function handleInspect() {
+    inspectPendingRef.current = true
+    setInspectResult(null)
+    invokeCommand(computerId, 'inspectSelectedItem')
+  }
 
   return (
     <>
@@ -26,14 +41,16 @@ export default function TurtlePanel({ computerId }: Props) {
           right={
             <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <span>16 slots</span>
-              <button className="btn btn-compact" onClick={() => invokeCommand(computerId, 'inspectSelectedItem')}>Inspect</button>
+              <button className="btn btn-compact" onClick={handleInspect}>Inspect</button>
             </span>
           }
         >
           <TurtleInventory computerId={computerId} />
-          {inspectResult && (
+          {inspectResult != null && (
             <div className="code-pad-result" style={{ marginTop: 6 }}>
-              {JSON.stringify(inspectResult, null, 2)}
+              {typeof inspectResult === 'object'
+                ? JSON.stringify(inspectResult, null, 2)
+                : String(inspectResult)}
             </div>
           )}
         </Section>
