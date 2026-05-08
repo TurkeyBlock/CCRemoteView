@@ -78,7 +78,7 @@ export class ChunkManager {
     this.workers = [];
     this.workerBusy = [];
     for (let i = 0; i < this.maxConcurrent; i++) {
-      const w = new Worker(new URL('../workers/chunkBuilder.worker.ts', import.meta.url));
+      const w = new Worker(new URL('../../workers/chunkBuilder.worker.ts', import.meta.url));
       w.onmessage = (e: MessageEvent<BuildResult>) => this.onWorkerResult(e.data);
       this.workers.push(w);
       this.workerBusy.push(false);

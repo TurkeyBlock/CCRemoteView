@@ -3,9 +3,9 @@
   "private": true,
   "version": "2.0.0",
   "scripts": {
-    "dev": "NODE_ENV=development node server.js",
+    "dev": "node -e \"process.env.NODE_ENV='development';require('./server.js')\"",
     "build": "next build",
-    "start": "NODE_ENV=production node server.js",
+    "start": "node -e \"process.env.NODE_ENV='production';require('./server.js')\"",
     "build-textures": "node scripts/textureExtractor/textureExtractor.js",
     "pkg": "npm run build && node scripts/buildSea.js"
   },
