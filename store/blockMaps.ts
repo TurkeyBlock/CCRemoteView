@@ -307,25 +307,23 @@ export const textureAliases: { [id: string]: string } = {
   // when run against a 1.12 JAR (where minecraft:grass = solid block → grass_top texture).
   "minecraft:tallgrass:1": "minecraft/tallgrass",
 
-  // chisel:antiblock — Forge blockstate format with per-color inline textures; extractor
-  // skips variants that lack a per-variant model reference (model lives in blockstate defaults).
-  // Verified: :1=red, :8=gray, :10=lime. All others are unknown — fill in as confirmed.
-  // "chisel:antiblock:0":  unknown,
+  // chisel:antiblock — follows standard 1.12 dye metadata order (0=black … 15=white).
+  "chisel:antiblock:0":  "chisel/antiblock_black",
   "chisel:antiblock:1":  "chisel/antiblock_red",
-  // "chisel:antiblock:2":  unknown,
-  // "chisel:antiblock:3":  unknown,
-  // "chisel:antiblock:4":  unknown,
-  // "chisel:antiblock:5":  unknown,
-  // "chisel:antiblock:6":  unknown,
-  // "chisel:antiblock:7":  unknown,
+  "chisel:antiblock:2":  "chisel/antiblock_green",
+  "chisel:antiblock:3":  "chisel/antiblock_brown",
+  "chisel:antiblock:4":  "chisel/antiblock_blue",
+  "chisel:antiblock:5":  "chisel/antiblock_purple",
+  "chisel:antiblock:6":  "chisel/antiblock_cyan",
+  "chisel:antiblock:7":  "chisel/antiblock_silver",
   "chisel:antiblock:8":  "chisel/antiblock_gray",
-  // "chisel:antiblock:9":  unknown,
+  "chisel:antiblock:9":  "chisel/antiblock_pink",
   "chisel:antiblock:10": "chisel/antiblock_lime",
-  // "chisel:antiblock:11": unknown,
-  // "chisel:antiblock:12": unknown,
-  // "chisel:antiblock:13": unknown,
-  // "chisel:antiblock:14": unknown,
-  // "chisel:antiblock:15": unknown,
+  "chisel:antiblock:11": "chisel/antiblock_yellow",
+  "chisel:antiblock:12": "chisel/antiblock_light_blue",
+  "chisel:antiblock:13": "chisel/antiblock_magenta",
+  "chisel:antiblock:14": "chisel/antiblock_orange",
+  "chisel:antiblock:15": "chisel/antiblock_white",
 
   // chisel:carpet_* — per-color blocks (color in name, metadata = pattern variant).
   // No dedicated carpet textures; chisel carpets reuse wool_legacy_* textures.
