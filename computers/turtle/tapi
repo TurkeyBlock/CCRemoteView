@@ -903,7 +903,6 @@ function inspectSelectedItem()
   end
   turtle.equipRight()
 
-  print(textutils.serialize(result))
   return result
 end
 

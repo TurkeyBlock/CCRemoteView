@@ -73,7 +73,7 @@ function attachComputerWs(wss, { worldState, computerIpManager, computerIdManage
           if (!commandResultCache[cid]) commandResultCache[cid] = [];
           commandResultCache[cid].push(result);
           if (commandResultCache[cid].length > CMD_RESULT_CACHE_MAX) commandResultCache[cid].shift();
-          broadcastToClients({ commandResult: { computerId: cid, result } });
+          broadcastToClients({ commandResult: { computerId: Number(cid), result } });
         }
 
       } else if (msg.type === 'scan') {
