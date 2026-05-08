@@ -192,7 +192,6 @@ function SceneSetup() {
 
   function removeBlock(locString: string) {
     chunkManager.current?.removeBlock(locString)
-    removeInventoryIndicator(locString)
   }
 
   function clearAllBlocks() {
