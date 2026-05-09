@@ -1,8 +1,10 @@
 'use client'
 
+import { useEffect } from 'react'
 import { useWorldStore } from '@/store/useWorld'
-import { useWorldViewStore } from '@/store/useWorldView'
+import { useWorldViewStore, getBlockIconInfo, getItemIconInfo } from '@/store/useWorldView'
 import type { ItemStack } from '@/types/world'
+import BlockIcon from './BlockIcon'
 
 interface Props {
   computerId: number
@@ -17,15 +19,22 @@ export default function InventorySlot({ computerId, invSlot, slotNum, isSelected
   const invokeCommand = useWorldStore(s => s.invokeCommand)
   const turtleLoc = useWorldStore(s => s.computers[computerId]?.loc)
   const selectedInventoryPos = useWorldViewStore(s => s.selectedInventoryPos)
+  const blockMapsLoaded = useWorldViewStore(s => s.blockMapsLoaded)
+  const loadBlockMaps = useWorldViewStore(s => s.loadBlockMaps)
+
+  useEffect(() => { loadBlockMaps() }, [loadBlockMaps])
 
   const isAdjacentToChest = !!(turtleLoc && selectedInventoryPos &&
     Math.abs(selectedInventoryPos.x - turtleLoc.x) +
     Math.abs(selectedInventoryPos.y - turtleLoc.y) +
     Math.abs(selectedInventoryPos.z - turtleLoc.z) === 1)
 
-  const src = invSlot
-    ? `${textureURL}items/${invSlot.name.replace(':', '/')}.png`
-    : undefined
+  const blockInfo = invSlot && blockMapsLoaded
+    ? getBlockIconInfo(textureURL, invSlot.name, invSlot.damage ?? 0)
+    : null
+  const itemInfo = invSlot && blockMapsLoaded && !blockInfo
+    ? getItemIconInfo(textureURL, invSlot.name, invSlot.damage ?? 0)
+    : null
 
   function startDrag(e: React.DragEvent) {
     e.dataTransfer.dropEffect = 'move'
@@ -59,13 +68,19 @@ export default function InventorySlot({ computerId, invSlot, slotNum, isSelected
       title={invSlot?.name ?? ''}
       className={`inv-slot${isSelected ? ' inv-slot-selected' : ''}`}
     >
-      {src && (
-        <img
-          style={{ width: '80%', imageRendering: 'pixelated' }}
-          src={src}
-          alt={invSlot?.name ?? ''}
-          onError={e => { (e.target as HTMLImageElement).src = '/favicon-32x32.png' }}
-        />
+      {invSlot && (
+        blockInfo
+          ? <BlockIcon src={blockInfo.url} uv={blockInfo.uv} />
+          : !blockMapsLoaded
+            ? <span style={{ fontSize: '9px', color: 'var(--fg-mute)', textAlign: 'center', wordBreak: 'break-all', padding: '2px', lineHeight: 1.1 }}>
+                {invSlot.name.includes(':') ? invSlot.name.split(':')[1] : invSlot.name}
+              </span>
+            : <img
+                style={{ width: '80%', imageRendering: 'pixelated' }}
+                src={itemInfo?.url ?? `${textureURL}items/${invSlot.name.replace(':', '/')}.png`}
+                alt={invSlot.name}
+                onError={e => { (e.target as HTMLImageElement).src = '/favicon-32x32.png' }}
+              />
       )}
       {invSlot && (
         <div className="inv-slot-count">{invSlot.count}</div>

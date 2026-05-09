@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import * as THREE from 'three'
 import type { Block, EntitySighting } from '../types/world'
-import { GEOMETRY, geometryMap, CROSS_BY_NAME, FLAT_BY_NAME, textureAliases, uvOverrides, blockTint, BIOME_TINT, hasBiomeTint, isLiquid, isAlphaGlass } from './blockMaps'
+import { GEOMETRY, geometryMap, CROSS_BY_NAME, FLAT_BY_NAME, textureAliases, uvOverrides, blockTint, BIOME_TINT, hasBiomeTint, isLiquid, isAlphaGlass, itemTextureAliases } from './blockMaps'
 
 // Materials and texture caches live outside Zustand — no re-renders on load.
 const materialsCache: Record<string, THREE.MeshPhongMaterial> = {}
@@ -15,6 +15,7 @@ let blockNameMap: Record<string, BlockMapEntry> = {}
 let blockMapsReady = false
 let blockMapsLoading = false
 let blockMapsPending: string[] = [] // blocks requested before maps finished loading
+let itemNameMap: Record<string, { texture: string }> = {}
 
 function ensureBlockMapsLoaded(textureURL: string, onReady: () => void) {
   if (blockMapsReady) { onReady(); return }
@@ -22,19 +23,60 @@ function ensureBlockMapsLoaded(textureURL: string, onReady: () => void) {
     blockMapsLoading = true
     Promise.all([
       fetch(textureURL + 'block-name-map.json').then(r => r.ok ? r.json() : {}),
-    ]).then(([nameMap]) => {
+      fetch(textureURL + 'item-name-map.json').then(r => r.ok ? r.json() : {}),
+    ]).then(([nameMap, itemMap]) => {
       blockNameMap = nameMap
+      itemNameMap = itemMap
       blockMapsReady = true
+      useWorldViewStore.setState({ blockMapsLoaded: true })
       onReady()
       // Rebuild chunks once so any built before the map loaded get correct geometry.
       useWorldViewStore.getState().regenerateSceneFromBlocks()
-    }).catch(() => { blockMapsReady = true; onReady() })
+    }).catch(() => {
+      blockMapsReady = true
+      useWorldViewStore.setState({ blockMapsLoaded: true })
+      onReady()
+    })
   }
 }
 
 // Converts a map entry's texture path to the format loadTexture expects ("mod/texture").
 function mapToTexturePath(entry: BlockMapEntry): string {
   return entry.texture.replace(/^blocks\//, '').replace(/\.png$/, '')
+}
+
+// Returns the texture URL and optional UV crop for a block item icon, using the same
+// resolution priority as getBlockMaterial (aliases > block-name-map > null).
+// Returns null if maps are not yet loaded or the name is not a known block.
+export function getBlockIconInfo(
+  textureURL: string,
+  name: string,
+  meta = 0
+): { url: string; uv?: [number, number, number, number] } | null {
+  if (!blockMapsReady) return null
+  const id = meta ? `${name}:${meta}` : name
+  const alias = textureAliases[id] ?? textureAliases[`${name}:0`] ?? textureAliases[name]
+  const manualUV = (uvOverrides[id] ?? uvOverrides[`${name}:0`] ?? uvOverrides[name]) ?? undefined
+  if (alias) return { url: textureURL + `blocks/${alias}.png`, uv: manualUV }
+  const entry = blockNameMap[`${name}:${meta}`] ?? blockNameMap[`${name}:0`] ?? blockNameMap[name]
+  if (entry) return { url: textureURL + entry.texture, uv: manualUV }
+  return null
+}
+
+// Returns the texture URL for a pure item icon, using itemTextureAliases (manual overrides)
+// then item-name-map.json (extractor output). Returns null if the item is unknown.
+export function getItemIconInfo(
+  textureURL: string,
+  name: string,
+  meta = 0
+): { url: string } | null {
+  if (!blockMapsReady) return null
+  const id = meta ? `${name}:${meta}` : name
+  const alias = itemTextureAliases[id] ?? itemTextureAliases[`${name}:0`] ?? itemTextureAliases[name]
+  if (alias) return { url: textureURL + `items/${alias}.png` }
+  const entry = itemNameMap[id] ?? itemNameMap[`${name}:0`] ?? itemNameMap[name]
+  if (entry) return { url: textureURL + entry.texture }
+  return null
 }
 
 
@@ -105,6 +147,7 @@ interface WorldViewState {
   lockChunks: boolean
   showOrbitMarker: boolean
   lockBlockInfo: boolean
+  blockMapsLoaded: boolean
 
   // Actions
   setSelectedComputerId: (id: number) => void
@@ -112,6 +155,7 @@ interface WorldViewState {
   addToTransparencyList: (blockName: string) => void
   removeFromTransparencyList: (blockName: string) => void
   getBlockMaterial: (name: string, metadata?: number) => THREE.MeshPhongMaterial
+  loadBlockMaps: () => void
   followComputer: (computerId: number) => void
 }
 
@@ -146,6 +190,7 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
   lockChunks: false,
   showOrbitMarker: false,
   lockBlockInfo: true,
+  blockMapsLoaded: false,
 
   setSelectedComputerId: (id) => set({ selectedComputerId: id }),
 
@@ -314,6 +359,12 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
       }
     }
     return mat
+  },
+
+  loadBlockMaps: () => {
+    const { useWorldStore } = require('./useWorld') as typeof import('./useWorld')
+    const textureURL = useWorldStore.getState().textureURL
+    ensureBlockMapsLoaded(textureURL, () => {})
   },
 
   followComputer: (computerId) => {
