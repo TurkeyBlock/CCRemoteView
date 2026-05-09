@@ -57,7 +57,7 @@
     }
   },
   "minecart": {
-    "module": "capi",
+    "module": "mapi",
     "commands": {
       "get_location":          { "concurrent": true,  "args": [] },
       "scan":                  { "concurrent": true,  "args": [] },

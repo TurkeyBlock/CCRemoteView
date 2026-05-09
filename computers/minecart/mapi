@@ -1,4 +1,4 @@
--- Minecart Computer API (capi)
+-- mapi: Minecart Computer API
 -- Mirrors tapi but without movement. Location is always queried via GPS
 -- since minecart computers can be moved externally.
 
@@ -128,4 +128,3 @@ set_ws              = _ws.set_ws
 send_command_result = _ws.send_command_result
 
 send_chat = api_common.make_send_chat(url, headers)
-

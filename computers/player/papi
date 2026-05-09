@@ -1,6 +1,6 @@
--- papi: playerComputer API
--- Analogous to tapi for turtleComputers.
--- Provides shared state, HTTP/modem helpers, and the stop-signal semaphore.
+-- papi: player (neural interface) API
+-- Provides GPS location, status updates (position only), and Plethora block scanning.
+-- WS and command-result handling delegated to api_common.make_ws_sender.
 
 -- !MUST END WITH '/'
 -- %%APP_URL%% is replaced by the server before this file is served; not valid Lua as-is.

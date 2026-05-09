@@ -1,5 +1,5 @@
 -- sapi: stationaryComputer API
--- Analogous to capi. Location is captured once on boot and reused.
+-- Analogous to mapi. Location is captured once on boot and reused.
 
 -- !MUST END WITH '/'
 -- %%APP_URL%% is replaced by the server before this file is served; not valid Lua as-is.

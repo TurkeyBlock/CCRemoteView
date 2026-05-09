@@ -1,5 +1,10 @@
--- github: https://github.com/exa-byte/CCTurtleRemoteController
--- uses location api (https://github.com/lyqyd/LyqydNet-Programs/blob/master/apis/location) by lyqyd
+-- tapi: turtle API
+-- Provides movement (with automatic location tracking and disk persistence), digging
+-- (auto-equips pickaxe from inventory), inventory management, Plethora block scanning,
+-- and delta state reporting to the server over WS or HTTP fallback.
+-- Location is resolved at boot via GPS; falls back to saved file then manual entry.
+-- WS/command-result sending is handled directly here rather than via api_common.make_ws_sender.
+-- Uses location API by lyqyd: https://github.com/lyqyd/LyqydNet-Programs/blob/master/apis/location
 
 os.loadAPI("location")
 

@@ -1,4 +1,4 @@
--- api_common: shared utilities for all computer API files (tapi/capi/papi/sapi).
+-- api_common: shared utilities for all computer API files (tapi/mapi/papi/sapi).
 
 -- [concurrent] Live GPS fix, 2s timeout. Returns raw x, y, z or nil, nil, nil if unavailable.
 local function gps_locate()
