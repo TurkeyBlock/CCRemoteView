@@ -87,6 +87,8 @@ npm run start
 
 `npm run pkg` produces a zip under `packaged/` containing a complete standalone server — Node.js binary, built Next.js frontend, Lua computer scripts, and blank starter data. No separate Node.js installation required.
 
+- This package is not being provided; I'm just providing a way to build your own.
+
 ```bash
 npm run pkg
 ```
@@ -110,14 +112,14 @@ Binds to all interfaces and enforces JWT authentication. The server will refuse 
 
 ### Extracting textures (optional)
 
-Blocks render as solid colours without textures. To extract them from your Minecraft JAR, run the texture extractor using the bundled Node.js binary before starting the server:
+Blocks render as solid colours without textures. To extract them from your Minecraft JAR, run before starting the server:
 
 ```
 # Windows
-node.exe server.js --build-textures "C:\path\to\minecraft.jar" "C:\path\to\mods"
+build-textures.bat "C:\path\to\minecraft.jar" "C:\path\to\mods"
 
 # Linux / macOS
-./node server.js --build-textures "/path/to/minecraft.jar" "/path/to/mods"
+./build-textures.sh "/path/to/minecraft.jar" "/path/to/mods"
 ```
 
 ---

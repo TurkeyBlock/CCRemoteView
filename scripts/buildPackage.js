@@ -79,6 +79,8 @@ console.log('\n[3/5] Installing server-side dependencies into standalone…');
 const serverDeps = [
   '@auth/core', 'compression', 'cors', 'dotenv',
   'express', 'http-terminator', 'pino', 'ws',
+  // Texture extractor
+  'sharp', 'unzipper',
 ];
 const missing = serverDeps.filter(name => !pkg.dependencies?.[name]);
 if (missing.length) {
@@ -103,6 +105,9 @@ fs.rmSync(path.join(standaloneDir, 'package-lock.json'), { force: true });
 
 // ── [4/5] Copy runtime assets ─────────────────────────────────────────────────
 console.log('\n[4/5] Copying runtime assets…');
+
+// Texture extractor — needed so end users can extract textures from their JAR.
+copyDir(path.join(rootDir, 'scripts', 'textureExtractor'), path.join(standaloneDir, 'scripts', 'textureExtractor'));
 
 // Lua scripts served to ComputerCraft computers.
 if (fs.existsSync(path.join(rootDir, 'computers')))
@@ -145,6 +150,14 @@ archive.append(
     ? `@echo off\r\nset NODE_ENV=production\r\n.\\node.exe server.js\r\n`
     : `#!/bin/sh\nNODE_ENV=production ./node server.js\n`,
   { name: isWin ? 'start.bat' : 'start.sh', mode: isWin ? undefined : 0o755 }
+);
+
+// Texture extractor wrapper — passes all arguments through to server.js.
+archive.append(
+  isWin
+    ? `@echo off\r\n.\\node.exe server.js --build-textures %*\r\n`
+    : `#!/bin/sh\n./node server.js --build-textures "$@"\n`,
+  { name: isWin ? 'build-textures.bat' : 'build-textures.sh', mode: isWin ? undefined : 0o755 }
 );
 
 archive.file(path.join(rootDir, 'README.md'), { name: 'README.md' });
