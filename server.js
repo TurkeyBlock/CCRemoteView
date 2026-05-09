@@ -32,7 +32,7 @@ const ComputerIdManager = require('./src/server/utils/computerIdManager.js');
 const OperatorManager   = require('./src/server/utils/operatorManager.js');
 const CommandLineInterface = require('./src/server/utils/cmdLineInterface.js');
 
-const { IS_PROD, DEV_NO_AUTH, DEV_AUTH_URL, PORT } = config;
+const { IS_PROD, LOCAL_ONLY, BYPASS_AUTH, DEV_AUTH_URL, BIND_HOST, PORT } = config;
 
 const log = pino({
   level: 'info',
@@ -58,9 +58,21 @@ cmdLineInterface.on('deleteComputer', (id) => delete worldState.state.computers[
 
 const auth = createAuth({ userManagement, computerIpManager, computerIdManager, operatorManager });
 
+// ─── Startup validation ───────────────────────────────────────────────────────
+
+if (!LOCAL_ONLY) {
+  const missing = ['APP_URL', 'NEXTAUTH_URL', 'NEXTAUTH_SECRET'].filter(k => !process.env[k]);
+  if (missing.length) {
+    console.error(`[error] Production mode requires APP_URL, NEXTAUTH_URL, and NEXTAUTH_SECRET in .env.local`);
+    console.error(`[error] Missing: ${missing.join(', ')}`);
+    console.error(`[error] Did you mean to run start-local?`);
+    process.exit(1);
+  }
+}
+
 // ─── Next.js ──────────────────────────────────────────────────────────────────
 
-const nextApp = next({ dev: !IS_PROD, hostname: 'localhost', port: PORT });
+const nextApp = next({ dev: !IS_PROD, hostname: 'localhost', port: PORT, dir: __dirname });
 
 nextApp.prepare().then(() => {
   const handle = nextApp.getRequestHandler();
@@ -72,11 +84,12 @@ nextApp.prepare().then(() => {
   app.use(express.json({ limit: '2mb' }));
 
   // Static assets served directly by Express (accessible to CC computers too)
-  app.use('/textures', express.static('textures', { maxAge: '1d' }));
+  const COMPUTERS_DIR = path.join(__dirname, 'computers');
+  app.use('/textures', express.static(path.join(__dirname, 'textures'), { maxAge: '1d' }));
   app.use('/computers', (req, res, next) => {
     const safe     = path.normalize(req.path).replace(/^(\.\.[/\\])+/, '');
-    const filePath = path.resolve('computers', safe.slice(1));
-    if (!filePath.startsWith(path.resolve('computers'))) return res.sendStatus(403);
+    const filePath = path.resolve(COMPUTERS_DIR, safe.slice(1));
+    if (!filePath.startsWith(COMPUTERS_DIR)) return res.sendStatus(403);
     fs.readFile(filePath, 'utf8', (err, data) => {
       if (err) return next();
       res.type('text/plain').send(data.replaceAll('%%APP_URL%%', process.env.APP_URL));
@@ -94,9 +107,9 @@ nextApp.prepare().then(() => {
 
   // ─── Server ──────────────────────────────────────────────────────────────────
 
-  const server = app.listen(PORT, () => {
-    log.info(`Turtle remote controller server listening on port ${PORT}.`);
-    console.log(`[server] Listening on port ${PORT}${DEV_NO_AUTH && !IS_PROD ? ' (DEV_NO_AUTH — no auth enforced)' : ''}`);
+  const server = app.listen(PORT, BIND_HOST, () => {
+    log.info(`Turtle remote controller server listening on ${BIND_HOST}:${PORT}.`);
+    console.log(`[server] Listening on ${BIND_HOST}:${PORT}${BYPASS_AUTH ? ' (local-only mode — no auth enforced)' : ''}`);
   });
 
   worldState.startAutoSave(() => userManagement.save());

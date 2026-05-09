@@ -1,7 +1,7 @@
 'use strict';
 
 const fs = require('fs');
-const { COOKIE_NAME, IS_PROD, DEV_NO_AUTH, DEV_TOKEN } = require('./config');
+const { COOKIE_NAME, BYPASS_AUTH, DEV_TOKEN } = require('./config');
 
 let _jwtDecode = null;
 async function jwtDecode(params) {
@@ -50,7 +50,7 @@ function createAuth({ userManagement, computerIpManager, computerIdManager, oper
   const devBypass = (req, next) => { req.token = DEV_TOKEN; next(); };
 
   async function requireAuth(req, res, next) {
-    if (DEV_NO_AUTH && !IS_PROD) return devBypass(req, next);
+    if (BYPASS_AUTH) return devBypass(req, next);
     const token = await getSession(req);
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
     req.token = token;
@@ -59,7 +59,7 @@ function createAuth({ userManagement, computerIpManager, computerIdManager, oper
   }
 
   async function requireOperator(req, res, next) {
-    if (DEV_NO_AUTH && !IS_PROD) return devBypass(req, next);
+    if (BYPASS_AUTH) return devBypass(req, next);
     const token = await getSession(req);
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
     if (!isOperator(token.sub)) return res.status(403).json({ error: 'Forbidden' });
@@ -69,7 +69,7 @@ function createAuth({ userManagement, computerIpManager, computerIdManager, oper
   }
 
   async function requireAdmin(req, res, next) {
-    if (DEV_NO_AUTH && !IS_PROD) return devBypass(req, next);
+    if (BYPASS_AUTH) return devBypass(req, next);
     const token = await getSession(req);
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
     if (!isAdmin(token.sub)) return res.status(403).json({ error: 'Forbidden' });

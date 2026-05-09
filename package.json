@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "node -e \"process.env.NODE_ENV='production';require('./server.js')\"",
     "build-textures": "node scripts/textureExtractor/textureExtractor.js",
-    "pkg": "npm run build && node scripts/buildSea.js"
+    "pkg": "npm run build && node scripts/buildPackage.js"
   },
   "dependencies": {
     "@auth/core": "^0.37.4",
@@ -33,12 +33,10 @@
     "@types/react-dom": "^19",
     "@types/three": "^0.184.0",
     "@types/ws": "^8",
-    "@vercel/ncc": "^0.38.0",
     "archiver": "^7.0.1",
     "concurrently": "^9.2.1",
     "minecraft-data": "^3.109.1",
     "pino-pretty": "^13",
-    "postject": "^1.0.0-alpha.6",
     "prismarine-nbt": "^2.8.0",
     "sharp": "^0.33.0",
     "typescript": "^5",

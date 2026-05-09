@@ -40,7 +40,9 @@ npm run build-textures "<path/to/minecraft.jar>" "<optional: path/to/mods/>"
 npm run dev
 ```
 
-The interface is available at `http://localhost:8081`. Dev mode disables authentication — suitable for local or trusted-LAN use only. To configure auth bypass or change the dev port/auth URL, edit `src/server/config.js`.
+The interface is available at `http://localhost:8081`. Dev mode binds to `127.0.0.1` only and disables authentication — the server is unreachable from the network without any firewall configuration.
+
+To test the authentication flow during development, set `LOCAL_REQUIRE_AUTH = true` in `src/server/config.js`. To change the dev port or auth server URL, edit `APP_PORT` / `DEV_APP_URL` / `DEV_AUTH_URL` in the same file.
 
 Texture extraction is optional — blocks render as solid colours without it. See [Textures](#textures) for platform-specific paths and troubleshooting.
 
@@ -83,27 +85,40 @@ npm run start
 
 ## Packaged Distribution
 
-`npm run pkg` produces a self-contained zip under `packaged/` that requires no Node.js installation to run:
+`npm run pkg` produces a zip under `packaged/` containing a complete standalone server — Node.js binary, built Next.js frontend, Lua computer scripts, and blank starter data. No separate Node.js installation required.
 
 ```bash
-npm run build
 npm run pkg
 ```
 
-The zip contains the standalone executable, the Next.js frontend, the Lua computer scripts, and blank starter data files. After unzipping:
+(`npm run pkg` runs `npm run build` automatically first.)
 
-1. Copy `.env.local.example` to `.env.local` and fill in `APP_URL`
-2. Extract textures from your Minecraft JAR (optional — blocks render as solid colours without this):
-   ```
-   # Windows
-   ccturtleremotecontroller.exe --build-textures "C:\path\to\minecraft.jar" "C:\path\to\mods"
+After unzipping, choose your mode:
 
-   # Linux / macOS
-   ./ccturtleremotecontroller --build-textures "/path/to/minecraft.jar" "/path/to/mods"
-   ```
-3. Run `start.bat` (Windows) or `start.sh` (Linux/macOS)
+### Local mode (personal use, single machine)
 
-> **Textures:** The texture extractor is bundled into the executable. Run it once before starting the server (see below).
+Run `start-local.bat` (Windows) or `start-local.sh` (Linux/macOS).
+
+Binds to `127.0.0.1` only and requires no authentication. Your Minecraft client and server must be on the same machine. No `.env.local` configuration needed.
+
+### Production mode (shared or internet-facing)
+
+1. Copy `.env.local.example` to `.env.local` and fill in `APP_URL`, `NEXTAUTH_URL`, and `NEXTAUTH_SECRET`
+2. Run `start.bat` (Windows) or `start.sh` (Linux/macOS)
+
+Binds to all interfaces and enforces JWT authentication. The server will refuse to start with a clear error if any required variables are missing.
+
+### Extracting textures (optional)
+
+Blocks render as solid colours without textures. To extract them from your Minecraft JAR, run the texture extractor using the bundled Node.js binary before starting the server:
+
+```
+# Windows
+node.exe server.js --build-textures "C:\path\to\minecraft.jar" "C:\path\to\mods"
+
+# Linux / macOS
+./node server.js --build-textures "/path/to/minecraft.jar" "/path/to/mods"
+```
 
 ---
 
@@ -361,7 +376,11 @@ On first connection a computer's IP is held pending admin approval. Approved IPs
 
 ## Authentication
 
-**Dev mode** (`npm run dev`) disables authentication — do not port-forward a dev instance. The auth bypass flag and dev URLs are configured in `src/server/config.js`.
+**Dev mode** (`npm run dev`) disables authentication and binds only to `127.0.0.1` — network-unreachable by default with no firewall configuration required. To test the auth flow in dev, set `LOCAL_REQUIRE_AUTH = true` in `src/server/config.js`.
+
+**Local mode** (packaged `start-local`) behaves identically: no auth, loopback-only binding. The two are always coupled — there is no configuration that disables auth while also exposing the server to the network.
+
+**Production mode** (`npm run start` or packaged `start`) binds to all interfaces and enforces JWT authentication. Requires `APP_URL`, `NEXTAUTH_URL`, and `NEXTAUTH_SECRET` in `.env.local`. The server exits on startup if any are missing. Override the bind interface with `BIND_HOST` if you need a specific network adapter.
 
 **Production mode** validates a JWT session cookie issued by an external [Auth.js](https://authjs.dev) instance. Set `NEXTAUTH_URL` and `NEXTAUTH_SECRET` in `.env.local` to match your auth server. This app only validates tokens — it does not handle sign-in itself.
 

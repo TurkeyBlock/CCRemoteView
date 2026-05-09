@@ -1,6 +1,6 @@
 'use strict';
 
-const { IS_PROD, DEV_NO_AUTH } = require('../config');
+const { BYPASS_AUTH } = require('../config');
 
 function getClientIp(req) {
   return req.headers['cf-connecting-ip']
@@ -21,7 +21,7 @@ function attachComputerWs(wss, { worldState, computerIpManager, computerIdManage
   wss.on('connection', (ws, req) => {
     const ip = getClientIp(req);
 
-    if (IS_PROD || !DEV_NO_AUTH) {
+    if (!BYPASS_AUTH) {
       if (!computerIpManager.isApproved(ip)) {
         if (!computerIpManager.isPending(ip)) computerIpManager.addPending(ip);
         ws.close(4403, 'Forbidden');
@@ -33,7 +33,7 @@ function attachComputerWs(wss, { worldState, computerIpManager, computerIdManage
     const id = safeId(urlObj.searchParams.get('id'));
     if (!id) { ws.close(4400, 'Bad Request'); return; }
 
-    if ((IS_PROD || !DEV_NO_AUTH) && !computerIdManager.allowByIp && !computerIdManager.isApproved(Number(id))) {
+    if (!BYPASS_AUTH && !computerIdManager.allowByIp && !computerIdManager.isApproved(Number(id))) {
       if (!computerIdManager.isPending(Number(id))) computerIdManager.addPending(Number(id), ip);
       ws.close(4403, 'Forbidden');
       return;

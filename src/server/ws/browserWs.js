@@ -2,7 +2,7 @@
 
 const path = require('path');
 const fs   = require('fs');
-const { IS_PROD, DEV_NO_AUTH, DEV_TOKEN, LOG_BROWSER_CMDS, MAX_CMD_LENGTH, TRANSACTION_CACHE_COUNT } = require('../config');
+const { BYPASS_AUTH, DEV_TOKEN, LOG_BROWSER_CMDS, MAX_CMD_LENGTH, TRANSACTION_CACHE_COUNT } = require('../config');
 const { commandRouting, validateArgs, buildLuaCommand, isConcurrentCommand } = require('../commandRouting');
 
 function getClientIp(req) {
@@ -41,7 +41,7 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
   wss.on('connection', async (ws, req) => {
     let userSub, userName, wsIsOperator, wsIsAdmin;
 
-    if (!DEV_NO_AUTH || IS_PROD) {
+    if (!BYPASS_AUTH) {
       const token = await getSession(req);
       if (!token) { ws.close(4401, 'Unauthorized'); return; }
       userSub     = token.sub;
