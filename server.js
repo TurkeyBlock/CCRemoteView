@@ -1,0 +1,147 @@
+require('dotenv').config({ path: '.env.local' });
+
+if (process.argv[2] === '--build-textures') {
+  const { run } = require('./scripts/textureExtractor/textureExtractor');
+  run(process.argv[3], process.argv[4])
+    .then(() => process.exit(0))
+    .catch(err => { console.error(err); process.exit(1); });
+} else {
+
+const { parse }         = require('url');
+const next              = require('next');
+const express           = require('express');
+const cors              = require('cors');
+const compression       = require('compression');
+const fs                = require('fs');
+const path              = require('path');
+const pino              = require('pino');
+const httpTerminator    = require('http-terminator');
+const { WebSocketServer } = require('ws');
+
+const config            = require('./src/server/config');
+const worldState        = require('./src/server/worldState');
+const { createAuth }    = require('./src/server/auth');
+const { createComputerRoutes } = require('./src/server/routes/computerRoutes');
+const { createBrowserRoutes  } = require('./src/server/routes/browserRoutes');
+const { attachComputerWs }     = require('./src/server/ws/computerWs');
+const { attachBrowserWs  }     = require('./src/server/ws/browserWs');
+
+const UserManagement    = require('./src/server/utils/userManagement.js');
+const ComputerIpManager = require('./src/server/utils/computerIpManager.js');
+const ComputerIdManager = require('./src/server/utils/computerIdManager.js');
+const OperatorManager   = require('./src/server/utils/operatorManager.js');
+const CommandLineInterface = require('./src/server/utils/cmdLineInterface.js');
+
+const { IS_PROD, LOCAL_ONLY, BYPASS_AUTH, DEV_AUTH_URL, BIND_HOST, PORT } = config;
+
+const log = pino({
+  level: 'info',
+  timestamp: () => {
+    const d = new Date();
+    return `,"time":"${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}"`;
+  },
+  base: null,
+  formatters: { level: (label) => ({ level: label }) },
+}, pino.destination({ dest: 1, sync: true }));
+
+// ─── Managers ─────────────────────────────────────────────────────────────────
+
+const userManagement    = new UserManagement();
+const computerIpManager = new ComputerIpManager();
+const computerIdManager = new ComputerIdManager();
+const operatorManager   = new OperatorManager();
+const cmdLineInterface  = new CommandLineInterface();
+cmdLineInterface.on('users',          () => console.log(userManagement.getUserDataString()));
+cmdLineInterface.on('deleteComputer', (id) => delete worldState.state.computers[id]);
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
+const auth = createAuth({ userManagement, computerIpManager, computerIdManager, operatorManager });
+
+// ─── Startup validation ───────────────────────────────────────────────────────
+
+if (!LOCAL_ONLY) {
+  const missing = ['APP_URL', 'NEXTAUTH_URL', 'NEXTAUTH_SECRET'].filter(k => !process.env[k]);
+  if (missing.length) {
+    console.error(`[error] Production mode requires APP_URL, NEXTAUTH_URL, and NEXTAUTH_SECRET in .env.local`);
+    console.error(`[error] Missing: ${missing.join(', ')}`);
+    console.error(`[error] Did you mean to run start-local?`);
+    process.exit(1);
+  }
+}
+
+// ─── Next.js ──────────────────────────────────────────────────────────────────
+
+const nextApp = next({ dev: !IS_PROD, hostname: 'localhost', port: PORT, dir: __dirname });
+
+nextApp.prepare().then(() => {
+  const handle = nextApp.getRequestHandler();
+  const app    = express();
+
+  app.set('trust proxy', 'loopback');
+  app.use(compression());
+  app.use(cors({ origin: IS_PROD ? process.env.APP_URL : DEV_AUTH_URL }));
+  app.use(express.json({ limit: '2mb' }));
+
+  // Static assets served directly by Express (accessible to CC computers too)
+  const COMPUTERS_DIR = path.join(__dirname, 'computers');
+  app.use('/textures', express.static(path.join(__dirname, 'textures'), { maxAge: '1d' }));
+  app.use('/computers', (req, res, next) => {
+    const safe     = path.normalize(req.path).replace(/^(\.\.[/\\])+/, '');
+    const filePath = path.resolve(COMPUTERS_DIR, safe.slice(1));
+    if (!filePath.startsWith(COMPUTERS_DIR)) return res.sendStatus(403);
+    fs.readFile(filePath, 'utf8', (err, data) => {
+      if (err) return next();
+      res.type('text/plain').send(data.replaceAll('%%APP_URL%%', process.env.APP_URL));
+    });
+  });
+
+  // ─── Routes ─────────────────────────────────────────────────────────────────
+
+  const deps = { worldState, auth, log, userManagement, computerIpManager, computerIdManager, operatorManager, config };
+  app.use(createComputerRoutes(deps));
+  app.use(createBrowserRoutes(deps));
+
+  // Next.js handles all remaining routes (pages, _next/static, etc.)
+  app.all('*', (req, res) => handle(req, res, parse(req.url, true)));
+
+  // ─── Server ──────────────────────────────────────────────────────────────────
+
+  const server = app.listen(PORT, BIND_HOST, () => {
+    log.info(`Turtle remote controller server listening on ${BIND_HOST}:${PORT}.`);
+    console.log(`[server] Listening on ${BIND_HOST}:${PORT}${BYPASS_AUTH ? ' (local-only mode — no auth enforced)' : ''}`);
+  });
+
+  worldState.startAutoSave(() => userManagement.save());
+
+  // ─── WebSocket servers ───────────────────────────────────────────────────────
+
+  const wss         = new WebSocketServer({ noServer: true, perMessageDeflate: { threshold: 1024 } });
+  const computerWss = new WebSocketServer({ noServer: true });
+
+  attachComputerWs(computerWss, { worldState, computerIpManager, computerIdManager, log });
+  attachBrowserWs(wss,          { worldState, auth, log, userManagement });
+
+  // Route upgrade requests: /ws → browser WS, /ws/computer → computer WS.
+  // All other upgrades (/_next/webpack-hmr etc.) are left for Next.js.
+  server.on('upgrade', (req, socket, head) => {
+    const pathname = req.url.split('?')[0];
+    if (pathname === '/ws') {
+      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+    } else if (pathname.startsWith('/ws/computer')) {
+      computerWss.handleUpgrade(req, socket, head, (ws) => computerWss.emit('connection', ws, req));
+    }
+  });
+
+  // ─── Shutdown ────────────────────────────────────────────────────────────────
+
+  const terminator = httpTerminator.createHttpTerminator({ gracefulTerminationTimeout: 200, server });
+  process.on('SIGINT', async () => {
+    await terminator.terminate();
+    worldState.saveStateToDisk();
+    userManagement.save();
+    process.exit(0);
+  });
+});
+
+}

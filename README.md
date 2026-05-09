@@ -1,62 +1,189 @@
-# CCTurtleRemoteController
-A node server with user interface for remote controlling your computercraft turtles in your browser via the http api.
+# ComputerCraft Browser Interface
 
-<img width="993" alt="TurtleController_2" src="https://github.com/exa-byte/CCTurtleRemoteController/assets/14824895/a61f863b-b3dd-495c-bea2-09d802ff2692">
+A browser-based remote control and live world map for ComputerCraft computers running on **Minecraft 1.12 (Tekkit2)**. View a real-time 3D render of the area around your computers and control turtles, minecarts, stationary computers, and player neural interfaces from a single browser interface.
 
-**Setup**
+> **Screenshot** — _to be added_
 
-1. Clone this repo or download it as zip and extract it
-2. Install Node.js including npm (https://nodejs.org/en/) or make sure you update the version you are using else it will likely cause some errors.
-3. Run `npm install` in the root directory of the repo
-    * if you are on linux and get this [error](https://github.com/exa-byte/CCTurtleRemoteController/issues/19): run `apt update && apt install -y build-essential libcairo2-dev libjpeg-dev libpango1.0-dev libgif-dev librsvg2-dev pkg-config` and retry `npm install` afterwards
-5. Now you have 2 options, pick one of them:
-    * setup port forwarding and replace every localhost in the code (in the server files, not the turtle!) with your public ip address
-       * "turtle/startup" Line 2
-       * "turtle/tapi" Line 6
-       * if using non-default port change it in "src/server/server.js" Line 253
-    * allow http calls to localhost in your <mcsavegame>/serverconfig/computercraft-server.toml
-6. Build the frontend using `npm run build`
-7. If you don't want to see textured blocks and items in the ui you can skip this point, else run the command `npm run build-textures "<pathToYourMinecraftJar>" "<optional: directoryContainingYourModJars>"` (note: \<pathToYourMinecraftJar\> points to a minecraft jar **file** which is usually located under %appdata%\\.minecraft\versions\yourversion\yourversion.jar when using the default minecraft launcher, while \<optional: directoryContainingYourModJars\> points to a **directory**); in case any errors pop up, just restart the command until no errors pop up. The command will need to be executed 2 times without errors due to some bug. After completion, the ui will be able to display most blocks and items with default mc textures applied
-8. Run the server: `npm run server`
-9. You can now reach the ui from http://localhost/ or your public ip address if you chose the second option in step 4
-10. Add any amount of turtles by running `wget run http://localhost/turtle/startup` or `wget run http://<yourip>/turtle/startup` in the turtles command line and following the displayed instructions
-11. You can now select a turtle id in the top left corner of the ui and press the `toggle follow` button to move the camera to it
-12. The selected turtle can be controlled by the buttons on the interface or some basic keyboard shortcuts (wasdqe)
-13. You can also directly input code to be executed on the turtle, however if you use the native move functions of the turtle, you will desync the turtle location - use the `tapi` library equivalents instead
-  
-**Block and item textures**
+---
 
-Extracting textures is now easier than ever: just go with step 7 in setup.
-The ui supports textured blocks and items. They are just not included here for license reasons. 
-If you have additional textures that don't get extracted properly, you can manually add them into `textures/blocks/minecraft/`.
-Same goes for items which go into `textures/items/minecraft/`.
-If you add textures from mods, the textures must go into `textures/blocks/yourmodname/` and `textures/items/yourmodname/` respectively (yourmodname is the ingame block id prefix).
+## Features
 
-**Random info**
+- **Live 3D world map** — scanned blocks rendered in real time as instanced geometry, with extracted Minecraft textures and biome tinting
+- **Multi-computer interface** — turtles, minecarts, stationary computers, and player neural interfaces managed from a single drag-and-drop panel UI
+- **Command queue** — all commands are queued and executed in order; spamming a key queues every press rather than dropping inputs
+- **Inventory management** — drag-and-drop turtle inventory slots, Ctrl+click to move whole stacks, fuel gauge, active slot display
+- **Adjacent chest interaction** — clicking a chest next to a turtle in the 3D view opens its inventory as a GUI overlay; items can be dragged between the chest and the turtle's own inventory without any in-game input
+- **Lua terminal** — send arbitrary Lua directly to any connected computer (admin only)
+- **Adjacent block inspection** — front/top/bottom blocks reported after every action without Plethora; full area scans require the Plethora scanner module
+- **Entity detection** — scan nearby mobs and players (requires Plethora)
+- **User roles** — admin, operator, and guest tiers; IP-based (and optional ID-based) computer approval
+- **Persistent world state** — block and computer state saved to disk and restored on restart
 
-- you can double click a block and the selected turtle will try to move there with a very simple algorithm
-- hovering over a block will show its id in the top right corner along with its coordinates (i think i changed it to clicking for performance reasons)
-- you can click a chest to open a window displaying its contents, however interaction is not implemented yet
-- you can drag and drop between turtle inventory slots hold `ctrl` for moving a whole stack
-- the bar below the turtle inventory is the turtles fuel gauge and shows the number of blocks you can move with the current fuel level
-- unfortunately some minecraft block textures are not easily extractable and have to be handled with extra steps (e.g. chest, furnace, leaf blocks that are greyscale)
-- the turtles are controlled via a command queue, that means if you spam a button 10 times a second the turtle will not ignore the 9 times it is not able to perform that second but will execute them as fast as it can; the command queue can be cleared with the 'del' key (if you spammed it too much)
-- if you don't have a chunkloader you will have to stay in render distance of the turtle, else the currently running program will be stopped and cannot be easily continued (the turtle will restart and reconnect when you come into range again though)
-   
-**Keyboard bindings**
-   
-| Key | Action                     |
-|-----|----------------------------|
-| w   | move forward               |
-| s   | move back                  |
-| q   | move down                  |
-| e   | move up                    |
-| a   | turn left                  |
-| d   | turn right                 |
-| del | stop (clear command queue) |
+---
 
-**Modifying the user interface**
+## Requirements
 
-- for development go to src/store/useWorld.ts line 5 and follow the instructions of the comment.
-- run ```npm run dev```
-- the dev frontend is now available at http://localhost:3000/ and you get to tinker on the frontend with hot reloading. 
+- **Node.js 20+**
+- **Minecraft 1.12** with [CC:Tweaked](https://tweaked.cc/) (or compatible ComputerCraft fork)
+- **[Plethora Peripherals](https://plethora.madefor.cc/)** — required for block scanning, entity scanning, minecart computers, and player neural interfaces; basic turtle movement and inventory work without it
+- HTTP access from ComputerCraft to the host machine (see [Minecraft setup](#minecraft-setup))
+
+> **Minecraft version note:** This project targets 1.12 block data structures. Later versions significantly change how block state and metadata are stored; the underlying mechanics are stable but texture and block mapping aren't tested for versions 1.13+.
+
+---
+
+## Quick Start (Development)
+
+```bash
+npm install
+npm run build-textures "<path/to/minecraft.jar>" "<optional: path/to/mods/>"
+npm run dev
+```
+
+The interface is available at `http://localhost:8081`. Dev mode binds to `127.0.0.1` only and disables authentication — the server is unreachable from the network without any firewall configuration.
+
+Texture extraction is optional — blocks render as solid colours without it. See [docs/textures.md](docs/textures.md) for platform-specific paths and troubleshooting.
+
+---
+
+## Production Setup
+
+### 1. Install dependencies
+
+```bash
+npm install
+```
+
+### 2. Configure environment
+
+Copy `.env.local.example` to `.env.local` and fill in your values:
+
+```bash
+cp .env.local.example .env.local
+```
+
+At minimum, set `APP_URL` to the public address of the server. See [docs/deployment.md](docs/deployment.md) for authentication details.
+
+### 3. Extract textures (optional)
+
+```bash
+npm run build-textures "<path/to/minecraft.jar>" "<optional: path/to/mods/>"
+```
+
+### 4. Build and start
+
+```bash
+npm run build
+npm run start
+```
+
+For packaged/standalone distribution, see [docs/deployment.md](docs/deployment.md).
+
+---
+
+## Minecraft Setup
+
+ComputerCraft blocks HTTP to unlisted hosts by default. Add your host machine's IP
+(or `localhost`) to the HTTP whitelist — in 1.12 this is `config/computercraft.cfg`;
+in newer CC:Tweaked versions it's `<world>/serverconfig/computercraft-server.toml`.
+
+Once the server is running, approve computer IPs through the Admin tab in the browser interface. Alternatively, edit `src/server/saved/computer_ips.json` directly while the server is stopped.
+
+---
+
+## Adding Computers
+
+Run the following in the in-game terminal, replacing `<APP_URL>` with your server's address:
+
+| Computer type | Startup command | API functions |
+|--------------|-----------------|---------------|
+| Turtle | `wget run http://<APP_URL>/computers/turtle/startup` | [tapi](computers/turtle/tapi) |
+| Minecart | `wget run http://<APP_URL>/computers/minecart/startup` | [mapi](computers/minecart/mapi) |
+| Stationary | `wget run http://<APP_URL>/computers/stationary/startup` | [sapi](computers/stationary/sapi) |
+| Player (neural interface) | `wget run http://<APP_URL>/computers/player/startup` | [papi](computers/player/papi) |
+
+The startup script downloads the required files, registers with the server, and waits for IP approval from an admin in the browser interface. Once approved, the computer appears in the UI.
+
+**Location:** On first boot a turtle attempts a GPS fix. If GPS is unavailable it falls back to a saved position, or prompts for manual entry in the format `x y z facing` (e.g. `-263 68 79 south`).
+
+---
+
+## Block Scanning & World Map
+
+Full world map rendering requires a **Plethora scanner module** equipped on the turtle:
+
+```lua
+scan()   -- scans a 9×9×9 area centred on the turtle
+```
+In a turtle, using the LUA terminal in the browser, this would be accessible via tapi.scan().
+'tapi', because that's the turtle's api file name, and 'scan()' because that's the function name with no vars.
+
+For a minecart, this would be mapi.scan(), as minecarts use the 'mapi' api file. Etc.
+
+Without a scanner, only the three blocks immediately adjacent to the turtle (front/top/bottom) are reported per command response.
+
+---
+
+## Pre-made Turtle Programs
+
+Several Lua programs are served by the app and can be downloaded from within a turtle. Originally from [exa-byte/CCTurtleRemoteController](https://github.com/exa-byte/CCTurtleRemoteController).
+
+```lua
+wget http://<APP_URL>/computers/turtle/programs/<program>.lua
+```
+
+| Program | Description |
+|---------|-------------|
+| `miningTunnel2.lua` | Two-wide branch mining tunnel |
+| `miningTunnel3.lua` | Three-wide branch mining tunnel |
+| `treeMiner.lua` | Tree felling |
+| `veinMiner.lua` | Ore vein following |
+| `stairsToLava.lua` | Staircase mining down to lava level |
+| `placeNewTurtle.lua` | Places and registers a new turtle |
+| `randomExplore.lua` | Random walk exploration |
+| `skynetExpander.lua` | Automated network expansion |
+
+---
+
+## Keyboard Bindings
+
+Active when a computer panel is selected and no text input is focused.
+
+| Key | Action |
+|-----|--------|
+| W | Move forward |
+| S | Move back |
+| A | Turn left |
+| D | Turn right |
+| Q | Move down |
+| E | Move up |
+| Del | Clear command queue |
+
+---
+
+## User Roles
+
+| Role | Capabilities |
+|------|-------------|
+| **Admin** | Approve/deny computer IPs and IDs, manage operators, send raw Lua, full access |
+| **Operator** | Send predefined commands, view world map, manage inventory |
+| **Guest** | Read-only; world state queries rate-limited to one per 30 seconds |
+
+On first connection a computer's IP is held pending admin approval. Approved IPs persist to disk.
+
+---
+
+## Tips
+
+- Double-clicking a block in the 3D view sends the selected turtle a pathfinding command to navigate there
+- Clicking a block shows its name and coordinates in the overlay
+- Clicking a chest adjacent to a connected turtle opens its inventory for drag-and-drop interaction
+- If a turtle leaves chunk range its running program is interrupted; it restarts and reconnects when the chunk reloads
+- turtle functions are set up assuming that a modem lives in the left hand and that the right hand is hot-swapable. 
+
+---
+
+## Further Reading
+
+- [docs/textures.md](docs/textures.md) — texture extraction, block lookup, fixing missing/wrong textures, sprite sheets, custom assets
+- [docs/deployment.md](docs/deployment.md) — authentication setup, packaged distribution, local vs production modes
