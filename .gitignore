@@ -19,6 +19,7 @@ next-env.d.ts
 assets/blocks/*/*
 assets/items/*/*
 assets/block-name-map.json
+assets/item-name-map.json
 
 # saved state
 src/server/data/*
