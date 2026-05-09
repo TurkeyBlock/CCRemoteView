@@ -2,7 +2,9 @@
 
 A browser-based remote control and live world map for ComputerCraft computers running on **Minecraft 1.12 (Tekkit2)**. View a real-time 3D render of the area around your computers and control turtles, minecarts, stationary computers, and player neural interfaces from a single browser interface.
 
-> **Screenshot** — _to be added_
+![til](./readme_graphics/FullPage.png)
+![til](./readme_graphics/InventoryGUI.gif)
+![til](./readme_graphics/RenderTraversal.gif)
 
 ---
 
