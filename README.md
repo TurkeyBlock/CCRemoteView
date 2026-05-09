@@ -2,9 +2,9 @@
 
 A browser-based remote control and live world map for ComputerCraft computers running on **Minecraft 1.12 (Tekkit2)**. View a real-time 3D render of the area around your computers and control turtles, minecarts, stationary computers, and player neural interfaces from a single browser interface.
 
-![til](./readme_graphics/FullPage.png)
-![til](./readme_graphics/InventoryGUI.gif)
-![til](./readme_graphics/RenderTraversal.gif)
+![til](./docs/assets/FullPage.png)
+![til](./docs/assets/InventoryGUI.gif)
+![til](./docs/assets/RenderTraversal.gif)
 
 ---
 
@@ -89,7 +89,7 @@ ComputerCraft blocks HTTP to unlisted hosts by default. Add your host machine's 
 (or `localhost`) to the HTTP whitelist — in 1.12 this is `config/computercraft.cfg`;
 in newer CC:Tweaked versions it's `<world>/serverconfig/computercraft-server.toml`.
 
-Once the server is running, approve computer IPs through the Admin tab in the browser interface. Alternatively, edit `src/server/saved/computer_ips.json` directly while the server is stopped.
+Once the server is running, approve computer IPs through the Admin tab in the browser interface. Alternatively, edit `src/server/data/computer_ips.json` directly while the server is stopped.
 
 ---
 
@@ -99,10 +99,10 @@ Run the following in the in-game terminal, replacing `<APP_URL>` with your serve
 
 | Computer type | Startup command | API functions |
 |--------------|-----------------|---------------|
-| Turtle | `wget run http://<APP_URL>/computers/turtle/startup` | [tapi](computers/turtle/tapi) |
-| Minecart | `wget run http://<APP_URL>/computers/minecart/startup` | [mapi](computers/minecart/mapi) |
-| Stationary | `wget run http://<APP_URL>/computers/stationary/startup` | [sapi](computers/stationary/sapi) |
-| Player (neural interface) | `wget run http://<APP_URL>/computers/player/startup` | [papi](computers/player/papi) |
+| Turtle | `wget run http://<APP_URL>/lua/turtle/startup` | [tapi](lua/turtle/tapi) |
+| Minecart | `wget run http://<APP_URL>/lua/minecart/startup` | [mapi](lua/minecart/mapi) |
+| Stationary | `wget run http://<APP_URL>/lua/stationary/startup` | [sapi](lua/stationary/sapi) |
+| Player (neural interface) | `wget run http://<APP_URL>/lua/player/startup` | [papi](lua/player/papi) |
 
 The startup script downloads the required files, registers with the server, and waits for IP approval from an admin in the browser interface. Once approved, the computer appears in the UI.
 
@@ -131,7 +131,7 @@ Without a scanner, only the three blocks immediately adjacent to the turtle (fro
 Several Lua programs are served by the app and can be downloaded from within a turtle. Originally from [exa-byte/CCTurtleRemoteController](https://github.com/exa-byte/CCTurtleRemoteController).
 
 ```lua
-wget http://<APP_URL>/computers/turtle/programs/<program>.lua
+wget http://<APP_URL>/lua/turtle/programs/<program>.lua
 ```
 
 | Program | Description |
@@ -181,7 +181,7 @@ On first connection a computer's IP is held pending admin approval. Approved IPs
 - Clicking a block shows its name and coordinates in the overlay
 - Clicking a chest adjacent to a connected turtle opens its inventory for drag-and-drop interaction
 - If a turtle leaves chunk range its running program is interrupted; it restarts and reconnects when the chunk reloads
-- turtle functions are set up assuming that a modem lives in the left hand and that the right hand is hot-swapable. 
+- turtle functions are set up assuming that a modem lives in the right hand and that the left hand is hot-swappable.
 
 ---
 

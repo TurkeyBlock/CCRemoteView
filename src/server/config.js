@@ -43,8 +43,8 @@ const SCAN_INCLUDE_STATE        = false;
 const CMD_RESULT_CACHE_MAX      = 100;
 const MAX_CMD_LENGTH            = 10_000;
 
-const SAVE_GZ_PATH   = path.join(__dirname, 'saved/saved_state.json.gz');
-const SAVE_JSON_PATH = path.join(__dirname, 'saved/saved_state.json');
+const SAVE_GZ_PATH   = path.join(__dirname, 'data/saved_state.json.gz');
+const SAVE_JSON_PATH = path.join(__dirname, 'data/saved_state.json');
 
 const DEV_TOKEN = { sub: 'dev', username: 'dev', email: 'dev@localhost' };
 

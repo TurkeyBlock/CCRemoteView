@@ -1,0 +1,112 @@
+-- papi: player (neural interface) API
+-- Provides GPS location, status updates (position only), and Plethora block scanning.
+-- WS and command-result handling delegated to api_common.make_ws_sender.
+--
+-- Neural interface peripheral model:
+-- Unlike regular computers where each Plethora module appears as its own named peripheral
+-- on a side (e.g. peripheral.find("plethora:chat"), peripheral.find("plethora:scanner")),
+-- the neural interface consolidates ALL equipped modules onto a single peripheral object.
+-- Every function in this file that uses Plethora therefore does:
+--   local neural = peripheral.find("neuralInterface")
+-- and then probes for the specific method it needs (e.g. neural.scan, neural.say) before
+-- calling it. This is why papi cannot reuse api_common.say or other shared helpers that
+-- call peripheral.find() with a specific Plethora type — those types don't exist as
+-- separate peripherals on a neural interface computer.
+
+-- !MUST END WITH '/'
+-- %%APP_URL%% is replaced by the server before this file is served; not valid Lua as-is.
+url = "%%APP_URL%%/api/"
+
+local api_common = dofile("/api_common.lua")
+local headers    = { ["Content-Type"] = "application/json" }
+
+
+-- ─── GPS helpers ─────────────────────────────────────────────
+
+-- [concurrent]
+function get_location()
+    return api_common.gps_locate()
+end
+
+-- ─── Status / result helpers (HTTP) ──────────────────────────
+
+local _ws = api_common.make_ws_sender(url, headers)
+set_ws              = _ws.set_ws
+send_command_result = _ws.send_command_result
+send_chat           = api_common.make_send_chat(url, headers)
+
+-- say(message): send chat via the neural interface directly.
+-- Unlike turtle/stationary/minecart which use peripheral.find("plethora:chat"),
+-- the neural interface exposes chat on itself — there is no separate chat peripheral.
+function say(message)
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.say then return false, "neural interface has no say method (chat module not equipped?)" end
+    neural.say(message)
+    return true
+end
+
+function send_status_update()
+    local x, y, z = get_location()
+    local payload = {
+        id   = os.getComputerID(),
+        type = "player",
+        loc  = x and { x = math.floor(x), y = math.floor(y), z = math.floor(z) } or nil,
+    }
+    _ws.send_status_update(payload)
+end
+
+
+-- ─── Sense helper ────────────────────────────────────────────
+
+-- [concurrent]
+function sense()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.sense then return false, "neural interface has no sense method (sensor module not equipped?)" end
+    local raw = neural.sense()
+    local entities = {}
+    for _, e in ipairs(raw) do
+        table.insert(entities, { id = e.id, name = e.name, x = e.x, y = e.y, z = e.z })
+    end
+    local x, y, z = get_location()
+    local payload = { id = os.getComputerID(), entities = entities }
+    if x then payload.origin = { x = math.floor(x), y = math.floor(y), z = math.floor(z) } end
+    _ws.send_sense(payload)
+    print("? entity scan (" .. #entities .. " entities)")
+    return true
+end
+
+-- ─── Scan helper ─────────────────────────────────────────────
+
+local SCAN_INCLUDE_METADATA = true
+local SCAN_INCLUDE_STATE    = false
+
+-- [concurrent]
+function scan()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then
+        print("! scan: no neuralInterface peripheral found")
+        return false, "no neural interface found"
+    end
+    if not neural.scan then
+        print("! scan: neural interface has no scan method (scanner module not equipped?)")
+        return false, "no scanner module equipped"
+    end
+    local x, y, z = get_location()
+    if not x then
+        print("! scan: GPS fix failed")
+        return false, "GPS fix failed"
+    end
+    local raw    = neural.scan(4)
+    local blocks = api_common.build_scan_blocks(raw, SCAN_INCLUDE_METADATA, SCAN_INCLUDE_STATE, false)
+    local ox, oy, oz = math.floor(x), math.floor(y), math.floor(z)
+    local payload = { id = os.getComputerID(), origin = { x = ox, y = oy, z = oz }, blocks = blocks }
+    local ok, err = api_common.send_scan_http(url, headers, payload)
+    if not ok then
+        print("! scan failed: " .. tostring(err))
+        return false, err
+    end
+    print("? block scan (" .. #blocks .. " blocks @ " .. ox .. "," .. oy .. "," .. oz .. ")")
+    return true
+end

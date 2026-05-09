@@ -1,7 +1,7 @@
 const fs = require('fs');
 
 class ComputerIpManager {
-  saveFile = './src/server/saved/computer_ips.json';
+  saveFile = './src/server/data/computer_ips.json';
   approved = new Set();
   pending = new Set();
 
@@ -42,7 +42,7 @@ class ComputerIpManager {
   }
 
   save() {
-    fs.mkdirSync('./src/server/saved', { recursive: true });
+    fs.mkdirSync('./src/server/data', { recursive: true });
     const tmp = this.saveFile + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify({
       approved: [...this.approved],
@@ -54,7 +54,7 @@ class ComputerIpManager {
   load() {
     try {
       // Support migration from old turtle_ips.json filename
-      const legacy = './src/server/saved/turtle_ips.json';
+      const legacy = './src/server/data/turtle_ips.json';
       const src = fs.existsSync(this.saveFile) ? this.saveFile : legacy;
       const data = JSON.parse(fs.readFileSync(src, 'utf8'));
       this.approved = new Set(data.approved || []);

@@ -1,0 +1,68 @@
+-- sapi: Stationary Computer API
+-- Analogous to mapi. Location is captured once on boot and reused.
+
+-- !MUST END WITH '/'
+-- %%APP_URL%% is replaced by the server before this file is served; not valid Lua as-is.
+url = "%%APP_URL%%/api/"
+
+-- Populated once at boot by init_location()
+loc = nil   -- { x, y, z } or nil if GPS unavailable
+
+
+local headers    = { ["Content-Type"] = "application/json" }
+local api_common = dofile("/api_common.lua")
+
+-- ─── Boot-time location capture ──────────────────────────────
+
+-- Call once from startup before launching rcStationary.
+-- Retries until a GPS fix is obtained or max_attempts is reached.
+function init_location(max_attempts)
+    max_attempts = max_attempts or 10
+    for i = 1, max_attempts do
+        local x, y, z = gps.locate(2)
+        if x then
+            loc = { x = x, y = y, z = z }
+            print("GPS fix: " .. x .. ", " .. y .. ", " .. z)
+            return true
+        end
+        print("GPS attempt " .. i .. "/" .. max_attempts .. " failed, retrying...")
+        os.sleep(2)
+    end
+    print("Warning: GPS unavailable — loc will be nil")
+    return false
+end
+
+-- ─── Status / result helpers ──────────────────────────────────
+
+local _ws = api_common.make_ws_sender(url, headers)
+set_ws              = _ws.set_ws
+send_command_result = _ws.send_command_result
+
+function send_status_update()
+    local payload = {
+        id   = os.getComputerID(),
+        type = "stationary",
+        loc  = loc,
+    }
+    _ws.send_status_update(payload)
+end
+
+
+-- ─── Chat helper ─────────────────────────────────────────────
+
+send_chat = api_common.make_send_chat(url, headers)
+
+-- ─── Sense helper ────────────────────────────────────────────
+
+-- [concurrent]
+sense = api_common.make_sense_fn(_ws, function() return loc end)
+
+say = api_common.say
+
+-- [concurrent]
+scan = api_common.make_scan_fn(url, headers, {
+  filter_self = true,
+  get_origin  = function()
+    if loc then return loc.x, loc.y, loc.z end
+  end,
+})

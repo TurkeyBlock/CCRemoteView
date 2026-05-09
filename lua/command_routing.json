@@ -1,0 +1,87 @@
+{
+  "_note": "Defines every command operators can invoke via the structured invokeCommand path. concurrent=true means the command runs as a non-blocking coroutine; false means it enters the sequential queue. args defines server-side validated parameters — the server constructs the Lua string from validated args so operators never touch raw Lua. compound=true marks commands whose Lua is multi-statement and built specially by the server. Commands not listed here can only be called from the LuaTerminal, which is admin-only.",
+  "turtle": {
+    "module": "tapi",
+    "commands": {
+      "scan":                  { "concurrent": true,  "args": [] },
+      "sense":                 { "concurrent": true,  "args": [] },
+      "getLoc":                { "concurrent": true,  "args": [] },
+      "say":                   { "concurrent": true,  "args": [{ "name": "message",   "type": "string", "required": true,  "maxLength": 500 }] },
+      "findItem":              { "concurrent": true,  "args": [{ "name": "itemName",  "type": "string", "required": true,  "maxLength": 200 }] },
+      "findItemFuzzy":         { "concurrent": true,  "args": [{ "name": "itemName",  "type": "string", "required": true,  "maxLength": 200 }] },
+      "inspectSelectedItem":   { "concurrent": true,  "args": [] },
+      "forward":               { "concurrent": false, "args": [] },
+      "back":                  { "concurrent": false, "args": [] },
+      "up":                    { "concurrent": false, "args": [] },
+      "down":                  { "concurrent": false, "args": [] },
+      "left":                  { "concurrent": false, "args": [] },
+      "right":                 { "concurrent": false, "args": [] },
+      "goTo":                  { "concurrent": false, "args": [
+        { "name": "x",         "type": "number", "required": true,  "min": -30000000, "max": 30000000 },
+        { "name": "y",         "type": "number", "required": true,  "min": -320,      "max": 320 },
+        { "name": "z",         "type": "number", "required": true,  "min": -30000000, "max": 30000000 }
+      ]},
+      "dig":                   { "concurrent": false, "args": [] },
+      "digUp":                 { "concurrent": false, "args": [] },
+      "digDown":               { "concurrent": false, "args": [] },
+      "digRepeat":             { "concurrent": false, "args": [{ "name": "count",     "type": "number", "required": true,  "integer": true, "min": 1, "max": 1000 }] },
+      "digUpRepeat":           { "concurrent": false, "args": [{ "name": "count",     "type": "number", "required": true,  "integer": true, "min": 1, "max": 1000 }] },
+      "digDownRepeat":         { "concurrent": false, "args": [{ "name": "count",     "type": "number", "required": true,  "integer": true, "min": 1, "max": 1000 }] },
+      "place":                 { "concurrent": false, "args": [] },
+      "placeUp":               { "concurrent": false, "args": [] },
+      "placeDown":             { "concurrent": false, "args": [] },
+      "suckItem":              { "concurrent": false, "args": [
+        { "name": "itemName",  "type": "string", "required": true,  "maxLength": 200 },
+        { "name": "side",      "type": "string", "required": true,  "enum": ["top", "bottom", "front", "back", "left", "right"] },
+        { "name": "count",     "type": "number", "required": false, "integer": true, "min": 1, "max": 64 }
+      ]},
+      "drop":                  { "concurrent": false, "args": [
+        { "name": "direction", "type": "string", "required": false, "enum": ["top", "bottom", "front"] }
+      ]},
+      "select":                { "concurrent": false, "args": [{ "name": "slot",      "type": "number", "required": true,  "integer": true, "min": 1, "max": 16 }] },
+      "selectItem":            { "concurrent": false, "args": [{ "name": "itemName",  "type": "string", "required": true,  "maxLength": 200 }] },
+      "refuel":                { "concurrent": false, "args": [] },
+      "craft":                 { "concurrent": false, "args": [] },
+      "dropToChest":           { "concurrent": false, "compound": true, "args": [
+        { "name": "slot",      "type": "number", "required": true,  "integer": true, "min": 1, "max": 16 },
+        { "name": "side",      "type": "string", "required": true,  "enum": ["top", "bottom", "front", "back", "left", "right"] },
+        { "name": "count",     "type": "number", "required": true,  "integer": true, "min": 1, "max": 64 }
+      ]},
+      "transferSlot":          { "concurrent": false, "compound": true, "args": [
+        { "name": "fromSlot",  "type": "number", "required": true,  "integer": true, "min": 1, "max": 16 },
+        { "name": "toSlot",    "type": "number", "required": true,  "integer": true, "min": 1, "max": 16 },
+        { "name": "count",     "type": "number", "required": true,  "integer": true, "min": 1, "max": 64 }
+      ]}
+    }
+  },
+  "minecart": {
+    "module": "mapi",
+    "commands": {
+      "get_location":          { "concurrent": true,  "args": [] },
+      "scan":                  { "concurrent": true,  "args": [] },
+      "sense":                 { "concurrent": true,  "args": [] },
+      "say":                   { "concurrent": true,  "args": [{ "name": "message",   "type": "string", "required": true,  "maxLength": 500 }] },
+      "scan_specs":            { "concurrent": false, "args": [] },
+      "propel":                { "concurrent": false, "args": [{ "name": "power",     "type": "number", "required": true,  "min": -2, "max": 2 }] },
+      "propel_loop":           { "concurrent": false, "args": [{ "name": "power",     "type": "number", "required": true,  "min": -2, "max": 2 }] }
+    }
+  },
+  "player": {
+    "module": "papi",
+    "commands": {
+      "get_location":          { "concurrent": true,  "args": [] },
+      "scan":                  { "concurrent": true,  "args": [] },
+      "sense":                 { "concurrent": true,  "args": [] },
+      "say":                   { "concurrent": true,  "args": [{ "name": "message",   "type": "string", "required": true,  "maxLength": 500 }] }
+    }
+  },
+  "stationary": {
+    "module": "sapi",
+    "commands": {
+      "scan":                  { "concurrent": true,  "args": [] },
+      "sense":                 { "concurrent": true,  "args": [] },
+      "say":                   { "concurrent": true,  "args": [{ "name": "message",   "type": "string", "required": true,  "maxLength": 500 }] },
+      "init_location":         { "concurrent": false, "args": [] }
+    }
+  }
+}

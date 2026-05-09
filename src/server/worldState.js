@@ -95,7 +95,7 @@ function deserializeState(raw) {
 }
 
 function saveStateToDisk() {
-  fs.mkdirSync('./src/server/saved', { recursive: true });
+  fs.mkdirSync('./src/server/data', { recursive: true });
   const target = SAVE_GZ_PATH;
   const tmp    = `${SAVE_GZ_PATH}.tmp`;
   fs.writeFileSync(tmp, zlib.gzipSync(serializeState(state)));

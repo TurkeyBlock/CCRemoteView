@@ -1,0 +1,39 @@
+-- Turtle Computer startup
+
+-- !MUST END WITH '/'
+-- %%APP_URL%% is replaced by the server before this file is served; not valid Lua as-is.
+base_url = "%%APP_URL%%/"
+
+-- boot.lua is not on disk yet on first boot, so we must fetch it inline before require() can work.
+local function bootstrap_download(url, dest)
+    local res = http.get(url, nil)
+    while not res do
+        print("Error: " .. url .. " - retrying in 5s")
+        sleep(5)
+        res = http.get(url, nil)
+    end
+    local f = fs.open(dest, "w")
+    f.write(res.readAll())
+    f.close()
+    res.close()
+end
+
+bootstrap_download(base_url .. "lua/shared/boot.lua", "/boot.lua")
+local boot = dofile("/boot.lua")
+
+boot.check_approved(base_url, "turtle")
+-- Re-downloads shared libs (keeping boot.lua current). "startup" in the type list causes this file to self-update; new version runs on next reboot.
+boot.get_files(base_url, "lua/shared/", {"boot.lua", "rc_loop.lua", "api_common.lua", "locks.lua", "scheduler.lua"})
+boot.get_files(base_url, "lua/turtle/", {"tapi", "location", "setLocRot", "rcTurtle.lua", "startup"})
+
+-- Auto-equip wireless modem from inventory if found; required for GPS.
+for slot = 1, 16 do
+    local item = turtle.getItemDetail(slot)
+    if item and item.name == "computercraft:advanced_modem" then
+        turtle.select(slot)
+        turtle.equipRight()
+        break
+    end
+end
+
+shell.run("rcTurtle.lua")

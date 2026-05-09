@@ -1,0 +1,108 @@
+-- mapi: Minecart Computer API
+-- Mirrors tapi but without movement. Location is always queried via GPS
+-- since minecart computers can be moved externally.
+
+-- !MUST END WITH '/api/'
+-- %%APP_URL%% is replaced by the server before this file is served; not valid Lua as-is.
+url = "%%APP_URL%%/api/"
+local state_url = url .. "state/"
+local headers = { ["Content-Type"] = "application/json" }
+
+local api_common = dofile("/api_common.lua")
+local _ws = api_common.make_ws_sender(url, headers)
+
+local state = {
+  id          = -1,
+  label       = "",
+  type        = "minecart",
+  loc         = { x = 0, y = 0, z = 0 },
+  peripherals = {},
+}
+
+-- Scan attached peripherals once at startup and store their types in state.
+-- I'm not supporting dynamic peripheral changes for minecart computers without reboots.
+local function scan_peripherals()
+  local found = {}
+  local seen = {}
+  for _, side in ipairs(peripheral.getNames()) do
+    local ptype = peripheral.getType(side)
+    if ptype and not seen[ptype] then
+      seen[ptype] = true
+      table.insert(found, ptype)
+    end
+  end
+  state.peripherals = found
+end
+scan_peripherals()
+
+
+if os.getComputerLabel() == nil or os.getComputerLabel() == "" then
+  os.setComputerLabel("minecart" .. tostring(os.getComputerID()))
+end
+
+-- [concurrent]
+function get_location()
+    return api_common.gps_locate()
+end
+
+-- Populate state with a fresh GPS fix and computer metadata.
+function scan_specs()
+  local x, y, z = get_location()
+  if x then
+    state.loc.x = math.floor(x)
+    state.loc.y = math.floor(y)
+    state.loc.z = math.floor(z)
+  else
+    print("! GPS unavailable")
+  end
+  state.id    = os.getComputerID()
+  state.label = os.getComputerLabel() or ""
+end
+
+-- [concurrent]
+scan = api_common.make_scan_fn(url, headers, {
+  filter_self = true,
+  get_origin  = function() return get_location() end,
+})
+
+-- [concurrent]
+-- Scan for nearby entities and report to server.
+-- Entities are stored as temporary children of this computer and fully
+-- replaced on every call — positions are fractional offsets from the sensor.
+sense = api_common.make_sense_fn(_ws, function()
+  local gx, gy, gz = get_location()
+  if gx then return { x = gx, y = gy, z = gz } end
+end)
+
+say = api_common.say
+
+-- Propel the minecart along the track using the kinetic augment.
+-- power is clamped to [-2, 2].
+function propel(power)
+  power = power or 1
+  power = math.max(-2, math.min(2, power))
+  local kinetic = peripheral.find("plethora:kinetic")
+  if not kinetic then return false, "no kinetic augment attached" end
+  kinetic.propel(power)
+  os.sleep(0.3)
+  send_status_update()
+  return true
+end
+
+-- Repeatedly propel until the command is terminated via stop signal.
+function propel_loop(power)
+  while true do
+    propel(power)
+  end
+end
+
+-- Send full state report to the server. Always queries GPS first.
+function send_status_update()
+  scan_specs()
+  _ws.send_state(state)
+end
+
+set_ws              = _ws.set_ws
+send_command_result = _ws.send_command_result
+
+send_chat = api_common.make_send_chat(url, headers)

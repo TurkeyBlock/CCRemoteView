@@ -1,16 +1,16 @@
 // Texture extractor — reads Minecraft JAR/ZIP files and produces two outputs:
-//   1. textures/blocks/**  and  textures/items/**  — raw PNG assets
-//   2. textures/block-name-map.json — a map of "mod:block:meta" → { texture, geometry, uv? }
+//   1. assets/blocks/**  and  assets/items/**  — raw PNG assets
+//   2. assets/block-name-map.json — a map of "mod:block:meta" → { texture, geometry, uv? }
 //
 // block-name-map.json is the PRIMARY source of geometry and texture data at runtime.
-// store/blockMaps/ is the CORRECTION and EXTENSION layer on top of it:
-//   - store/blockMaps/geometry.ts  — manual geometry overrides when the extractor gets it wrong,
+// src/utils/blockMaps/ is the CORRECTION and EXTENSION layer on top of it:
+//   - src/utils/blockMaps/geometry.ts  — manual geometry overrides when the extractor gets it wrong,
 //                                    plus name-pattern fallbacks for unextracted blocks
-//   - store/blockMaps/textures.ts  — manual texture aliases and UV overrides
-//   - store/blockMaps/occlusion.ts — transparency/occlusion flags (not encoded in the JSON)
-//   - store/blockMaps/tinting.ts   — biome and dye tinting (not encoded in the JSON)
+//   - src/utils/blockMaps/textures.ts  — manual texture aliases and UV overrides
+//   - src/utils/blockMaps/occlusion.ts — transparency/occlusion flags (not encoded in the JSON)
+//   - src/utils/blockMaps/tinting.ts   — biome and dye tinting (not encoded in the JSON)
 //
-// If you find a block rendering incorrectly, prefer fixing it in store/blockMaps/ rather
+// If you find a block rendering incorrectly, prefer fixing it in src/utils/blockMaps/ rather
 // than re-running the extractor — the map is a snapshot; blockMaps corrections survive reruns.
 //
 // Standalone usage:
@@ -57,24 +57,24 @@ function extractFromJar(fileName) {
         const p = entry.path;
 
         // ── Texture PNG ──────────────────────────────────────────────────────
-        // assets/{mod}/textures/{blocks|items}/{any/depth/.../file}.png
+        // assets/{mod}/assets/{blocks|items}/{any/depth/.../file}.png
         // Subdirectories (e.g. Chisel's blocks/cobblestone/cobblestone1.png) are
         // flattened into the filename with underscores.
         const texMatch = /assets\/(?<mod>[^/]+)\/textures\/(?<type>blocks|items)\/(?<rest>.+\.png)$/.exec(p);
         if (texMatch) {
           const { mod, type, rest } = texMatch.groups;
-          const outDir = `textures/${type}/${mod}`;
+          const outDir = `assets/${type}/${mod}`;
           fs.mkdirSync(outDir, { recursive: true });
           entry.pipe(fs.createWriteStream(`${outDir}/${rest.replaceAll('/', '_')}`));
           return;
         }
 
         // ── Sprite-sheet PNGs (IC2 and similar mods) ─────────────────────────
-        // assets/{mod}/textures/sprites/{name}.png → textures/blocks/{mod}/sprites_{name}.png
+        // assets/{mod}/assets/sprites/{name}.png → assets/blocks/{mod}/sprites_{name}.png
         const spriteMatch = /assets\/(?<mod>[^/]+)\/textures\/sprites\/(?<name>[^/]+\.png)$/.exec(p);
         if (spriteMatch) {
           const { mod, name } = spriteMatch.groups;
-          const outDir = `textures/blocks/${mod}`;
+          const outDir = `assets/blocks/${mod}`;
           fs.mkdirSync(outDir, { recursive: true });
           entry.pipe(fs.createWriteStream(`${outDir}/sprites_${name}`));
           return;
@@ -140,7 +140,7 @@ function extractFromZip(zipPath) {
         const texMatch = /assets\/(?<mod>[^/]+)\/textures\/(?<type>blocks|items)\/(?<rest>.+\.png)$/.exec(p);
         if (texMatch) {
           const { mod, type, rest } = texMatch.groups;
-          const outDir = `textures/${type}/${mod}`;
+          const outDir = `assets/${type}/${mod}`;
           fs.mkdirSync(outDir, { recursive: true });
           entry.pipe(fs.createWriteStream(`${outDir}/${rest.replaceAll('/', '_')}`));
           return;
@@ -149,16 +149,16 @@ function extractFromZip(zipPath) {
         const spriteMatch = /assets\/(?<mod>[^/]+)\/textures\/sprites\/(?<name>[^/]+\.png)$/.exec(p);
         if (spriteMatch) {
           const { mod, name } = spriteMatch.groups;
-          const outDir = `textures/blocks/${mod}`;
+          const outDir = `assets/blocks/${mod}`;
           fs.mkdirSync(outDir, { recursive: true });
           entry.pipe(fs.createWriteStream(`${outDir}/sprites_${name}`));
           return;
         }
 
-        // Fallback: bare textures/blocks/stone.png (some vanilla zip layouts).
+        // Fallback: bare assets/blocks/stone.png (some vanilla zip layouts).
         m = /textures\/(?<type>blocks|items)\/(?<f>[^/]+\.png)$/.exec(p);
         if (m) {
-          const outDir = `textures/${m.groups.type}/minecraft`;
+          const outDir = `assets/${m.groups.type}/minecraft`;
           fs.mkdirSync(outDir, { recursive: true });
           entry.pipe(fs.createWriteStream(`${outDir}/${m.groups.f}`));
           return;
@@ -167,7 +167,7 @@ function extractFromZip(zipPath) {
         // Fallback: blocks/stone.png at root.
         m = /^(?<type>blocks|items)\/(?<f>[^/]+\.png)$/.exec(p);
         if (m) {
-          const outDir = `textures/${m.groups.type}/minecraft`;
+          const outDir = `assets/${m.groups.type}/minecraft`;
           fs.mkdirSync(outDir, { recursive: true });
           entry.pipe(fs.createWriteStream(`${outDir}/${m.groups.f}`));
           return;
@@ -212,7 +212,7 @@ function extractFromZip(zipPath) {
 
 
 function pickMultiFaceBlockDisplaySide() {
-  const blockBase = 'textures/blocks';
+  const blockBase = 'assets/blocks';
   const mods = fs.readdirSync(blockBase).filter(n => fs.lstatSync(path.join(blockBase, n)).isDirectory());
   mods.forEach((modName, i) => {
     const modDir = path.join(blockBase, modName);
@@ -326,7 +326,7 @@ const GEOMETRY_PATTERNS = [
 // Fallback geometry classification by block registry name, for blocks whose model
 // parent chain doesn't contain a recognizable geometry keyword (e.g. reeds defines
 // its cross geometry inline without inheriting from minecraft:block/cross).
-// Keep in sync with CROSS_BY_NAME / FLAT_BY_NAME in store/blockMaps/geometry.ts —
+// Keep in sync with CROSS_BY_NAME / FLAT_BY_NAME in src/utils/blockMaps/geometry.ts —
 // those are the runtime equivalents used when a block has no block-name-map.json entry.
 const CROSS_BY_NAME  = /reeds|tallgrass|double_plant|dead.*bush|(?:^|_)fern|flower|sapling|mushroom|crop|wheat|carrot|potato|beetroot|nether_wart|waterlily|vine|cobweb|torch|fire|kelp|seagrass/;
 const FLAT_BY_NAME   = /snow_layer|lily_pad|carpet/;
@@ -398,7 +398,7 @@ function resolveModelElementUV(modelKey, visited = new Set()) {
   return resolveModelElementUV(normalizedParentKey, visited);
 }
 
-// UV corrections belong in store/blockMaps/textures.ts (uvSources / uvOverrides),
+// UV corrections belong in src/utils/blockMaps/textures.ts (uvSources / uvOverrides),
 // not here. Those are applied at runtime and survive extractor reruns.
 // The extractor's auto-detected UVs from model element faces are written to the
 // JSON as a best-effort; the runtime overrides win for any block listed in textures.ts.
@@ -759,11 +759,11 @@ async function run(jarPath, modDir) {
   const MOD_DIR = ((modDir  ?? DEFAULT_MODS) + '').replaceAll('\\\\', '/').replaceAll('\\', '/');
 
   process.stdout.write('Clearing existing texture output...');
-  for (const dir of ['textures/blocks', 'textures/items']) {
+  for (const dir of ['assets/blocks', 'assets/items']) {
     if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true });
     fs.mkdirSync(dir, { recursive: true });
   }
-  if (fs.existsSync('textures/block-name-map.json')) fs.rmSync('textures/block-name-map.json');
+  if (fs.existsSync('assets/block-name-map.json')) fs.rmSync('assets/block-name-map.json');
   console.log('DONE');
 
   const modJars = MOD_DIR ? fs.readdirSync(MOD_DIR).filter(f => f.endsWith('.jar')) : [];
@@ -804,23 +804,23 @@ async function run(jarPath, modDir) {
   }
   console.log(`${aliasCount} legacy 1.12 block name aliases applied`);
 
-  fs.mkdirSync('textures', { recursive: true });
-  fs.writeFileSync('textures/block-name-map.json', JSON.stringify(nameTextureMap, null, 2));
-  console.log(`${Object.keys(nameTextureMap).length} entries → textures/block-name-map.json`);
+  fs.mkdirSync('assets', { recursive: true });
+  fs.writeFileSync('assets/block-name-map.json', JSON.stringify(nameTextureMap, null, 2));
+  console.log(`${Object.keys(nameTextureMap).length} entries → assets/block-name-map.json`);
 
   const itemTextureMap = buildItemTextureMap();
-  fs.writeFileSync('textures/item-name-map.json', JSON.stringify(itemTextureMap, null, 2));
-  console.log(`${Object.keys(itemTextureMap).length} entries → textures/item-name-map.json`);
+  fs.writeFileSync('assets/item-name-map.json', JSON.stringify(itemTextureMap, null, 2));
+  console.log(`${Object.keys(itemTextureMap).length} entries → assets/item-name-map.json`);
 
-  // Copy hand-authored texture folders into textures/blocks/ so the existing path
-  // resolver can find them. Any folder in textures/ that isn't a generated one gets mirrored.
+  // Copy hand-authored texture folders into assets/blocks/ so the existing path
+  // resolver can find them. Any folder in assets/ that isn't a generated one gets mirrored.
   const GENERATED_DIRS = new Set(['blocks', 'items', 'turtle']);
-  for (const entry of fs.readdirSync('textures', { withFileTypes: true })) {
+  for (const entry of fs.readdirSync('assets', { withFileTypes: true })) {
     if (!entry.isDirectory() || GENERATED_DIRS.has(entry.name)) continue;
-    const src = path.join('textures', entry.name);
-    const dst = path.join('textures', 'blocks', entry.name);
+    const src = path.join('assets', entry.name);
+    const dst = path.join('assets', 'blocks', entry.name);
     fs.cpSync(src, dst, { recursive: true });
-    console.log(`Copied custom textures/${entry.name}/ → textures/blocks/${entry.name}/`);
+    console.log(`Copied custom assets/${entry.name}/ → assets/blocks/${entry.name}/`);
   }
 }
 
