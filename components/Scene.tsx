@@ -105,6 +105,12 @@ function SceneSetup() {
   // ─── Raycasting ───────────────────────────────────────────────────────────
 
   function getBlockPosFromHit(hit: THREE.Intersection): THREE.Vector3 {
+    const attr = (hit.object as THREE.Mesh).geometry?.getAttribute('blockCoord')
+    if (attr) {
+      const i = hit.face!.a
+      return new THREE.Vector3(attr.getX(i), attr.getY(i), attr.getZ(i))
+    }
+    // Fallback for non-chunk geometry (entity markers, inventory sprites, etc.)
     const worldNormal = hit.face!.normal.clone()
       .transformDirection(hit.object.matrixWorld)
       .round()

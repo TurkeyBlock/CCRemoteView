@@ -28,7 +28,7 @@ A browser-based remote control and live world map for ComputerCraft computers ru
 - **[Plethora Peripherals](https://plethora.madefor.cc/)** — required for block scanning, entity scanning, minecart computers, and player neural interfaces; basic turtle movement and inventory work without it
 - HTTP access from ComputerCraft to the host machine (see [Minecraft setup](#minecraft-setup))
 
-> **Minecraft version note:** This project targets 1.12 block data structures. Later versions significantly change how block state and metadata are stored; the underlying mechanics are stable but texture and block mapping aren't even slightly tested for versions 1.13+.
+> **Minecraft version note:** This project targets 1.12 block data structures. Later versions significantly change how block state and metadata are stored; the underlying mechanics are stable but texture and block mapping aren't tested for versions 1.13+.
 
 ---
 
@@ -174,8 +174,8 @@ The extractor writes:
 
 When the renderer needs to draw a block it looks up `mod:blockname:meta` through this priority chain:
 
-1. **`geometryMap`** in `store/blockMaps.ts` — manual geometry override (wins over everything)
-2. **`textureAliases`** in `store/blockMaps.ts` — manual texture path override
+1. **`geometryMap`** in `store/blockMaps/geometry.ts` — manual geometry override (wins over everything)
+2. **`textureAliases`** in `store/blockMaps/textures.ts` — manual texture path override
 3. **`block-name-map.json`** — auto-extracted texture + geometry from the JAR
 4. **Bare name fallback** — strips metadata and tries `mod:blockname:0`
 5. **Solid colour** — if nothing matches, the block renders as a flat grey cube
@@ -187,28 +187,28 @@ The extractor walks each mod JAR's `assets/{mod}/blockstates/` and `assets/{mod}
 - **Sprite sheets** — mods like IC2 and Railcraft pack many block faces into a single large PNG. The extractor can detect and save the sheet but can't know which tile corresponds to which block without a UV region.
 - **Forge blockstate format** (`forge_marker: 1`) — stores textures inline in the blockstate JSON rather than a model file. The extractor handles the common case but misses some variants.
 - **No blockstate file** — some mods register blocks without standard asset files. The extractor produces no entry for these.
-- **1.12 metadata blocks** — 1.12 uses a single block name + metadata integer where 1.13+ uses separate block names. The extractor includes a large alias table for vanilla; mod aliases must be added manually.
+- **1.12 metadata blocks** — 1.12 uses a single block name + metadata integer and does not natively provide a map to blocks' relevant textures. The extractor includes a large alias table for vanilla; mod aliases must be added manually.
 
 ### Fixing a missing or wrong texture
 
 #### Wrong geometry (block looks like a flat square, solid cube, etc.)
 
-Add an entry to the `geometryMap` object in `store/blockMaps.ts`:
+Add an entry to the `geometryMap` object in `store/blockMaps/geometry.ts`:
 
 ```ts
 export const geometryMap: { [blockId: string]: string } = {
-  "yourmod:yourblock:0": "cross",   // or: cube, flat, slab_bottom, slab_top, glass, leaves, pane
+  "yourmod:yourblock:0": "cross",   // or: cube, flat, slab_bottom, slab_top, leaves, pane
   "yourmod:yourblock":   "cross",   // applies to all metadata values
 };
 ```
 
-Available geometry types: `cube`, `cube6` (cube with 6 distinct face textures from a 96×16 horizontal strip — used for chests), `cross` (plants/torches), `flat` (carpet/rails), `slab_bottom`, `slab_top`, `glass`, `leaves`, `liquid`, `pane` (thin vertical centre column with up to 4 full-height arms toward adjacent panes and solid blocks — used for glass panes and iron bars), `fence` (thin centre post with up to 4 top + bottom rail pairs toward adjacent fences and solid blocks; covers walls too), `cable` (small centre cube with up to 6 arms toward neighbours that share a connection group — used for power cables, fluid pipes, item pipes), `stairs`. Note that `stairs` is not yet rendered with its true shape — blocks assigned this type render as cubes but correctly avoid hiding the faces of adjacent blocks.
+Available geometry types: `cube`, `cube6` (cube with 6 distinct face textures from a 96×16 horizontal strip — used for chests, for example), `cross` (plants/torches), `flat` (carpet/rails), `slab_bottom`, `slab_top`, `leaves`, `liquid`, `pane` (thin vertical centre column with up to 4 full-height arms toward adjacent panes and solid blocks — used for glass panes and iron bars), `fence` (thin centre post with up to 4 top + bottom rail pairs toward adjacent fences and solid blocks; covers walls too), `cable` (small centre cube with up to 6 arms toward neighbours that share a connection group — used for power cables, fluid pipes, item pipes), `stairs`. Note that `stairs` is not yet rendered with its true shape — blocks assigned this type render as cubes but correctly avoid hiding the faces of adjacent blocks.
 
 #### Connection groups (cable / pipe wiring)
 
 Cable geometry doesn't connect by shape — it connects by *connection group*. RF cables, EU cables, fluid pipes, and item pipes each have their own group (`"rf"`, `"eu"`, `"liquid"`, `"item"`). A cable extends an arm toward any neighbour that shares at least one of its groups, including non-cable acceptors (e.g. a chest is in the `"item"` group so item pipes attach to it).
 
-Each group can also be subdivided into **sub-protocols** when two networks shouldn't merge — for example IC2 EU cables and Galacticraft aluminium wires are both EU but mechanically incompatible. In `store/blockMaps.ts`, the group definitions are subgroup maps:
+Each group can also be subdivided into **sub-protocols** when two networks shouldn't merge — for example IC2 EU cables and Galacticraft aluminium wires are both EU but mechanically incompatible. In `store/blockMaps/connections.ts`, the group definitions are subgroup maps:
 
 ```ts
 const EU = {
@@ -225,11 +225,11 @@ The `"_"` key has two meanings depending on context:
 - **When named subgroups exist alongside `_`** (e.g. EU above): blocks under `_` are *universal acceptors* — they get every named sibling's tag and connect to all sub-protocols.
 - **When `_` is the only key** (e.g. LIQUID above): the group has no subdivision and `_` entries get the bare prefix tag.
 
-Blocks in different named sub-protocols don't connect to each other. Multi-group entries in `CONNECTION_GROUPS_OVERRIDES` reference the resolved tag names (e.g. `["eu_ic2", "eu_galactic", "item"]`).
+Blocks in different named sub-protocols don't connect to each other. Multi-group entries in `CONNECTION_GROUPS_OVERRIDES` (also in `connections.ts`) reference the resolved tag names (e.g. `["eu_ic2", "eu_galactic", "item"]`).
 
 #### Wrong or missing texture (block is grey or shows a different block's face)
 
-Add an entry to `textureAliases` in `store/blockMaps.ts`. The value is a path relative to `textures/blocks/`, without the `.png` extension:
+Add an entry to `textureAliases` in `store/blockMaps/textures.ts`. The value is a path relative to `textures/blocks/`, without the `.png` extension:
 
 ```ts
 export const textureAliases: { [id: string]: string } = {
@@ -242,7 +242,7 @@ To find available texture filenames, look in `textures/blocks/{mod}/` after runn
 
 #### Block needs a colour tint (grass, leaves, dyed blocks)
 
-Add an entry to `blockTint` in `store/blockMaps.ts`:
+Add an entry to `blockTint` in `store/blockMaps/tinting.ts`:
 
 ```ts
 export const blockTint: { [id: string]: number } = {
@@ -251,11 +251,11 @@ export const blockTint: { [id: string]: number } = {
 };
 ```
 
-`BIOME_TINT` (exported from the same file) is the standard grass/leaves green `0x88C149`.
+`BIOME_TINT` (also exported from `tinting.ts`) is the standard grass/leaves green `0x88C149`.
 
 #### Transparent block shows black faces on neighbours
 
-The renderer skips drawing faces between two adjacent solid cubes for performance. If a transparent block is classified as solid, the faces behind it disappear. Add it to the non-occluding list in `store/blockMaps.ts`:
+The renderer skips drawing faces between two adjacent solid cubes for performance. If a transparent block is classified as solid, the faces behind it disappear. Add it to the non-occluding list in `store/blockMaps/occlusion.ts`:
 
 ```ts
 // Pattern match (catches all blocks whose name contains "glass"):
@@ -283,7 +283,7 @@ u1 = col  * 16      v1 = row * 16
 u2 = (col + 1) * 16  v2 = (row + 1) * 16
 ```
 
-**Step 3 — add the entries to `store/blockMaps.ts`.** Both `textureAliases` (the sheet file) and `uvOverrides` (the pixel region) must be set:
+**Step 3 — add the entries to `store/blockMaps/textures.ts`.** Both `textureAliases` (the sheet file) and `uvOverrides` (the pixel region) must be set:
 
 ```ts
 export const textureAliases: { [id: string]: string } = {

@@ -1,4 +1,17 @@
-// Texture extractor — replaces minecraft-blocks-render/canvas with Sharp.
+// Texture extractor — reads Minecraft JAR/ZIP files and produces two outputs:
+//   1. textures/blocks/**  and  textures/items/**  — raw PNG assets
+//   2. textures/block-name-map.json — a map of "mod:block:meta" → { texture, geometry, uv? }
+//
+// block-name-map.json is the PRIMARY source of geometry and texture data at runtime.
+// store/blockMaps/ is the CORRECTION and EXTENSION layer on top of it:
+//   - store/blockMaps/geometry.ts  — manual geometry overrides when the extractor gets it wrong,
+//                                    plus name-pattern fallbacks for unextracted blocks
+//   - store/blockMaps/textures.ts  — manual texture aliases and UV overrides
+//   - store/blockMaps/occlusion.ts — transparency/occlusion flags (not encoded in the JSON)
+//   - store/blockMaps/tinting.ts   — biome and dye tinting (not encoded in the JSON)
+//
+// If you find a block rendering incorrectly, prefer fixing it in store/blockMaps/ rather
+// than re-running the extractor — the map is a snapshot; blockMaps corrections survive reruns.
 //
 // Standalone usage:
 //   node scripts/textureExtractor/textureExtractor.js <mcJarOrZip> [modJarsDir]
@@ -311,8 +324,10 @@ const GEOMETRY_PATTERNS = [
 // Fallback geometry classification by block registry name, for blocks whose model
 // parent chain doesn't contain a recognizable geometry keyword (e.g. reeds defines
 // its cross geometry inline without inheriting from minecraft:block/cross).
-const CROSS_BY_NAME  = /reeds|tallgrass|double_plant|dead.*bush|(?:^|_)fern|flower|sapling|mushroom|crop|wheat|carrot|potato|beetroot|nether_wart|waterlily|vine|cobweb|torch|fire/;
-const FLAT_BY_NAME   = /snow_layer|lily_pad/;
+// Keep in sync with CROSS_BY_NAME / FLAT_BY_NAME in store/blockMaps/geometry.ts —
+// those are the runtime equivalents used when a block has no block-name-map.json entry.
+const CROSS_BY_NAME  = /reeds|tallgrass|double_plant|dead.*bush|(?:^|_)fern|flower|sapling|mushroom|crop|wheat|carrot|potato|beetroot|nether_wart|waterlily|vine|cobweb|torch|fire|kelp|seagrass/;
+const FLAT_BY_NAME   = /snow_layer|lily_pad|carpet/;
 
 // Returns the geometry type for a model key by checking the key path against
 // known parent model name patterns, without loading the model itself.
@@ -381,14 +396,10 @@ function resolveModelElementUV(modelKey, visited = new Set()) {
   return resolveModelElementUV(normalizedParentKey, visited);
 }
 
-// Manual UV overrides for blocks where the auto-detected UV from model elements
-// is wrong or absent. Coordinates are PIXEL offsets into the PNG, matching the
-// actual image dimensions (same convention as uvOverrides in store/blockMaps.ts).
-// Use this when a sprite-sheet texture is mis-detected or uses an odd layout.
-const UV_OVERRIDES = {
-  // Example — railcraft:infernal 6-tile horizontal sheet (96×16):
-  // 'railcraft:infernal:1': [16, 0, 32, 16],
-};
+// UV corrections belong in store/blockMaps/textures.ts (uvSources / uvOverrides),
+// not here. Those are applied at runtime and survive extractor reruns.
+// The extractor's auto-detected UVs from model element faces are written to the
+// JSON as a best-effort; the runtime overrides win for any block listed in textures.ts.
 
 
 // Iterates every blockstate we collected and resolves each variant's display
@@ -719,12 +730,6 @@ async function run(jarPath, modDir) {
     }
   }
   console.log(`${aliasCount} legacy 1.12 block name aliases applied`);
-
-  // Apply manual UV overrides — highest priority, wins over both extraction and aliases.
-  for (const [key, uv] of Object.entries(UV_OVERRIDES)) {
-    if (nameTextureMap[key]) nameTextureMap[key] = { ...nameTextureMap[key], uv };
-    else console.warn(`UV_OVERRIDES: no map entry for '${key}' — check the key spelling`);
-  }
 
   fs.mkdirSync('textures', { recursive: true });
   fs.writeFileSync('textures/block-name-map.json', JSON.stringify(nameTextureMap, null, 2));

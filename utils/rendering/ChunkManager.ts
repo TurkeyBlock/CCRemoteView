@@ -3,7 +3,7 @@ import { Block } from '@/types/world';
 import { useWorldViewStore } from '@/store/useWorldView';
 import { WorldChunk, CHUNK_SIZE, locToChunkKey } from './WorldChunk';
 import type { BuildRequest, BuildResult, MaterialMeta, SerializedBlock } from '@/workers/chunkBuilder.worker';
-import { isNonOccluding, isLiquid, getConnectionGroups } from '@/store/blockMaps';
+import { isNonOccluding, isLiquid, isAlphaGlass, getConnectionGroups } from '@/store/blockMaps';
 import { getBlockGeometry } from '@/store/useWorldView';
 
 /**
@@ -365,9 +365,9 @@ export class ChunkManager {
       const geomType = getBlockGeometry(name, metadata ?? 0);
       const groups = getConnectionGroups(name, metadata ?? 0);
       const meta: MaterialMeta = {
-        transparent: name.includes('water') || name.includes('glass') || name.includes('ice'),
+        transparent: isLiquid(name) || isAlphaGlass(name, geomType) || name.includes('ice'),
         liquid: isLiquid(name),
-        nonOccluding: isNonOccluding(name),
+        nonOccluding: isNonOccluding(name, geomType),
         geomType,
         ...(groups.length > 0 ? { connectionGroups: groups } : {}),
       };
@@ -494,9 +494,10 @@ export class ChunkManager {
   ): THREE.Mesh {
     if (!geo) throw new Error('buildMesh called with null geometry');
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(geo.positions, 3));
-    geometry.setAttribute('normal',   new THREE.BufferAttribute(geo.normals,   3));
-    geometry.setAttribute('uv',       new THREE.BufferAttribute(geo.uvs,       2));
+    geometry.setAttribute('position',   new THREE.BufferAttribute(geo.positions,   3));
+    geometry.setAttribute('normal',     new THREE.BufferAttribute(geo.normals,     3));
+    geometry.setAttribute('uv',         new THREE.BufferAttribute(geo.uvs,         2));
+    geometry.setAttribute('blockCoord', new THREE.BufferAttribute(geo.blockCoords, 3));
     geometry.setIndex(new THREE.BufferAttribute(geo.indices, 1));
     for (const g of geo.groups) {
       geometry.addGroup(g.start, g.count, g.materialIndex);

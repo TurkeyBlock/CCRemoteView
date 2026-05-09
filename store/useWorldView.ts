@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import * as THREE from 'three'
 import type { Block, EntitySighting } from '../types/world'
-import { geometryMap, textureAliases, uvOverrides, blockTint, BIOME_TINT, isLiquid } from './blockMaps'
+import { GEOMETRY, geometryMap, CROSS_BY_NAME, FLAT_BY_NAME, textureAliases, uvOverrides, blockTint, BIOME_TINT, hasBiomeTint, isLiquid, isAlphaGlass } from './blockMaps'
 
 // Materials and texture caches live outside Zustand — no re-renders on load.
 const materialsCache: Record<string, THREE.MeshPhongMaterial> = {}
@@ -37,32 +37,28 @@ function mapToTexturePath(entry: BlockMapEntry): string {
   return entry.texture.replace(/^blocks\//, '').replace(/\.png$/, '')
 }
 
-// Name-based geometry fallbacks — match before the map is loaded so chunks
-// built during startup get the right shape immediately.
-const CROSS_BY_NAME = /reeds|tallgrass|double_plant|dead.*bush|(?:^|_)fern|flower|sapling|mushroom|crop|wheat|carrot|potato|beetroot|nether_wart|waterlily|vine|cobweb|torch|fire/
-const FLAT_BY_NAME  = /snow_layer|lily_pad|carpet/
 
-export function getBlockGeometry(name: string, metadata = 0): string {
+export function getBlockGeometry(name: string, metadata = 0): GEOMETRY {
   const id = metadata ? `${name}:${metadata}` : name
   const blockName = name.includes(':') ? name.split(':')[1] : name
-  const raw = geometryMap[id] ?? geometryMap[name]
+  const raw: string = geometryMap[id] ?? geometryMap[name]
     ?? blockNameMap[`${name}:${metadata}`]?.geometry
     ?? blockNameMap[`${name}:0`]?.geometry
     ?? blockNameMap[name]?.geometry
-    ?? (isLiquid(name)               ? 'liquid' : null)
-    ?? (CROSS_BY_NAME.test(blockName) ? 'cross'  : null)
-    ?? (FLAT_BY_NAME.test(blockName)  ? 'flat'   : null)
-    ?? 'cube'
+    ?? (isLiquid(name)               ? GEOMETRY.LIQUID : undefined)
+    ?? (CROSS_BY_NAME.test(blockName) ? GEOMETRY.CROSS  : undefined)
+    ?? (FLAT_BY_NAME.test(blockName)  ? GEOMETRY.FLAT   : undefined)
+    ?? GEOMETRY.CUBE
   // Resolve slab top/bottom from metadata.
   // "slab" is the legacy extractor output; "slab_bottom" is the current one.
   // In 1.12, metadata bit 3 (≥ 8) means top slab.
   // In 1.13+, the extractor emits "slab_top" directly for top-slab model variants,
   // so those entries are already correct and this branch is never reached.
-  if (raw === 'slab' || raw === 'slab_bottom') {
-    if (blockName.includes('double')) return 'cube'
-    return metadata >= 8 ? 'slab_top' : 'slab_bottom'
+  if (raw === 'slab' || raw === GEOMETRY.SLAB_BOTTOM) {
+    if (blockName.includes('double')) return GEOMETRY.CUBE
+    return metadata >= 8 ? GEOMETRY.SLAB_TOP : GEOMETRY.SLAB_BOTTOM
   }
-  return raw
+  return raw as GEOMETRY
 }
 
 /**
@@ -193,26 +189,27 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
       mat.color.setHex(0xffffff)
       const tint = blockTint[id] ?? blockTint[name]
       if (tint) mat.color.setHex(tint)
-      else if (name.includes('leaves')) mat.color.setHex(BIOME_TINT)
+      else if (hasBiomeTint(name)) mat.color.setHex(BIOME_TINT)
 
       const geomId = getBlockGeometry(name, metadata)
 
-      if (geomId === 'cross' || geomId === 'flat' || geomId === 'leaves' ||
-          name.includes('sapling') || name.includes('kelp') || name.includes('seagrass'))
+      if (geomId === GEOMETRY.CROSS || geomId === GEOMETRY.FLAT)
         mat.alphaTest = 1
-      if (geomId === 'cross' || geomId === 'flat' ||
-          name.includes('sapling') || name.includes('kelp') || name.includes('seagrass'))
+      if (geomId === GEOMETRY.CROSS || geomId === GEOMETRY.FLAT)
         mat.side = THREE.DoubleSide
-      if (geomId === 'liquid') {
+      if (geomId === GEOMETRY.LIQUID) {
         mat.transparent = true
         mat.opacity = 0.55
         mat.depthWrite = false
       }
-      if (geomId === 'glass' || geomId === 'pane') {
+      if (geomId === GEOMETRY.PANE || isAlphaGlass(name, geomId)) {
         mat.transparent = true
         mat.alphaTest = 0.5
       }
-      if (geomId === 'flat') {
+      if (geomId === GEOMETRY.LEAVES) {
+        mat.alphaTest = 0.5
+      }
+      if (geomId === GEOMETRY.FLAT) {
         mat.polygonOffset = true
         mat.polygonOffsetFactor = -1
         mat.polygonOffsetUnits = -4
@@ -238,7 +235,7 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
       // Non-square textures default to "animated sprite sheet" (fire, water, etc.).
       // cube6 geometry uses a 96×16 face strip whose UVs are picked per-face by
       // the chunk builder, so it must NOT be animated.
-      if (!blockUV && img.width !== img.height && geomId !== 'cube6') get().addAnimatedTexture(texture)
+      if (!blockUV && img.width !== img.height && geomId !== GEOMETRY.CUBE6) get().addAnimatedTexture(texture)
       mat.needsUpdate = true
     }
 

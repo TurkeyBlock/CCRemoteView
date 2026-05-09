@@ -5,6 +5,8 @@
  * the main thread assembles into BufferGeometry objects.
  */
 
+import { GEOMETRY } from '../store/blockMaps'
+
 // ─── Protocol types ───────────────────────────────────────────────────────────
 
 export interface SerializedBlock {
@@ -16,8 +18,7 @@ export interface MaterialMeta {
   transparent: boolean;
   liquid: boolean;
   nonOccluding: boolean;
-  /** 'cube' | 'cross' | 'flat' | 'slab_bottom' | 'slab_top' | 'fence' | 'pane' | 'cable' | 'cube6' (fallback: 'cube') */
-  geomType: string;
+  geomType: GEOMETRY;
   /** Connection-group memberships. Cable geometry connects when any of its groups overlap a neighbour's. */
   connectionGroups?: string[];
 }
@@ -34,6 +35,8 @@ export interface GeometryBuffers {
   uvs: Float32Array;
   indices: Uint32Array;
   groups: GroupEntry[];
+  /** Per-vertex originating block integer coords [bx, by, bz, …]. Used for raycasting. */
+  blockCoords: Int16Array;
 }
 
 export interface BuildRequest {
@@ -133,10 +136,11 @@ interface Accumulator {
   /** Raw index values (offset by base vertex count before merging). */
   indices: number[];
   vertexCount: number;
+  blockCoords: number[];
 }
 
 function makeAccumulator(): Accumulator {
-  return { positions: [], normals: [], uvs: [], indices: [], vertexCount: 0 };
+  return { positions: [], normals: [], uvs: [], indices: [], vertexCount: 0, blockCoords: [] };
 }
 
 /** Append a quad (4 vertices, 2 triangles) to an accumulator. */
@@ -152,6 +156,7 @@ function pushQuad(
     acc.positions.push(bx + verts[i][0], by + verts[i][1], bz + verts[i][2]);
     acc.normals.push(normal[0], normal[1], normal[2]);
     acc.uvs.push(uvCoords[i][0], uvCoords[i][1]);
+    acc.blockCoords.push(bx, by, bz);
   }
   // Two triangles: (0,1,2) and (0,2,3)
   acc.indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
@@ -319,7 +324,7 @@ function isConnection(
   if (!meta) return false;
   if (meta.geomType === matchType) return true;
   // Connect to solid full cubes (excludes glass/leaves/etc. via nonOccluding flag).
-  return meta.geomType === 'cube' && !meta.nonOccluding;
+  return meta.geomType === GEOMETRY.CUBE && !meta.nonOccluding;
 }
 
 /**
@@ -385,32 +390,6 @@ function isCableConnection(
   return false;
 }
 
-// ─── Solid-block test ─────────────────────────────────────────────────────────
-
-function isSolid(
-  locString: string,
-  allBlocks: Record<string, SerializedBlock>,
-  matIndices: Record<string, number>,
-  matMeta: Record<number, MaterialMeta>,
-  hiddenSet: Set<string>,
-): boolean {
-  const b = allBlocks[locString];
-  if (!b) return false;
-  if (hiddenSet.has(b.name)) return false;
-  const key = b.metadata ? `${b.name}:${b.metadata}` : b.name;
-  const idx = matIndices[key] ?? matIndices[b.name];
-  if (idx === undefined) return false;
-  const meta = matMeta[idx];
-  if (!meta) return false;
-  const geom = meta.geomType;
-  // Partial-block shapes don't fully occlude neighbours.
-  // fence/pane/stairs have no dedicated geometry yet (render as cube), but they
-  // must not occlude adjacent faces since they don't fill the full block volume.
-  if (geom === 'cross' || geom === 'flat' || geom === 'slab_bottom' || geom === 'slab_top'
-      || geom === 'fence' || geom === 'pane' || geom === 'stairs') return false;
-  return !meta.nonOccluding;
-}
-
 // ─── Main builder ─────────────────────────────────────────────────────────────
 
 function buildGeometry(req: BuildRequest): BuildResult {
@@ -449,28 +428,28 @@ function buildGeometry(req: BuildRequest): BuildResult {
     const acc = getAcc(matIdx, isTransparent);
 
     // ── Non-cube geometry ──────────────────────────────────────────────────
-    if (geomType === 'cross') {
+    if (geomType === GEOMETRY.CROSS) {
       pushCross(acc, x, y, z);
       continue;
     }
-    if (geomType === 'flat') {
+    if (geomType === GEOMETRY.FLAT) {
       pushFlat(acc, x, y, z);
       continue;
     }
-    if (geomType === 'slab_bottom' || geomType === 'slab_top') {
-      pushSlab(acc, x, y, z, geomType === 'slab_top');
+    if (geomType === GEOMETRY.SLAB_BOTTOM || geomType === GEOMETRY.SLAB_TOP) {
+      pushSlab(acc, x, y, z, geomType === GEOMETRY.SLAB_TOP);
       continue;
     }
-    if (geomType === 'fence' || geomType === 'pane') {
+    if (geomType === GEOMETRY.FENCE || geomType === GEOMETRY.PANE) {
       const connN = isConnection(geomType, allBlocks[`${x},${y},${z-1}`], hiddenSet, matIndices, matMeta);
       const connS = isConnection(geomType, allBlocks[`${x},${y},${z+1}`], hiddenSet, matIndices, matMeta);
       const connE = isConnection(geomType, allBlocks[`${x+1},${y},${z}`], hiddenSet, matIndices, matMeta);
       const connW = isConnection(geomType, allBlocks[`${x-1},${y},${z}`], hiddenSet, matIndices, matMeta);
-      if (geomType === 'fence') pushFence(acc, x, y, z, connN, connS, connE, connW);
-      else                      pushPane(acc, x, y, z, connN, connS, connE, connW);
+      if (geomType === GEOMETRY.FENCE) pushFence(acc, x, y, z, connN, connS, connE, connW);
+      else                             pushPane(acc, x, y, z, connN, connS, connE, connW);
       continue;
     }
-    if (geomType === 'cable') {
+    if (geomType === GEOMETRY.CABLE) {
       const myGroups = meta.connectionGroups;
       const Xp = isCableConnection(myGroups, allBlocks[`${x+1},${y},${z}`], hiddenSet, matIndices, matMeta);
       const Xn = isCableConnection(myGroups, allBlocks[`${x-1},${y},${z}`], hiddenSet, matIndices, matMeta);
@@ -483,12 +462,19 @@ function buildGeometry(req: BuildRequest): BuildResult {
     }
 
     // ── Cube face culling ──────────────────────────────────────────────────
-    const isCube6 = geomType === 'cube6';
+    const isCube6 = geomType === GEOMETRY.CUBE6;
     for (let fi = 0; fi < FACES.length; fi++) {
       const face = FACES[fi];
       const nx = x + face.dx, ny = y + face.dy, nz = z + face.dz;
       const nLoc = `${nx},${ny},${nz}`;
       const nb = allBlocks[nLoc];
+
+      // Alpha-transparent blocks of the same type (same name + metadata) cull their
+      // shared interior faces — e.g. a wall of glass doesn't show internal seams.
+      // Leaves are non-occluding but not transparent, so they keep all faces and
+      // alpha holes in one leaf block reveal the faces of the block behind it.
+      if (meta.transparent && !isLiquid && nb && !hiddenSet.has(nb.name)
+          && nb.name === block.name && (nb.metadata ?? 0) === (block.metadata ?? 0)) continue;
 
       // Skip if neighbour occludes this face.
       if (nb && !hiddenSet.has(nb.name)) {
@@ -498,14 +484,17 @@ function buildGeometry(req: BuildRequest): BuildResult {
           const nbMeta = matMeta[nbIdx];
           if (nbMeta) {
             const nbGeom = nbMeta.geomType;
-            const nbIsFullCube = nbGeom !== 'cross' && nbGeom !== 'flat'
-              && nbGeom !== 'slab_bottom' && nbGeom !== 'slab_top'
-              && nbGeom !== 'fence' && nbGeom !== 'pane' && nbGeom !== 'cable';
+            // GEOMETRY.STAIRS is intentionally absent — stairs render as full cubes until
+            // a proper stair push function exists. Add it here when that lands, or it will
+            // generate coplanar faces that z-fight with the stair cube.
+            const nbIsFullCube = nbGeom !== GEOMETRY.CROSS && nbGeom !== GEOMETRY.FLAT
+              && nbGeom !== GEOMETRY.SLAB_BOTTOM && nbGeom !== GEOMETRY.SLAB_TOP
+              && nbGeom !== GEOMETRY.FENCE && nbGeom !== GEOMETRY.PANE && nbGeom !== GEOMETRY.CABLE;
             // Slabs occlude only the single face they fully cover:
             // a bottom slab covers the top face (+Y) of the block below it,
             // a top slab covers the bottom face (-Y) of the block above it.
-            const slabOccludes = (nbGeom === 'slab_bottom' && face.dy === 1) ||
-                                 (nbGeom === 'slab_top'    && face.dy === -1);
+            const slabOccludes = (nbGeom === GEOMETRY.SLAB_BOTTOM && face.dy === 1) ||
+                                 (nbGeom === GEOMETRY.SLAB_TOP    && face.dy === -1);
 
             if ((nbIsFullCube || slabOccludes) && !nbMeta.nonOccluding) {
               // Solid full-cube neighbour hides any non-liquid face.
@@ -543,10 +532,11 @@ function buildGeometry(req: BuildRequest): BuildResult {
       totalIndices += acc.indices.length;
     }
 
-    const positions = new Float32Array(totalVerts * 3);
-    const normals   = new Float32Array(totalVerts * 3);
-    const uvs       = new Float32Array(totalVerts * 2);
-    const indices   = new Uint32Array(totalIndices);
+    const positions   = new Float32Array(totalVerts * 3);
+    const normals     = new Float32Array(totalVerts * 3);
+    const uvs         = new Float32Array(totalVerts * 2);
+    const indices     = new Uint32Array(totalIndices);
+    const blockCoords = new Int16Array(totalVerts * 3);
     const groups: GroupEntry[] = [];
 
     let vOffset = 0;
@@ -555,10 +545,11 @@ function buildGeometry(req: BuildRequest): BuildResult {
 
     for (const [matIdx, acc] of entries) {
       const groupStart = iOffset;
-      // Positions / normals / UVs
+      // Positions / normals / UVs / block coords
       positions.set(acc.positions, vOffset * 3);
       normals.set(acc.normals, vOffset * 3);
       uvs.set(acc.uvs, vOffset * 2);
+      blockCoords.set(acc.blockCoords, vOffset * 3);
       // Indices — offset to account for vertices already written
       for (let i = 0; i < acc.indices.length; i++) {
         indices[iOffset++] = acc.indices[i] + baseVertex;
@@ -568,7 +559,7 @@ function buildGeometry(req: BuildRequest): BuildResult {
       vOffset += acc.vertexCount;
     }
 
-    return { positions, normals, uvs, indices, groups };
+    return { positions, normals, uvs, indices, groups, blockCoords };
   }
 
   return {
@@ -592,6 +583,7 @@ self.onmessage = (e: MessageEvent<BuildRequest>) => {
       result.opaque.normals.buffer,
       result.opaque.uvs.buffer,
       result.opaque.indices.buffer,
+      result.opaque.blockCoords.buffer,
     );
   }
   if (result.transparent) {
@@ -600,6 +592,7 @@ self.onmessage = (e: MessageEvent<BuildRequest>) => {
       result.transparent.normals.buffer,
       result.transparent.uvs.buffer,
       result.transparent.indices.buffer,
+      result.transparent.blockCoords.buffer,
     );
   }
 
