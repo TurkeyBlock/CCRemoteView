@@ -2,9 +2,10 @@
 
 A browser-based remote control and live world map for ComputerCraft computers running on **Minecraft 1.12 (Tekkit2)**. View a real-time 3D render of the area around your computers and control turtles, minecarts, stationary computers, and player neural interfaces from a single browser interface.
 
-![til](./docs/assets/FullPage.png)
-![til](./docs/assets/InventoryGUI.gif)
-![til](./docs/assets/RenderTraversal.gif)
+![til](https://github.com/TurkeyBlock/CCRemoteViewImages/blob/main/FullPage.png)
+
+<a href="https://github.com/TurkeyBlock/CCRemoteViewImages/blob/main/TurtleControl.gif"><img src="https://github.com/TurkeyBlock/CCRemoteViewImages/blob/main/TurtleControl.gif" width="49%"></a>
+<a href="https://github.com/TurkeyBlock/CCRemoteViewImages/blob/main/InventoryGUI.gif"><img src="https://github.com/TurkeyBlock/CCRemoteViewImages/blob/main/InventoryGUI.gif" width="49%"></a>
 
 ---
 
@@ -184,8 +185,10 @@ On first connection a computer's IP is held pending admin approval. Approved IPs
 - turtle functions are set up assuming that a modem lives in the right hand and that the left hand is hot-swappable.
 
 ---
+<a href="https://github.com/TurkeyBlock/CCRemoteViewImages/blob/main/Render%20Traversal.gif"><img src="https://github.com/TurkeyBlock/CCRemoteViewImages/blob/main/Render%20Traversal.gif" width="100%"></a>
 
 ## Further Reading
 
 - [docs/textures.md](docs/textures.md) — texture extraction, block lookup, fixing missing/wrong textures, sprite sheets, custom assets
 - [docs/deployment.md](docs/deployment.md) — authentication setup, packaged distribution, local vs production modes
+
