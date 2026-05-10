@@ -1,6 +1,6 @@
 'use strict';
 
-const commandRouting = require('../../computers/command_routing.json');
+const commandRouting = require('../../lua/command_routing.json');
 
 function extractFunctionName(cmd) {
   const m = cmd.match(/(?:return\s+)?(?:\w+\.)?(\w+)\s*\(/);

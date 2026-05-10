@@ -20,9 +20,9 @@ npm run build-textures "%appdata%\.minecraft\versions\<version>\<version>.jar"
 
 The extractor writes:
 
-- `textures/blocks/{mod}/` — block face PNGs; subdirectory paths are flattened with underscores; some mods produce sprite sheets (a single PNG containing multiple block faces)
-- `textures/items/{mod}/` — item sprites; blocks without a dedicated item sprite get a copy of their block face
-- `textures/block-name-map.json` — the resolved mapping from block ID+metadata to texture file and geometry type
+- `assets/blocks/{mod}/` — block face PNGs; subdirectory paths are flattened with underscores; some mods produce sprite sheets (a single PNG containing multiple block faces)
+- `assets/items/{mod}/` — item sprites; blocks without a dedicated item sprite get a copy of their block face
+- `assets/block-name-map.json` — the resolved mapping from block ID+metadata to texture file and geometry type
 
 ---
 
@@ -30,8 +30,8 @@ The extractor writes:
 
 When the renderer needs to draw a block it looks up `mod:blockname:meta` through this priority chain:
 
-1. **`geometryMap`** in `store/blockMaps/geometry.ts` — manual geometry override (wins over everything)
-2. **`textureAliases`** in `store/blockMaps/textures.ts` — manual texture path override
+1. **`geometryMap`** in `src/utils/blockMaps/geometry.ts` — manual geometry override (wins over everything)
+2. **`textureAliases`** in `src/utils/blockMaps/textures.ts` — manual texture path override
 3. **`block-name-map.json`** — auto-extracted texture + geometry from the JAR
 4. **Bare name fallback** — strips metadata and tries `mod:blockname:0`
 5. **Solid colour** — if nothing matches, the block renders as a flat grey cube
@@ -53,7 +53,7 @@ The extractor walks each mod JAR's `assets/{mod}/blockstates/` and `assets/{mod}
 
 ### Wrong geometry (block looks like a flat square, solid cube, etc.)
 
-Add an entry to the `geometryMap` object in `store/blockMaps/geometry.ts`:
+Add an entry to the `geometryMap` object in `src/utils/blockMaps/geometry.ts`:
 
 ```ts
 export const geometryMap: { [blockId: string]: string } = {
@@ -68,7 +68,7 @@ Available geometry types: `cube`, `cube6` (cube with 6 distinct face textures fr
 
 Cable geometry doesn't connect by shape — it connects by *connection group*. RF cables, EU cables, fluid pipes, and item pipes each have their own group (`"rf"`, `"eu"`, `"liquid"`, `"item"`). A cable extends an arm toward any neighbour that shares at least one of its groups, including non-cable acceptors (e.g. a chest is in the `"item"` group so item pipes attach to it).
 
-Each group can also be subdivided into **sub-protocols** when two networks shouldn't merge — for example IC2 EU cables and Galacticraft aluminium wires are both EU but mechanically incompatible. In `store/blockMaps/connections.ts`, the group definitions are subgroup maps:
+Each group can also be subdivided into **sub-protocols** when two networks shouldn't merge — for example IC2 EU cables and Galacticraft aluminium wires are both EU but mechanically incompatible. In `src/utils/blockMaps/connections.ts`, the group definitions are subgroup maps:
 
 ```ts
 const EU = {
@@ -89,20 +89,20 @@ Blocks in different named sub-protocols don't connect to each other. Multi-group
 
 ### Wrong or missing texture (block is grey or shows a different block's face)
 
-Add an entry to `textureAliases` in `store/blockMaps/textures.ts`. The value is a path relative to `textures/blocks/`, without the `.png` extension:
+Add an entry to `textureAliases` in `src/utils/blockMaps/textures.ts`. The value is a path relative to `assets/blocks/`, without the `.png` extension:
 
 ```ts
 export const textureAliases: { [id: string]: string } = {
   "yourmod:yourblock:0": "yourmod/your_texture_filename",
-  // Points to textures/blocks/yourmod/your_texture_filename.png
+  // Points to assets/blocks/yourmod/your_texture_filename.png
 };
 ```
 
-To find available texture filenames, look in `textures/blocks/{mod}/` after running the extractor. If the file isn't there, the mod JAR may not have written it — copy or rename one manually.
+To find available texture filenames, look in `assets/blocks/{mod}/` after running the extractor. If the file isn't there, the mod JAR may not have written it — copy or rename one manually.
 
 ### Block needs a colour tint (grass, leaves, dyed blocks)
 
-Add an entry to `blockTint` in `store/blockMaps/tinting.ts`:
+Add an entry to `blockTint` in `src/utils/blockMaps/tinting.ts`:
 
 ```ts
 export const blockTint: { [id: string]: number } = {
@@ -115,7 +115,7 @@ export const blockTint: { [id: string]: number } = {
 
 ### Transparent block shows black faces on neighbours
 
-The renderer skips drawing faces between two adjacent solid cubes for performance. If a transparent block is classified as solid, the faces behind it disappear. Add it to the non-occluding list in `store/blockMaps/occlusion.ts`:
+The renderer skips drawing faces between two adjacent solid cubes for performance. If a transparent block is classified as solid, the faces behind it disappear. Add it to the non-occluding list in `src/utils/blockMaps/occlusion.ts`:
 
 ```ts
 // Pattern match (catches all blocks whose name contains "glass"):
@@ -136,7 +136,7 @@ const NON_OCCLUDING_EXACT = new Set<string>([
 
 Some mods store all their block faces in a single large PNG (a sprite sheet) rather than individual files. The extractor saves the whole sheet as one file; you must tell the renderer which sub-region to use.
 
-**Step 1 — find the sheet file.** After running the extractor, check `textures/blocks/{mod}/`. Sprite sheets often have names like `sprites_block_0.png` or `brick_sandy.png` that are obviously larger than 16×16.
+**Step 1 — find the sheet file.** After running the extractor, check `assets/blocks/{mod}/`. Sprite sheets often have names like `sprites_block_0.png` or `brick_sandy.png` that are obviously larger than 16×16.
 
 **Step 2 — identify the tile.** Open the image in any editor. Tiles are typically 16×16 pixels laid out in a grid. Count columns from the left and rows from the top (both zero-indexed) to find the tile for your block. The UV coordinates are:
 
@@ -145,7 +145,7 @@ u1 = col  * 16        v1 = row * 16
 u2 = (col + 1) * 16   v2 = (row + 1) * 16
 ```
 
-**Step 3 — add the entries to `store/blockMaps/textures.ts`.** Both `textureAliases` (the sheet file) and `uvOverrides` (the pixel region) must be set:
+**Step 3 — add the entries to `src/utils/blockMaps/textures.ts`.** Both `textureAliases` (the sheet file) and `uvOverrides` (the pixel region) must be set:
 
 ```ts
 export const textureAliases: { [id: string]: string } = {
@@ -165,9 +165,9 @@ UV coordinates are **pixel offsets into the PNG** matching its actual dimensions
 
 For blocks that the extractor can't handle (e.g. vanilla `minecraft:chest`, which uses a block-entity renderer and has no standard block model), you can supply your own PNG assets and wire them up manually.
 
-1. Create a named folder under `textures/` — for example `textures/chest/`. Do **not** use `blocks`, `items`, or `turtle` (those are reserved).
+1. Create a named folder under `assets/` — for example `assets/chest/`. Do **not** use `blocks`, `items`, or `turtle` (those are reserved).
 2. Place your PNG files in it. Any layout is fine; subdirectories work too.
-3. At the end of every `npm run build-textures` run, the extractor automatically copies those folders into `textures/blocks/` (e.g. `textures/blocks/chest/`). They can then be referenced via `textureAliases` or `block-name-map.json` using the path `"blocks/chest/your_file"` — the same scheme as any other extracted texture.
+3. At the end of every `npm run build-textures` run, the extractor automatically copies those folders into `assets/blocks/` (e.g. `assets/blocks/chest/`). They can then be referenced via `textureAliases` or `block-name-map.json` using the path `"blocks/chest/your_file"` — the same scheme as any other extracted texture.
 4. The source folder is never overwritten by the extractor, so your files are safe.
 
-For per-face textures (each cube face drawing from its own tile), use the `cube6` geometry type — supply a 96×16 PNG with tiles in the order `+X, -X, +Y, -Y, +Z, -Z`. For other custom shapes, add a new geometry type to the `geomType` handling in `workers/chunkBuilder.worker.ts` and reference it from `geometryMap` or `block-name-map.json`.
+For per-face textures (each cube face drawing from its own tile), use the `cube6` geometry type — supply a 96×16 PNG with tiles in the order `+X, -X, +Y, -Y, +Z, -Z`. For other custom shapes, add a new geometry type to the `geomType` handling in `src/workers/chunkBuilder.worker.ts` and reference it from `geometryMap` or `block-name-map.json`.

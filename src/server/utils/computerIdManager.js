@@ -4,7 +4,7 @@ class ComputerIdManager {
   pendingIds = []; // [{ id, ip, requestedAt }]
   approvedIds = new Set();
   allowByIp = true; // default: original behaviour — individual approval is opt-in
-  idFile = './src/server/saved/computer_ids.json';
+  idFile = './src/server/data/computer_ids.json';
 
   constructor() { this.load(); }
 
@@ -47,7 +47,7 @@ class ComputerIdManager {
   }
 
   save() {
-    fs.mkdirSync('./src/server/saved', { recursive: true });
+    fs.mkdirSync('./src/server/data', { recursive: true });
     const tmp = this.idFile + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify({
       approved: [...this.approvedIds],
@@ -60,7 +60,7 @@ class ComputerIdManager {
   load() {
     try {
       // Support migration from old turtle_ids.json filename
-      const legacy = './src/server/saved/turtle_ids.json';
+      const legacy = './src/server/data/turtle_ids.json';
       const src = fs.existsSync(this.idFile) ? this.idFile : legacy;
       const data = JSON.parse(fs.readFileSync(src, 'utf8'));
       this.approvedIds = new Set(data.approved ?? []);

@@ -12,7 +12,7 @@ function getDateDiffString(date) {
 
 class UserManagement {
   users = {};
-  saveFile = './src/server/saved/users.json';
+  saveFile = './src/server/data/users.json';
 
   constructor() {
     this.load();
@@ -44,7 +44,7 @@ class UserManagement {
   }
 
   save() {
-    fs.mkdirSync('./src/server/saved', { recursive: true });
+    fs.mkdirSync('./src/server/data', { recursive: true });
     fs.writeFileSync(this.saveFile, JSON.stringify(this.users));
   }
 

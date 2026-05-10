@@ -36,7 +36,7 @@ async function getSession(req) {
 
 function loadAdmins() {
   try {
-    return JSON.parse(fs.readFileSync('./src/server/saved/admins.json', 'utf8'));
+    return JSON.parse(fs.readFileSync('./src/server/data/admins.json', 'utf8'));
   } catch {
     return [];
   }

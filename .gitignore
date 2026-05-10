@@ -2,38 +2,27 @@
 logs
 *.log
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
 
 node_modules
-dist
-dist-ssr
 .next
 tsconfig.tsbuildinfo
 next-env.d.ts
-grab
-*.local
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
 *.sw?
 
-# textures
-textures/blocks/*/*
-textures/items/*/*
-textures/block-name-map.json
+# generated assets (from build-textures)
+assets/blocks/*/*
+assets/items/*/*
+assets/block-name-map.json
+assets/item-name-map.json
 
 # saved state
-src/server/saved/*
+src/server/data/*
 
 !/**/.gitkeep
 

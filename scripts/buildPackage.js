@@ -1,11 +1,11 @@
 // Standalone package builder.
 //
 // Produces a zip under packaged/ containing:
-//   - The custom Express server (server.js + src/server/)
+//   - A thin server.js shim + the actual server (src/server/)
 //   - The Next.js standalone build (.next/, public/)
 //   - All server-side npm dependencies (node_modules/)
-//   - Runtime assets (computers/, textures/ if present)
-//   - Blank starter saved data (src/server/saved/)
+//   - Runtime assets (lua/, assets/ if present)
+//   - Blank starter data (src/server/data/)
 //   - A Node.js binary, two start scripts, README, and .env template
 //
 // Usage: npm run pkg
@@ -54,21 +54,25 @@ if (!fs.existsSync(standaloneDir)) {
 // ── [2/5] Overlay custom server into standalone ───────────────────────────────
 console.log('\n[2/5] Overlaying custom server files…');
 
-// Replace Next.js's generated server.js with our custom Express + WebSocket server.
-fs.copyFileSync(path.join(rootDir, 'server.js'), path.join(standaloneDir, 'server.js'));
+// Replace Next.js's generated server.js with a thin shim that delegates to
+// src/server/index.js — the actual Express + WebSocket server lives there.
+fs.writeFileSync(
+  path.join(standaloneDir, 'server.js'),
+  "require('./src/server/index.js');\n"
+);
 
-// Copy src/server/ — exclude saved/ so the developer's persisted world state,
+// Copy src/server/ — exclude data/ so the developer's persisted world state,
 // approved IPs, and usernames do not ship in the package.
 copyDir(
   path.join(rootDir, 'src', 'server'),
   path.join(standaloneDir, 'src', 'server'),
-  new Set(['saved'])
+  new Set(['data'])
 );
 
 // Ship blank starter data so users get the right directory structure on first run.
 copyDir(
-  path.join(rootDir, 'src', 'server', 'saved.example'),
-  path.join(standaloneDir, 'src', 'server', 'saved')
+  path.join(rootDir, 'src', 'server', 'data.example'),
+  path.join(standaloneDir, 'src', 'server', 'data')
 );
 
 // ── [3/5] Install server-side dependencies ────────────────────────────────────
@@ -110,12 +114,12 @@ console.log('\n[4/5] Copying runtime assets…');
 copyDir(path.join(rootDir, 'scripts', 'textureExtractor'), path.join(standaloneDir, 'scripts', 'textureExtractor'));
 
 // Lua scripts served to ComputerCraft computers.
-if (fs.existsSync(path.join(rootDir, 'computers')))
-  copyDir(path.join(rootDir, 'computers'), path.join(standaloneDir, 'computers'));
+if (fs.existsSync(path.join(rootDir, 'lua')))
+  copyDir(path.join(rootDir, 'lua'), path.join(standaloneDir, 'lua'));
 
-// Block textures — absent until the user runs build-textures; that's fine.
-if (fs.existsSync(path.join(rootDir, 'textures')))
-  copyDir(path.join(rootDir, 'textures'), path.join(standaloneDir, 'textures'));
+// Block textures and 3D models — absent until the user runs build-textures; that's fine.
+if (fs.existsSync(path.join(rootDir, 'assets')))
+  copyDir(path.join(rootDir, 'assets'), path.join(standaloneDir, 'assets'));
 
 // public/ is already copied into standalone by Next.js — no action needed.
 
@@ -130,7 +134,7 @@ archive.on('error',   err => { throw err; });
 archive.pipe(output);
 
 // All standalone content at the zip root (server.js, .next/, node_modules/,
-// public/, src/server/, computers/, textures/).
+// public/, src/server/, lua/, assets/).
 archive.directory(standaloneDir, false);
 
 // Ship a copy of the Node.js binary so the package runs without a system install.

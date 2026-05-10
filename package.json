@@ -3,9 +3,9 @@
   "private": true,
   "version": "2.0.0",
   "scripts": {
-    "dev": "node -e \"process.env.NODE_ENV='development';require('./server.js')\"",
+    "dev": "node -e \"process.env.NODE_ENV='development';require('./src/server/index.js')\"",
     "build": "next build",
-    "start": "node -e \"process.env.NODE_ENV='production';require('./server.js')\"",
+    "start": "node -e \"process.env.NODE_ENV='production';require('./src/server/index.js')\"",
     "build-textures": "node scripts/textureExtractor/textureExtractor.js",
     "pkg": "npm run build && node scripts/buildPackage.js"
   },

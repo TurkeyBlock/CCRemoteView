@@ -3,8 +3,8 @@ const fs = require('fs');
 class OperatorManager {
   operators = []; // [{ sub, email }]
   requests = []; // [{ sub, email, requestedAt }]
-  operatorsFile = './src/server/saved/operators.json';
-  requestsFile = './src/server/saved/operator_requests.json';
+  operatorsFile = './src/server/data/operators.json';
+  requestsFile = './src/server/data/operator_requests.json';
 
   constructor() {
     this.load();
@@ -45,7 +45,7 @@ class OperatorManager {
   getOperators() { return this.operators; }
 
   saveAtomic(targetPath, data) {
-    fs.mkdirSync('./src/server/saved', { recursive: true });
+    fs.mkdirSync('./src/server/data', { recursive: true });
     const tmp = targetPath + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(data));
     fs.renameSync(tmp, targetPath);
