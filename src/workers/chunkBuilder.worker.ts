@@ -54,6 +54,10 @@ export interface BuildRequest {
   hiddenNames: string[];
   yMin: number;
   yMax: number;
+  /** When true, skip neighbour face-culling so all 6 faces of every block are emitted (mining mode). */
+  skipCulling: boolean;
+  /** When true, alpha-cutout blocks (e.g. leaves) are treated as occluders, like solid cubes. */
+  simpleOcclusion: boolean;
 }
 
 export interface BuildResult {
@@ -312,11 +316,11 @@ function pushFence(
 function isConnection(
   matchType: string,
   nb: SerializedBlock | undefined,
-  hiddenSet: Set<string>,
+  isHidden: (name: string, meta: number | undefined) => boolean,
   matIndices: Record<string, number>,
   matMeta: Record<number, MaterialMeta>,
 ): boolean {
-  if (!nb || hiddenSet.has(nb.name)) return false;
+  if (!nb || isHidden(nb.name, nb.metadata)) return false;
   const key = nb.metadata ? `${nb.name}:${nb.metadata}` : nb.name;
   const idx = matIndices[key] ?? matIndices[nb.name];
   if (idx === undefined) return false;
@@ -375,12 +379,12 @@ function pushCable(
 function isCableConnection(
   myGroups: readonly string[] | undefined,
   nb: SerializedBlock | undefined,
-  hiddenSet: Set<string>,
+  isHidden: (name: string, meta: number | undefined) => boolean,
   matIndices: Record<string, number>,
   matMeta: Record<number, MaterialMeta>,
 ): boolean {
   if (!myGroups || myGroups.length === 0) return false;
-  if (!nb || hiddenSet.has(nb.name)) return false;
+  if (!nb || isHidden(nb.name, nb.metadata)) return false;
   const key = nb.metadata ? `${nb.name}:${nb.metadata}` : nb.name;
   const idx = matIndices[key] ?? matIndices[nb.name];
   if (idx === undefined) return false;
@@ -393,8 +397,24 @@ function isCableConnection(
 // ─── Main builder ─────────────────────────────────────────────────────────────
 
 function buildGeometry(req: BuildRequest): BuildResult {
-  const { chunkKey, blocks, borderBlocks, matIndices, matMeta, hiddenNames, yMin, yMax } = req;
-  const hiddenSet = new Set(hiddenNames);
+  const { chunkKey, blocks, borderBlocks, matIndices, matMeta, hiddenNames, yMin, yMax, skipCulling, simpleOcclusion } = req;
+  // Parse filter strings into two sets: names with no metadata (match all) and "name:N" (match specific).
+  const hiddenAllMeta = new Set<string>();
+  const hiddenSpecificMeta = new Set<string>();
+  for (const h of hiddenNames) {
+    const parts = h.split(':');
+    if (parts.length > 2) {
+      const last = parts[parts.length - 1];
+      const n = parseInt(last, 10);
+      if (!isNaN(n) && String(n) === last) {
+        hiddenSpecificMeta.add(`${parts.slice(0, -1).join(':')}:${n}`);
+        continue;
+      }
+    }
+    hiddenAllMeta.add(h);
+  }
+  const isHidden = (name: string, meta: number | undefined): boolean =>
+    hiddenAllMeta.has(name) || hiddenSpecificMeta.has(`${name}:${meta ?? 0}`);
 
   // Combined lookup: chunk blocks + border blocks for face culling.
   const allBlocks: Record<string, SerializedBlock> = { ...borderBlocks, ...blocks };
@@ -410,7 +430,7 @@ function buildGeometry(req: BuildRequest): BuildResult {
   }
 
   for (const [locString, block] of Object.entries(blocks)) {
-    if (hiddenSet.has(block.name)) continue;
+    if (isHidden(block.name, block.metadata)) continue;
 
     const [x, y, z] = locString.split(',').map(Number);
     if (y < yMin || y > yMax) continue;
@@ -441,22 +461,22 @@ function buildGeometry(req: BuildRequest): BuildResult {
       continue;
     }
     if (geomType === GEOMETRY.FENCE || geomType === GEOMETRY.PANE) {
-      const connN = isConnection(geomType, allBlocks[`${x},${y},${z-1}`], hiddenSet, matIndices, matMeta);
-      const connS = isConnection(geomType, allBlocks[`${x},${y},${z+1}`], hiddenSet, matIndices, matMeta);
-      const connE = isConnection(geomType, allBlocks[`${x+1},${y},${z}`], hiddenSet, matIndices, matMeta);
-      const connW = isConnection(geomType, allBlocks[`${x-1},${y},${z}`], hiddenSet, matIndices, matMeta);
+      const connN = isConnection(geomType, allBlocks[`${x},${y},${z-1}`], isHidden, matIndices, matMeta);
+      const connS = isConnection(geomType, allBlocks[`${x},${y},${z+1}`], isHidden, matIndices, matMeta);
+      const connE = isConnection(geomType, allBlocks[`${x+1},${y},${z}`], isHidden, matIndices, matMeta);
+      const connW = isConnection(geomType, allBlocks[`${x-1},${y},${z}`], isHidden, matIndices, matMeta);
       if (geomType === GEOMETRY.FENCE) pushFence(acc, x, y, z, connN, connS, connE, connW);
       else                             pushPane(acc, x, y, z, connN, connS, connE, connW);
       continue;
     }
     if (geomType === GEOMETRY.CABLE) {
       const myGroups = meta.connectionGroups;
-      const Xp = isCableConnection(myGroups, allBlocks[`${x+1},${y},${z}`], hiddenSet, matIndices, matMeta);
-      const Xn = isCableConnection(myGroups, allBlocks[`${x-1},${y},${z}`], hiddenSet, matIndices, matMeta);
-      const Yp = isCableConnection(myGroups, allBlocks[`${x},${y+1},${z}`], hiddenSet, matIndices, matMeta);
-      const Yn = isCableConnection(myGroups, allBlocks[`${x},${y-1},${z}`], hiddenSet, matIndices, matMeta);
-      const Zp = isCableConnection(myGroups, allBlocks[`${x},${y},${z+1}`], hiddenSet, matIndices, matMeta);
-      const Zn = isCableConnection(myGroups, allBlocks[`${x},${y},${z-1}`], hiddenSet, matIndices, matMeta);
+      const Xp = isCableConnection(myGroups, allBlocks[`${x+1},${y},${z}`], isHidden, matIndices, matMeta);
+      const Xn = isCableConnection(myGroups, allBlocks[`${x-1},${y},${z}`], isHidden, matIndices, matMeta);
+      const Yp = isCableConnection(myGroups, allBlocks[`${x},${y+1},${z}`], isHidden, matIndices, matMeta);
+      const Yn = isCableConnection(myGroups, allBlocks[`${x},${y-1},${z}`], isHidden, matIndices, matMeta);
+      const Zp = isCableConnection(myGroups, allBlocks[`${x},${y},${z+1}`], isHidden, matIndices, matMeta);
+      const Zn = isCableConnection(myGroups, allBlocks[`${x},${y},${z-1}`], isHidden, matIndices, matMeta);
       pushCable(acc, x, y, z, Xp, Xn, Yp, Yn, Zp, Zn);
       continue;
     }
@@ -465,47 +485,63 @@ function buildGeometry(req: BuildRequest): BuildResult {
     const isCube6 = geomType === GEOMETRY.CUBE6;
     for (let fi = 0; fi < FACES.length; fi++) {
       const face = FACES[fi];
+
       const nx = x + face.dx, ny = y + face.dy, nz = z + face.dz;
-      const nLoc = `${nx},${ny},${nz}`;
-      const nb = allBlocks[nLoc];
+      const nb = allBlocks[`${nx},${ny},${nz}`];
+      const isSameType = !isLiquid && !!nb
+        && nb.name === block.name && (nb.metadata ?? 0) === (block.metadata ?? 0);
 
-      // Alpha-transparent blocks of the same type (same name + metadata) cull their
-      // shared interior faces — e.g. a wall of glass doesn't show internal seams.
-      // Leaves are non-occluding but not transparent, so they keep all faces and
-      // alpha holes in one leaf block reveal the faces of the block behind it.
-      if (meta.transparent && !isLiquid && nb && !hiddenSet.has(nb.name)
-          && nb.name === block.name && (nb.metadata ?? 0) === (block.metadata ?? 0)) continue;
+      if (skipCulling) {
+        // Mining mode: cull any same-type pair. Correctness edge cases (e.g. leaves) are
+        // acceptable here — simplicity and performance take priority over per-type precision.
+        if (isSameType) continue;
+        // Liquid-to-liquid: suppress side faces between adjacent liquid blocks (same as normal mode).
+        if (isLiquid && nb) {
+          const nbKey = nb.metadata ? `${nb.name}:${nb.metadata}` : nb.name;
+          const nbIdx = matIndices[nbKey] ?? matIndices[nb.name];
+          if (nbIdx !== undefined && matMeta[nbIdx]?.liquid && face.dy !== 1) continue;
+        }
+      } else {
+        // Normal mode: cull same-type seams for alpha-transparent blocks (glass) and,
+        // when simpleOcclusion is on, also alpha-cutout blocks (leaves, etc.).
+        // Solid block pairs are handled implicitly by the full solid-neighbour occlusion below.
+        const isSeamBlock = meta.transparent || (simpleOcclusion && meta.nonOccluding && !meta.transparent);
+        if (isSeamBlock && isSameType && !isHidden(nb!.name, nb!.metadata)) continue;
 
-      // Skip if neighbour occludes this face.
-      if (nb && !hiddenSet.has(nb.name)) {
-        const nbKey = nb.metadata ? `${nb.name}:${nb.metadata}` : nb.name;
-        const nbIdx = matIndices[nbKey] ?? matIndices[nb.name];
-        if (nbIdx !== undefined) {
-          const nbMeta = matMeta[nbIdx];
-          if (nbMeta) {
-            const nbGeom = nbMeta.geomType;
-            // GEOMETRY.STAIRS is intentionally absent — stairs render as full cubes until
-            // a proper stair push function exists. Add it here when that lands, or it will
-            // generate coplanar faces that z-fight with the stair cube.
-            const nbIsFullCube = nbGeom !== GEOMETRY.CROSS && nbGeom !== GEOMETRY.FLAT
-              && nbGeom !== GEOMETRY.SLAB_BOTTOM && nbGeom !== GEOMETRY.SLAB_TOP
-              && nbGeom !== GEOMETRY.FENCE && nbGeom !== GEOMETRY.PANE && nbGeom !== GEOMETRY.CABLE;
-            // Slabs occlude only the single face they fully cover:
-            // a bottom slab covers the top face (+Y) of the block below it,
-            // a top slab covers the bottom face (-Y) of the block above it.
-            const slabOccludes = (nbGeom === GEOMETRY.SLAB_BOTTOM && face.dy === 1) ||
-                                 (nbGeom === GEOMETRY.SLAB_TOP    && face.dy === -1);
+        // Skip if neighbour occludes this face.
+        if (nb && !isHidden(nb.name, nb.metadata)) {
+          const nbKey = nb.metadata ? `${nb.name}:${nb.metadata}` : nb.name;
+          const nbIdx = matIndices[nbKey] ?? matIndices[nb.name];
+          if (nbIdx !== undefined) {
+            const nbMeta = matMeta[nbIdx];
+            if (nbMeta) {
+              const nbGeom = nbMeta.geomType;
+              // GEOMETRY.STAIRS is intentionally absent — stairs render as full cubes until
+              // a proper stair push function exists. Add it here when that lands, or it will
+              // generate coplanar faces that z-fight with the stair cube.
+              const nbIsFullCube = nbGeom !== GEOMETRY.CROSS && nbGeom !== GEOMETRY.FLAT
+                && nbGeom !== GEOMETRY.SLAB_BOTTOM && nbGeom !== GEOMETRY.SLAB_TOP
+                && nbGeom !== GEOMETRY.FENCE && nbGeom !== GEOMETRY.PANE && nbGeom !== GEOMETRY.CABLE;
+              // Slabs occlude only the single face they fully cover:
+              // a bottom slab covers the top face (+Y) of the block below it,
+              // a top slab covers the bottom face (-Y) of the block above it.
+              const slabOccludes = (nbGeom === GEOMETRY.SLAB_BOTTOM && face.dy === 1) ||
+                                   (nbGeom === GEOMETRY.SLAB_TOP    && face.dy === -1);
+              // Flat blocks (carpet, snow layer, rail) sit at the base of their block space
+              // and fully cover the top face of the block directly below them.
+              const flatOccludes = nbGeom === GEOMETRY.FLAT && face.dy === 1;
 
-            if ((nbIsFullCube || slabOccludes) && !nbMeta.nonOccluding) {
-              // Solid full-cube neighbour hides any non-liquid face.
-              if (!isLiquid) continue;
-              // Liquid side faces are hidden by solid neighbours (water into ground).
-              // The top face always renders so the water surface is visible.
-              if (face.dy !== 1) continue;
+              if ((nbIsFullCube || slabOccludes || flatOccludes) && !nbMeta.nonOccluding) {
+                // Solid full-cube neighbour hides any non-liquid face.
+                if (!isLiquid) continue;
+                // Liquid side faces are hidden by solid neighbours (water into ground).
+                // The top face always renders so the water surface is visible.
+                if (face.dy !== 1) continue;
+              }
+
+              // Liquid-to-liquid: suppress all side faces regardless of nonOccluding flag.
+              if (isLiquid && nbMeta.liquid && face.dy !== 1) continue;
             }
-
-            // Liquid-to-liquid: suppress all side faces regardless of nonOccluding flag.
-            if (isLiquid && nbMeta.liquid && face.dy !== 1) continue;
           }
         }
       }

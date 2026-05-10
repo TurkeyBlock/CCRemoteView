@@ -26,8 +26,27 @@ const RenderFilters = forwardRef<PanelHandle, Props>(function RenderFilters({ on
   const lockChunks    = useWorldViewStore(s => s.lockChunks)
   const lockBlockInfo = useWorldViewStore(s => s.lockBlockInfo)
   const showOrbitMarker = useWorldViewStore(s => s.showOrbitMarker)
+  const miningMode       = useWorldViewStore(s => s.miningMode)
+  const simpleOcclusion  = useWorldViewStore(s => s.simpleOcclusion)
   const savedFileSizeBytes = useUserStore(s => s.savedFileSizeBytes)
   const fileSizeDisplay = savedFileSizeBytes === null ? 'unknown' : formatBytes(savedFileSizeBytes)
+
+  function toggleMiningMode() {
+    const on = !miningMode
+    if (on) {
+      const capped = Math.min(renderDistLocal, 4)
+      setRenderDistLocal(capped)
+      const { transparencyList, miningOpacityMap } = useWorldViewStore.getState()
+      const seededMap = { ...miningOpacityMap }
+      for (const name of transparencyList) {
+        if (!(name in seededMap)) seededMap[name] = 0.3
+      }
+      useWorldViewStore.setState({ miningMode: true, renderDistance: capped, miningOpacityMap: seededMap })
+    } else {
+      useWorldViewStore.setState({ miningMode: false })
+    }
+    useWorldViewStore.getState().regenerateSceneFromBlocks()
+  }
 
   function applyY() {
     const lo = Math.max(0, Math.min(255, yMinLocal))
@@ -59,6 +78,15 @@ const RenderFilters = forwardRef<PanelHandle, Props>(function RenderFilters({ on
 
   return (
     <HeaderMenu label="Render Filters" compact align="right">
+      <div className="dropdown-section">
+        <button
+          className={`btn btn-compact btn-block${miningMode ? ' btn-primary' : ''}`}
+          onClick={toggleMiningMode}
+        >{miningMode ? 'Mining Mode: ON' : 'Mining Mode'}</button>
+      </div>
+
+      <div className="dropdown-divider" />
+
       <div className="dropdown-section">
         <div className="dropdown-row">
           <span className="dropdown-row-label">World file</span>
@@ -95,7 +123,7 @@ const RenderFilters = forwardRef<PanelHandle, Props>(function RenderFilters({ on
           label="Skip load pauses"
           desc="Apply chunk geometry immediately. Loads faster but the UI may stutter; unchecked caps to 5ms/tick."
           checked={skipLoadYield}
-          onChange={v => { useWorldViewStore.setState({ skipLoadYield: v }); useWorldViewStore.getState().regenerateSceneFromBlocks() }}
+          onChange={v => useWorldViewStore.setState({ skipLoadYield: v })}
         />
         <Checkbox
           label="Lock chunks"
@@ -108,6 +136,12 @@ const RenderFilters = forwardRef<PanelHandle, Props>(function RenderFilters({ on
           desc="Show block name under cursor on mouse move. Requires raycasting each frame."
           checked={!lockBlockInfo}
           onChange={v => useWorldViewStore.setState({ lockBlockInfo: !v })}
+        />
+        <Checkbox
+          label="Alpha-cutout occlusion"
+          desc="Suppresses faces between adjacent same-type foliage (like leaves), matching how glass handles seams. Reduces face count in leaf-heavy areas."
+          checked={simpleOcclusion}
+          onChange={v => { useWorldViewStore.setState({ simpleOcclusion: v }); useWorldViewStore.getState().regenerateSceneFromBlocks() }}
         />
         <Checkbox
           label="Show orbit center"

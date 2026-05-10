@@ -357,22 +357,36 @@ export class ChunkManager {
     const localMaterials: THREE.Material[] = [];
     let nextIdx = 0;
 
+    const { miningMode, miningOpacityMap } = worldView;
+
     const ensureMat = (name: string, metadata?: number): number => {
+      // Pre-1.13 only: 1.13 ("The Flattening") replaced metadata with unique block names per variant.
+      // For older worlds, :0 is the default and so is stripped to :undefined (bare-name representation) for compatibility.
+      // metadata=1+ keep their suffix. Filters use (metadata ?? 0) separately to avoid conflating "variant 0" with "all variants".
       const key = metadata ? `${name}:${metadata}` : name;
       if (matIndices[key] !== undefined) return matIndices[key];
       const idx = nextIdx++;
       matIndices[key] = idx;
       const geomType = getBlockGeometry(name, metadata ?? 0);
       const groups = getConnectionGroups(name, metadata ?? 0);
+      const opacityKey = `${name}:${metadata ?? 0}`;
+      const opacity = miningMode ? (miningOpacityMap[opacityKey] ?? miningOpacityMap[name]) : undefined;
       const meta: MaterialMeta = {
-        transparent: isLiquid(name) || isAlphaGlass(name, geomType) || name.includes('ice'),
+        transparent: isLiquid(name) || isAlphaGlass(name, geomType) || name.includes('ice') || opacity !== undefined,
         liquid: isLiquid(name),
         nonOccluding: isNonOccluding(name, geomType),
         geomType,
         ...(groups.length > 0 ? { connectionGroups: groups } : {}),
       };
       matMeta[idx] = meta;
-      localMaterials[idx] = worldView.getBlockMaterial(name, metadata ?? 0);
+      const mat = worldView.getBlockMaterial(name, metadata ?? 0);
+      if (opacity !== undefined) {
+        (mat as THREE.MeshPhongMaterial).transparent = true;
+        (mat as THREE.MeshPhongMaterial).opacity = opacity;
+        (mat as THREE.MeshPhongMaterial).depthWrite = false;
+        (mat as THREE.MeshPhongMaterial).needsUpdate = true;
+      }
+      localMaterials[idx] = mat;
       return idx;
     };
 
@@ -422,9 +436,11 @@ export class ChunkManager {
       borderBlocks,
       matIndices,
       matMeta,
-      hiddenNames: [...worldView.transparencyList],
+      hiddenNames: miningMode ? [] : [...worldView.transparencyList],
       yMin: worldView.yMin,
       yMax: worldView.yMax,
+      skipCulling: miningMode,
+      simpleOcclusion: worldView.simpleOcclusion,
     };
 
     this.workers[workerIdx].postMessage(request);

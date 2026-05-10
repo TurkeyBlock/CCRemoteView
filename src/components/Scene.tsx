@@ -152,12 +152,24 @@ function SceneSetup() {
     useWorldViewStore.setState({ hoveredEntity: null })
 
     const intersects = raycaster.current.intersectObjects(blocksGroup.current.children, false)
+    const wvSnap = useWorldViewStore.getState()
+    const rcHiddenAll = new Set<string>()
+    const rcHiddenSpecific = new Set<string>()
+    for (const h of wvSnap.transparencyList) {
+      const parts = h.split(':')
+      if (parts.length > 2) {
+        const last = parts[parts.length - 1]; const n = parseInt(last, 10)
+        if (!isNaN(n) && String(n) === last) { rcHiddenSpecific.add(`${parts.slice(0, -1).join(':')}:${n}`); continue }
+      }
+      rcHiddenAll.add(h)
+    }
     for (const hit of intersects) {
       if (!hit.face) continue
       const blockPos = getBlockPosFromHit(hit)
       const locString = `${blockPos.x},${blockPos.y},${blockPos.z}`
       const block = worldBlocks[locString]
       if (!block) continue
+      if (wvSnap.miningMode && (rcHiddenAll.has(block.name) || rcHiddenSpecific.has(`${block.name}:${block.metadata ?? 0}`))) continue
       useWorldViewStore.setState({
         hoveredBlock: block,
         hoveredBlockPos: blockPos,
@@ -366,15 +378,28 @@ function SceneSetup() {
 
     // Build a fast visibility closure from a single state snapshot so bulkLoad
     // doesn't call getState()/require on every block in the world.
-    const { yMin, yMax, transparencyList } = wv
-    const transparencySet = new Set(transparencyList)
+    const { yMin, yMax, transparencyList, miningMode } = wv
+    const hiddenAllMeta = new Set<string>()
+    const hiddenSpecificMeta = new Set<string>()
+    for (const h of transparencyList) {
+      const parts = h.split(':')
+      if (parts.length > 2) {
+        const last = parts[parts.length - 1]
+        const n = parseInt(last, 10)
+        if (!isNaN(n) && String(n) === last) { hiddenSpecificMeta.add(`${parts.slice(0, -1).join(':')}:${n}`); continue }
+      }
+      hiddenAllMeta.add(h)
+    }
+    const isHiddenByFilter = (name: string, meta: number | undefined) =>
+      hiddenAllMeta.has(name) || hiddenSpecificMeta.has(`${name}:${meta ?? 0}`)
     const blockSnap = worldBlocks
     const isVisible = (locString: string): boolean => {
       const c1 = locString.indexOf(',')
       const c2 = locString.indexOf(',', c1 + 1)
       const y = +locString.slice(c1 + 1, c2)
       if (y < yMin || y > yMax) return false
-      if (transparencySet.has(blockSnap[locString]?.name)) return false
+      // In mining mode, filtered blocks are rendered with opacity rather than hidden.
+      if (!miningMode && isHiddenByFilter(blockSnap[locString]?.name, blockSnap[locString]?.metadata)) return false
       return true
     }
 
@@ -429,6 +454,16 @@ function SceneSetup() {
     const domEl = gl.domElement
 
     const handleClick = (e: MouseEvent) => {
+      if (useWorldViewStore.getState().blockPickMode) {
+        raycast(e)
+        const wv = useWorldViewStore.getState()
+        if (wv.hoveredBlock) {
+          const b = wv.hoveredBlock
+          const filterKey = b.metadata !== undefined ? `${b.name}:${b.metadata}` : b.name
+          useWorldViewStore.getState().addPendingFilterBlock(filterKey)
+        }
+        return
+      }
       raycast(e)
       const wv = useWorldViewStore.getState()
       if (wv.hoveredEntity) {
@@ -443,6 +478,12 @@ function SceneSetup() {
         })
       } else {
         useWorldViewStore.setState({ selectedInventoryPos: null })
+      }
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && useWorldViewStore.getState().blockPickMode) {
+        useWorldViewStore.getState().cancelPendingFilterBlocks()
       }
     }
 
@@ -466,6 +507,7 @@ function SceneSetup() {
     domEl.addEventListener('mousemove', handleMouseMove)
     domEl.addEventListener('click', handleClick)
     domEl.addEventListener('dblclick', handleDblClick)
+    document.addEventListener('keydown', handleKeyDown)
 
     // Register all worldView store callbacks so other stores can drive the scene
     useWorldViewStore.setState({
@@ -497,6 +539,7 @@ function SceneSetup() {
       domEl.removeEventListener('mousemove', handleMouseMove)
       domEl.removeEventListener('click', handleClick)
       domEl.removeEventListener('dblclick', handleDblClick)
+      document.removeEventListener('keydown', handleKeyDown)
       chunkManager.current?.dispose()
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -579,10 +622,11 @@ function SceneSetup() {
 // ─── Public export — renders the R3F Canvas ───────────────────────────────────
 
 export default function Scene() {
+  const blockPickMode = useWorldViewStore(s => s.blockPickMode)
   return (
     <Canvas
       frameloop="demand"
-      style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+      style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, cursor: blockPickMode ? 'crosshair' : 'default' }}
       camera={{ fov: 45, near: 1, far: 10000, position: [-4, 5, -10] }}
     >
       <SceneSetup />

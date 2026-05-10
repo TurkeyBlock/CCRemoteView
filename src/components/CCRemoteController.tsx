@@ -4,7 +4,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useWorldStore, replaceWorldBlocks, worldBlocks } from '@/store/useWorld'
-import { saveWorldToCache, loadWorldFromCache } from '@/store/worldCache'
+import { loadWorldFromCache } from '@/store/worldCache'
 import { useWorldViewStore } from '@/store/useWorldView'
 import { useUserStore } from '@/store/useUser'
 import ComputerPanel from './computers/ComputerPanel'
@@ -89,7 +89,9 @@ export default function CCRemoteController() {
   const wsReconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wsInitialStateLoadedRef = useRef(false)
   const idbHydratedRef = useRef(false)
+  const catchupLoggedRef = useRef(false)
   const cacheTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const cacheWorkerRef = useRef<Worker | null>(null)
   const guestRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const renderFiltersRef = useRef<{ setOpen: (v: boolean) => void } | null>(null)
   const blockTransparencyRef = useRef<{ setOpen: (v: boolean) => void } | null>(null)
@@ -277,6 +279,10 @@ export default function CCRemoteController() {
         useWorldStore.setState(s => ({ commandResult: { ...s.commandResult, [computerId]: result.ret } }))
       } else if ('state' in data) {
         // ServerState — initial full load
+        if (idbHydratedRef.current && !catchupLoggedRef.current) {
+          catchupLoggedRef.current = true
+          console.log(`[cache] Server sent full state (cache txId=${w.lastTransactionId} too stale or unrecognised) — ${Object.keys(data.state.world.blocks ?? {}).length} blocks, txId=${data.state.lastTransactionId}`)
+        }
         if (data.state.lastTransactionId !== w.lastTransactionId) {
           w.setComputerStatus(data.state.computers)
           replaceWorldBlocks(data.state.world.blocks as Record<string, Block>)
@@ -296,6 +302,16 @@ export default function CCRemoteController() {
         }
       } else {
         // ServerTransactions
+        if (idbHydratedRef.current && !catchupLoggedRef.current) {
+          catchupLoggedRef.current = true
+          const txList = Object.values(data.transactions) as Array<{ blocks?: Record<string, unknown>; computers?: Record<string, unknown> }>
+          let blockAdds = 0, blockRemoves = 0, computerUpdates = 0
+          for (const t of txList) {
+            for (const v of Object.values(t.blocks ?? {})) { if (v) blockAdds++; else blockRemoves++ }
+            computerUpdates += Object.keys(t.computers ?? {}).length
+          }
+          console.log(`[cache] Catchup: ${txList.length} transaction(s), +${blockAdds}/-${blockRemoves} blocks, ${computerUpdates} computer update(s), txId=${w.lastTransactionId} → ${Math.max(...Object.keys(data.transactions).map(Number))}`)
+        }
         w.applyTransactions(data.transactions)
       }
 
@@ -320,16 +336,18 @@ export default function CCRemoteController() {
   function persistWorldToCache() {
     const w = useWorldStore.getState()
     if (w.lastTransactionId < 0) return
-    saveWorldToCache(w.lastTransactionId, w.computers as Record<string, unknown>, worldBlocks).catch(() => {})
+    cacheWorkerRef.current?.postMessage({ lastTransactionId: w.lastTransactionId, computers: w.computers, blocks: worldBlocks })
   }
 
   useEffect(() => {
+    cacheWorkerRef.current = new Worker(new URL('../workers/worldCache.worker.ts', import.meta.url))
     useUserStore.getState().startPolling()
 
     let mounted = true
     loadWorldFromCache().then(cached => {
       if (!mounted) return
       if (cached) {
+        console.log(`[cache] Loaded: ${Object.keys(cached.blocks).length} blocks, ${Object.keys(cached.computers).length} computers, txId=${cached.lastTransactionId}`)
         const w = useWorldStore.getState()
         w.setComputerStatus(cached.computers as Record<string, any>)
         replaceWorldBlocks(cached.blocks)
@@ -338,15 +356,14 @@ export default function CCRemoteController() {
         const view = useWorldViewStore.getState()
         view.regenerateSceneFromBlocks()
         view.render()
+      } else {
+        console.log('[cache] No cached world found — waiting for server state')
       }
     }).catch(() => {}).finally(() => {
       if (mounted) connectWebSocket()
     })
 
-    cacheTimerRef.current = setInterval(
-      () => requestIdleCallback(persistWorldToCache, { timeout: 5000 }),
-      60_000
-    )
+    cacheTimerRef.current = setInterval(persistWorldToCache, 60_000)
     function onHide() { if (document.visibilityState === 'hidden') persistWorldToCache() }
     document.addEventListener('visibilitychange', onHide)
 
@@ -357,6 +374,7 @@ export default function CCRemoteController() {
       if (wsReconnectRef.current) clearTimeout(wsReconnectRef.current)
       if (guestRefreshTimerRef.current) clearTimeout(guestRefreshTimerRef.current)
       if (cacheTimerRef.current) clearInterval(cacheTimerRef.current)
+      cacheWorkerRef.current?.terminate()
       document.removeEventListener('visibilitychange', onHide)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps

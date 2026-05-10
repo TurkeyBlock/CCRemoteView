@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 're
 import { useWorldStore } from '@/store/useWorld'
 import { useUserStore } from '@/store/useUser'
 import { isStale } from '@/utils/stale'
+import { closeAllMenus } from '@/components/ui'
 
 interface Props { onOpened?: () => void }
 export interface PanelHandle { setOpen: (v: boolean) => void }
@@ -56,6 +57,7 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
 
   function toggle() {
     const next = !open
+    closeAllMenus()
     setOpen(next)
     if (next) onOpened?.()
   }
