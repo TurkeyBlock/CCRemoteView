@@ -34,10 +34,18 @@ const COOKIE_NAME = IS_PROD ? '__Secure-authjs.session-token' : 'authjs.session-
 const APP_URL     = IS_PROD ? process.env.APP_URL : DEV_APP_URL;
 const SIGNIN_URL  = `${IS_PROD ? process.env.NEXTAUTH_URL : DEV_AUTH_URL}/auth/signin?callbackUrl=${encodeURIComponent(APP_URL)}`;
 
-const AUTOSAVE_INTERVAL_MIN     = 5;
-const TRANSACTION_CACHE_COUNT   = 10_000;
-const GUEST_STATE_MIN_INTERVAL_MS = 30_000;
+const AUTOSAVE_INTERVAL_MIN          = 5;
+const TRANSACTION_CACHE_TTL_MS       = 24 * 60 * 60 * 1000;  // 24 hours
+const TRANSACTION_CACHE_MAX_COUNT    = 200_000;               // safety cap against runaway memory
 const SCAN_MIN_INTERVAL_MS      = 1_000;
+
+// Maximum concurrent WebSocket connections for read-only viewers.
+// Unauthed: no session token at all (fully anonymous).
+// Authed guest: valid session token but not an operator or admin.
+// Each new connection receives the full world state on join — on a slow uplink
+// the dominant cost is bandwidth, not CPU.  Tune these to your upload capacity.
+const MAX_UNAUTHED_WS     = 5;
+const MAX_AUTHED_GUEST_WS = 10;
 const SCAN_INCLUDE_METADATA     = true;
 const SCAN_INCLUDE_STATE        = false;
 const CMD_RESULT_CACHE_MAX      = 100;
@@ -52,9 +60,10 @@ module.exports = {
   IS_PROD, LOCAL_ONLY, LOCAL_REQUIRE_AUTH, BYPASS_AUTH, LOG_BROWSER_CMDS,
   DEV_APP_URL, DEV_AUTH_URL,
   BIND_HOST, COOKIE_NAME, APP_URL, SIGNIN_URL, PORT,
-  AUTOSAVE_INTERVAL_MIN, TRANSACTION_CACHE_COUNT, GUEST_STATE_MIN_INTERVAL_MS,
+  AUTOSAVE_INTERVAL_MIN, TRANSACTION_CACHE_TTL_MS, TRANSACTION_CACHE_MAX_COUNT,
   SCAN_MIN_INTERVAL_MS, SCAN_INCLUDE_METADATA, SCAN_INCLUDE_STATE,
   CMD_RESULT_CACHE_MAX, MAX_CMD_LENGTH,
+  MAX_UNAUTHED_WS, MAX_AUTHED_GUEST_WS,
   SAVE_GZ_PATH, SAVE_JSON_PATH,
   DEV_TOKEN,
 };

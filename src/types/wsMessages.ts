@@ -79,10 +79,25 @@ const ServerTransactions = z.object({
   })),
 })
 
+// Chunked full-state delivery: palette + flat blockData array, sent in
+// CHUNK_BLOCKS-sized pieces.  palette and computers are only present on
+// index 0; blockData is present on every chunk.
+const ServerStateChunk = z.object({
+  stateChunk: z.object({
+    index: z.number(),
+    total: z.number(),
+    lastTransactionId: z.number(),
+    blockData: z.unknown(),
+    palette: z.array(z.string()).optional(),
+    computers: z.record(z.string(), z.unknown()).optional(),
+  }),
+})
+
 export const ServerMessage = z.union([
   ServerError,
   ServerCommandResult,
   ServerState,
+  ServerStateChunk,
   ServerTransactions,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>

@@ -2,20 +2,62 @@ import { create } from 'zustand'
 import type { ComputerState, Block } from '../types/world'
 import type { ClientMessage } from '../types/wsMessages'
 
-export let worldBlocks: Record<string, Block> = {}
+// ─── World Block Store ─────────────────────────────────────────────────────────
+// Palette + Int32Array, stride-5: [x, y, z, nameIdx, meta].
+// nameIdx = -1 is a tombstone (removed block, not yet compacted).
+// worldIndex maps "x,y,z" → int offset of the entry's first element.
+// Compaction happens automatically on replaceWorldBlocks (full-state reload).
 
-export function replaceWorldBlocks(newBlocks: Record<string, Block>) {
-  worldBlocks = newBlocks
+const INITIAL_CAPACITY = 131_072  // int32 elements (≈ 26k entries, ~512 KB)
+
+export let worldPalette: string[]          = []
+let   worldPaletteMap: Map<string, number> = new Map()
+export let worldData: Int32Array           = new Int32Array(INITIAL_CAPACITY)
+export let worldDataLen: number            = 0   // int32 elements used (always multiple of 5)
+let   worldIndex: Map<string, number>      = new Map()  // "x,y,z" → int offset
+
+function growWorldData() {
+  const next = new Int32Array(worldData.length * 2)
+  next.set(worldData)
+  worldData = next
 }
 
+function getOrAddPaletteEntry(name: string): number {
+  let idx = worldPaletteMap.get(name)
+  if (idx === undefined) {
+    idx = worldPalette.length
+    worldPalette.push(name)
+    worldPaletteMap.set(name, idx)
+  }
+  return idx
+}
+
+export function lookupBlock(locString: string): Block | undefined {
+  const off = worldIndex.get(locString)
+  if (off === undefined) return undefined
+  return { name: worldPalette[worldData[off + 3]], metadata: worldData[off + 4] }
+}
+
+export function replaceWorldBlocks(palette: string[], data: Int32Array, len: number): void {
+  worldPalette    = palette.slice()
+  worldPaletteMap = new Map(palette.map((n, i) => [n, i]))
+  worldData       = data
+  worldDataLen    = len
+  worldIndex      = new Map()
+  for (let i = 0; i < len; i += 5) {
+    worldIndex.set(`${data[i]},${data[i + 1]},${data[i + 2]}`, i)
+  }
+}
+
+
+// ─── Zustand store ────────────────────────────────────────────────────────────
+
 // Resolved at runtime so there is no circular-import between stores.
-// worldView actions (addBlock, removeBlock, etc.) are called via this getter.
 function worldView() {
   return (require('./useWorldView') as typeof import('./useWorldView')).useWorldViewStore.getState()
 }
 
 // Per-computer high-water mark for actionSeq numbers.
-// Module-level (not Zustand) so updates never cause re-renders.
 const maxActionSeqPerComputer: Record<string, number> = {}
 
 interface WorldState {
@@ -67,12 +109,10 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       const existing = state.computers[id]
       if (!existing) firstNewId = parseInt(id)
 
-      // Out-of-order state filtering: discard state updates whose actionSeq is
-      // below the highest we have already applied for this computer.
       const incomingSeq = typeof computerState.actionSeq === 'number' ? computerState.actionSeq : undefined
       if (incomingSeq !== undefined) {
         if (incomingSeq === 0) {
-          delete maxActionSeqPerComputer[id]  // computer rebooted — reset tracking
+          delete maxActionSeqPerComputer[id]
         } else {
           const maxSeq = maxActionSeqPerComputer[id] ?? 0
           if (incomingSeq < maxSeq) {
@@ -91,8 +131,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       if (inv) for (let i = 0; i < inv.length; i++) if (inv[i] === 0) inv[i] = undefined
       const entities = computerState.entities ? [...computerState.entities] : undefined
 
-      // Lua-sent transactions don't include server-managed connection fields.
-      // Fall back to existing values so they are never clobbered by undefined.
       const ws_connected  = computerState.ws_connected  !== undefined ? computerState.ws_connected  : existing?.ws_connected
       const ws_request_at = computerState.ws_request_at !== undefined ? computerState.ws_request_at : existing?.ws_request_at
 
@@ -144,12 +182,33 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
 
   transactionRemoveBlock: (locString) => {
     worldView().removeBlock(locString)
-    delete worldBlocks[locString]
+    const off = worldIndex.get(locString)
+    if (off !== undefined) {
+      worldData[off + 3] = -1
+      worldIndex.delete(locString)
+    }
   },
 
   transactionAddBlock: (locString, block) => {
+    const nameIdx = getOrAddPaletteEntry(block.name)
+    const meta    = block.metadata ?? 0
+    const existing = worldIndex.get(locString)
     worldView().removeBlock(locString)
-    worldBlocks[locString] = block
+    if (existing !== undefined) {
+      worldData[existing + 3] = nameIdx
+      worldData[existing + 4] = meta
+    } else {
+      if (worldDataLen + 5 > worldData.length) growWorldData()
+      const c1 = locString.indexOf(',')
+      const c2 = locString.indexOf(',', c1 + 1)
+      worldData[worldDataLen]     = +locString.slice(0, c1)
+      worldData[worldDataLen + 1] = +locString.slice(c1 + 1, c2)
+      worldData[worldDataLen + 2] = +locString.slice(c2 + 1)
+      worldData[worldDataLen + 3] = nameIdx
+      worldData[worldDataLen + 4] = meta
+      worldIndex.set(locString, worldDataLen)
+      worldDataLen += 5
+    }
     worldView().addBlock(locString, block)
   },
 
@@ -185,8 +244,36 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       const wv = worldView()
       for (const loc of removes) wv.removeBlock(loc)
       for (const [loc] of adds) wv.removeBlock(loc)
-      for (const loc of removes) delete worldBlocks[loc]
-      for (const [loc, block] of adds) worldBlocks[loc] = block
+
+      for (const loc of removes) {
+        const off = worldIndex.get(loc)
+        if (off !== undefined) {
+          worldData[off + 3] = -1
+          worldIndex.delete(loc)
+        }
+      }
+
+      for (const [loc, block] of adds) {
+        const nameIdx  = getOrAddPaletteEntry(block.name)
+        const meta     = block.metadata ?? 0
+        const existing = worldIndex.get(loc)
+        if (existing !== undefined) {
+          worldData[existing + 3] = nameIdx
+          worldData[existing + 4] = meta
+        } else {
+          if (worldDataLen + 5 > worldData.length) growWorldData()
+          const c1 = loc.indexOf(',')
+          const c2 = loc.indexOf(',', c1 + 1)
+          worldData[worldDataLen]     = +loc.slice(0, c1)
+          worldData[worldDataLen + 1] = +loc.slice(c1 + 1, c2)
+          worldData[worldDataLen + 2] = +loc.slice(c2 + 1)
+          worldData[worldDataLen + 3] = nameIdx
+          worldData[worldDataLen + 4] = meta
+          worldIndex.set(loc, worldDataLen)
+          worldDataLen += 5
+        }
+      }
+
       for (const [loc, block] of adds) wv.addBlock(loc, block)
     }
 
@@ -240,6 +327,10 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
 
   clearBlocks: () => {
     worldView().clearAllBlocks()
-    worldBlocks = {}
+    worldPalette    = []
+    worldPaletteMap = new Map()
+    worldData       = new Int32Array(INITIAL_CAPACITY)
+    worldDataLen    = 0
+    worldIndex      = new Map()
   },
 }))

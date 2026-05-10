@@ -170,7 +170,7 @@ Active when a computer panel is selected and no text input is focused.
 |------|-------------|
 | **Admin** | Approve/deny computer IPs and IDs, manage operators, send raw Lua, full access |
 | **Operator** | Send predefined commands, view world map, manage inventory |
-| **Guest** | Read-only; world state queries rate-limited to one per 30 seconds |
+| **Guest** | Read-only live view via WebSocket; cannot send commands |
 
 On first connection a computer's IP is held pending admin approval. Approved IPs persist to disk.
 

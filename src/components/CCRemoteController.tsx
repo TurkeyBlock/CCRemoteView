@@ -3,7 +3,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
-import { useWorldStore, replaceWorldBlocks, worldBlocks } from '@/store/useWorld'
+import { useWorldStore, replaceWorldBlocks, worldPalette, worldData, worldDataLen } from '@/store/useWorld'
 import { loadWorldFromCache } from '@/store/worldCache'
 import { useWorldViewStore } from '@/store/useWorldView'
 import { useUserStore } from '@/store/useUser'
@@ -17,9 +17,9 @@ import OperatorRequest from './overlay/OperatorRequest'
 import BlockTransparency from './overlay/BlockTransparency'
 import RenderFilters from './overlay/RenderFilters'
 import { Led } from './ui'
+import ModalOverlay from './ModalOverlay'
 import { connLedKind } from './computers/PollTimers'
 import { ServerMessage } from '@/types/wsMessages'
-import type { Block } from '@/types/world'
 
 const ComputerLed = memo(function ComputerLed({ computerId }: { computerId: number }) {
   const kind = useWorldStore(s => connLedKind(!!s.computers[computerId]?.ws_connected, s.computers[computerId]?.ws_request_at))
@@ -30,6 +30,24 @@ interface FloatingPanel { id: number; x: number; y: number }
 
 const TYPE_SHORT: Record<string, string> = {
   minecart: 'MC', turtle: 'T', player: 'Ply', stationary: 'Sta',
+}
+
+// Converts legacy ServerState block map (Record<string,Block>) to typed array for replaceWorldBlocks.
+function recordToTypedArray(blocks: Record<string, { name: string; metadata?: number }>) {
+  const entries = Object.entries(blocks)
+  const data = new Int32Array(entries.length * 5)
+  const pal: string[] = []
+  const palMap = new Map<string, number>()
+  let off = 0
+  for (const [locStr, block] of entries) {
+    let ni = palMap.get(block.name)
+    if (ni === undefined) { ni = pal.length; pal.push(block.name); palMap.set(block.name, ni) }
+    const c1 = locStr.indexOf(','), c2 = locStr.indexOf(',', c1 + 1)
+    data[off]   = +locStr.slice(0, c1);     data[off+1] = +locStr.slice(c1+1, c2)
+    data[off+2] = +locStr.slice(c2+1);      data[off+3] = ni; data[off+4] = block.metadata ?? 0
+    off += 5
+  }
+  return { pal, data, len: entries.length * 5 }
 }
 
 export default function CCRemoteController() {
@@ -64,11 +82,11 @@ export default function CCRemoteController() {
     return null
   }, [selectedInventoryPos, computers])
   const userLoaded = useUserStore(s => s.loaded)
+  const isLoggedIn = useUserStore(s => s.isLoggedIn)
   const isOperator = useUserStore(s => s.isOperator)
   const isAdmin = useUserStore(s => s.isAdmin)
 
-  const [isGuest, setIsGuest] = useState(false)
-  const [guestRefreshDisabled, setGuestRefreshDisabled] = useState(false)
+  const [capBlocked, setCapBlocked] = useState(false)
   const [wsConnected, setWsConnected] = useState(false)
   const [dockCollapsed, setDockCollapsed] = useState(false)
   const [tabOrder, setTabOrder] = useState<number[]>([])
@@ -90,9 +108,16 @@ export default function CCRemoteController() {
   const wsInitialStateLoadedRef = useRef(false)
   const idbHydratedRef = useRef(false)
   const catchupLoggedRef = useRef(false)
-  const cacheTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pendingChunksRef = useRef<{
+    total: number;
+    lastTransactionId: number;
+    palette: string[];
+    computers: Record<string, unknown>;
+    chunks: number[][];
+    received: number;
+  } | null>(null)
+  const bufferedTransactionsRef = useRef<Array<Record<string, unknown>>>([]);
   const cacheWorkerRef = useRef<Worker | null>(null)
-  const guestRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const renderFiltersRef = useRef<{ setOpen: (v: boolean) => void } | null>(null)
   const blockTransparencyRef = useRef<{ setOpen: (v: boolean) => void } | null>(null)
   const adminPanelRef = useRef<{ setOpen: (v: boolean) => void } | null>(null)
@@ -203,42 +228,6 @@ export default function CCRemoteController() {
     window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
   }
 
-  function startGuestCooldown(seconds: number) {
-    setGuestRefreshDisabled(true)
-    if (guestRefreshTimerRef.current) clearTimeout(guestRefreshTimerRef.current)
-    guestRefreshTimerRef.current = setTimeout(() => { setGuestRefreshDisabled(false); guestRefreshTimerRef.current = null }, seconds * 1000)
-  }
-
-  async function loadGuestState() {
-    const w = useWorldStore.getState()
-    const res = await fetch('/api/state').catch(() => null)
-    if (!res) return
-    if (res.status === 429) {
-      const data = await res.json().catch(() => ({}))
-      startGuestCooldown(data.retryAfter ?? 30); return
-    }
-    const data = await res.json().catch(() => null)
-    if (!data) return
-    w.setComputerStatus(data.computers)
-    replaceWorldBlocks(data.world.blocks)
-    const freshComputers = useWorldStore.getState().computers
-    const selId = useWorldViewStore.getState().selectedComputerId
-    const hasCoords = (c: { loc?: { x?: unknown; y?: unknown; z?: unknown } | null } | undefined) =>
-      c?.loc != null && c.loc.x != null && c.loc.y != null && c.loc.z != null
-    if (!hasCoords(freshComputers[selId])) {
-      const entry = Object.entries(freshComputers).find(([, c]) => hasCoords(c))
-      if (entry) {
-        const autoId = Number(entry[0])
-        useWorldViewStore.setState({ selectedComputerId: autoId })
-        setTabOrder(prev => prev.includes(autoId) ? prev : [...prev, autoId])
-      }
-    }
-    const view = useWorldViewStore.getState()
-    view.regenerateSceneFromBlocks(); view.render()
-    useWorldStore.setState({ isLoading: false })
-    startGuestCooldown(30)
-  }
-
   function connectWebSocket() {
     const w = useWorldStore.getState()
     const base = w.URL
@@ -250,12 +239,14 @@ export default function CCRemoteController() {
     wsRef.current = ws
 
     ws.onopen = () => {
+      pendingChunksRef.current = null
+      bufferedTransactionsRef.current = []
       wsBackoffRef.current = 1000
+      setCapBlocked(false)
       setWsConnected(true)
       useWorldStore.setState({ wsSend: (msg: object) => ws.send(JSON.stringify(msg)) })
       if (!wsInitialStateLoadedRef.current) {
         wsInitialStateLoadedRef.current = true
-        if (!idbHydratedRef.current) loadGuestState()
       }
     }
 
@@ -285,7 +276,8 @@ export default function CCRemoteController() {
         }
         if (data.state.lastTransactionId !== w.lastTransactionId) {
           w.setComputerStatus(data.state.computers)
-          replaceWorldBlocks(data.state.world.blocks as Record<string, Block>)
+          const { pal: sp, data: sd, len: sl } = recordToTypedArray(data.state.world.blocks as Record<string, { name: string; metadata?: number }>)
+          replaceWorldBlocks(sp, sd, sl)
           useWorldStore.setState({ lastTransactionId: data.state.lastTransactionId })
           const freshComputers = useWorldStore.getState().computers
           const hasCoords = (c: { loc?: { x?: unknown; y?: unknown; z?: unknown } | null } | undefined) =>
@@ -300,17 +292,81 @@ export default function CCRemoteController() {
           }
           view.regenerateSceneFromBlocks()
         }
-      } else {
-        // ServerTransactions
+      } else if ('stateChunk' in data) {
+        // Chunked full-state delivery — palette + flat blockData across multiple messages.
+        const { index, total, lastTransactionId, blockData: rawChunk, palette, computers } = data.stateChunk
+        const blockDataArr = rawChunk as number[]
+
+        if (index === 0) {
+          pendingChunksRef.current = { total, lastTransactionId, palette: palette!, computers: computers!, chunks: [blockDataArr], received: 1 }
+          bufferedTransactionsRef.current = []
+        } else if (pendingChunksRef.current) {
+          pendingChunksRef.current.chunks.push(blockDataArr)
+          pendingChunksRef.current.received++
+        }
+
+        const pending = pendingChunksRef.current
+        if (!pending || pending.received < pending.total) return // more chunks coming — skip render
+
+        // All chunks received — reconstruct and apply.
+        pendingChunksRef.current = null
+        const { palette: pal, computers: comps, chunks, lastTransactionId: txId } = pending
+
+        let totalLen = 0
+        for (const chunk of chunks) totalLen += chunk.length
+        const blockData = new Int32Array(totalLen)
+        let off = 0
+        for (const chunk of chunks) { for (let i = 0; i < chunk.length; i++) blockData[off++] = chunk[i] }
+
         if (idbHydratedRef.current && !catchupLoggedRef.current) {
           catchupLoggedRef.current = true
-          const txList = Object.values(data.transactions) as Array<{ blocks?: Record<string, unknown>; computers?: Record<string, unknown> }>
-          let blockAdds = 0, blockRemoves = 0, computerUpdates = 0
-          for (const t of txList) {
-            for (const v of Object.values(t.blocks ?? {})) { if (v) blockAdds++; else blockRemoves++ }
-            computerUpdates += Object.keys(t.computers ?? {}).length
+          console.log(`[cache] Server sent full state in ${chunks.length} chunk(s) — ${totalLen / 5} blocks, txId=${txId}`)
+        }
+
+        w.setComputerStatus(comps as Record<string, any>)
+        replaceWorldBlocks(pal, blockData, totalLen)
+        useWorldStore.setState({ lastTransactionId: txId })
+        const freshComputers = useWorldStore.getState().computers
+        const hasCoords = (c: { loc?: { x?: unknown; y?: unknown; z?: unknown } | null } | undefined) =>
+          c?.loc != null && c.loc.x != null && c.loc.y != null && c.loc.z != null
+        if (!hasCoords(freshComputers[view.selectedComputerId])) {
+          const entry = Object.entries(freshComputers).find(([, c]) => hasCoords(c))
+          if (entry) {
+            const autoId = Number(entry[0])
+            useWorldViewStore.setState({ selectedComputerId: autoId })
+            setTabOrder(prev => prev.includes(autoId) ? prev : [...prev, autoId])
           }
-          console.log(`[cache] Catchup: ${txList.length} transaction(s), +${blockAdds}/-${blockRemoves} blocks, ${computerUpdates} computer update(s), txId=${w.lastTransactionId} → ${Math.max(...Object.keys(data.transactions).map(Number))}`)
+        }
+        view.regenerateSceneFromBlocks()
+
+        // Replay any transactions that arrived during chunk delivery.
+        const buffered = bufferedTransactionsRef.current
+        bufferedTransactionsRef.current = []
+        for (const txns of buffered) w.applyTransactions(txns as Record<string, any>)
+
+        persistWorldToCache()
+
+      } else {
+        // ServerTransactions — buffer while chunk assembly is in progress.
+        if (pendingChunksRef.current) {
+          bufferedTransactionsRef.current.push(data.transactions as Record<string, unknown>)
+          return
+        }
+        if (idbHydratedRef.current && !catchupLoggedRef.current) {
+          catchupLoggedRef.current = true
+          const txKeys = Object.keys(data.transactions)
+          if (txKeys.length === 0) {
+            console.log(`[cache] Cache hit — already current at txId=${w.lastTransactionId}`)
+          } else {
+            const txList = Object.values(data.transactions) as Array<{ blocks?: Record<string, unknown>; computers?: Record<string, unknown> }>
+            let blockAdds = 0, blockRemoves = 0, computerUpdates = 0
+            for (const t of txList) {
+              for (const v of Object.values(t.blocks ?? {})) { if (v) blockAdds++; else blockRemoves++ }
+              computerUpdates += Object.keys(t.computers ?? {}).length
+            }
+            const maxTx = Math.max(...txKeys.map(Number))
+            console.log(`[cache] Catchup: ${txList.length} transaction(s), +${blockAdds}/-${blockRemoves} blocks, ${computerUpdates} computer update(s), txId=${w.lastTransactionId} → ${maxTx}`)
+          }
         }
         w.applyTransactions(data.transactions)
       }
@@ -322,8 +378,8 @@ export default function CCRemoteController() {
     ws.onclose = (event) => {
       setWsConnected(false)
       useWorldStore.setState({ wsSend: null })
-      if (event.code === 4401) {
-        setIsGuest(true); useUserStore.getState().stopPolling(); loadGuestState(); return
+      if (event.code === 4429) {
+        setCapBlocked(true); return
       }
       const delay = wsBackoffRef.current
       wsBackoffRef.current = Math.min(wsBackoffRef.current * 2, 10000)
@@ -336,7 +392,22 @@ export default function CCRemoteController() {
   function persistWorldToCache() {
     const w = useWorldStore.getState()
     if (w.lastTransactionId < 0) return
-    cacheWorkerRef.current?.postMessage({ lastTransactionId: w.lastTransactionId, computers: w.computers, blocks: worldBlocks })
+    // Compact: skip tombstones (nameIdx === -1) before transferring to the worker.
+    let liveCount = 0
+    for (let i = 3; i < worldDataLen; i += 5) if (worldData[i] !== -1) liveCount++
+    const compact = new Int32Array(liveCount * 5)
+    let out = 0
+    for (let i = 0; i < worldDataLen; i += 5) {
+      if (worldData[i + 3] !== -1) {
+        compact[out]     = worldData[i];     compact[out + 1] = worldData[i + 1]
+        compact[out + 2] = worldData[i + 2]; compact[out + 3] = worldData[i + 3]
+        compact[out + 4] = worldData[i + 4]; out += 5
+      }
+    }
+    cacheWorkerRef.current?.postMessage(
+      { lastTransactionId: w.lastTransactionId, computers: w.computers, palette: worldPalette, dataBuffer: compact.buffer, dataLen: compact.length },
+      [compact.buffer],
+    )
   }
 
   useEffect(() => {
@@ -347,10 +418,10 @@ export default function CCRemoteController() {
     loadWorldFromCache().then(cached => {
       if (!mounted) return
       if (cached) {
-        console.log(`[cache] Loaded: ${Object.keys(cached.blocks).length} blocks, ${Object.keys(cached.computers).length} computers, txId=${cached.lastTransactionId}`)
+        console.log(`[cache] Loaded: ${cached.dataLen / 5} blocks, ${Object.keys(cached.computers).length} computers, txId=${cached.lastTransactionId}`)
         const w = useWorldStore.getState()
         w.setComputerStatus(cached.computers as Record<string, any>)
-        replaceWorldBlocks(cached.blocks)
+        replaceWorldBlocks(cached.palette, cached.data, cached.dataLen)
         useWorldStore.setState({ lastTransactionId: cached.lastTransactionId, isLoading: false })
         idbHydratedRef.current = true
         const view = useWorldViewStore.getState()
@@ -363,7 +434,6 @@ export default function CCRemoteController() {
       if (mounted) connectWebSocket()
     })
 
-    cacheTimerRef.current = setInterval(persistWorldToCache, 60_000)
     function onHide() { if (document.visibilityState === 'hidden') persistWorldToCache() }
     document.addEventListener('visibilitychange', onHide)
 
@@ -372,8 +442,6 @@ export default function CCRemoteController() {
       useUserStore.getState().stopPolling()
       if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close() }
       if (wsReconnectRef.current) clearTimeout(wsReconnectRef.current)
-      if (guestRefreshTimerRef.current) clearTimeout(guestRefreshTimerRef.current)
-      if (cacheTimerRef.current) clearInterval(cacheTimerRef.current)
       cacheWorkerRef.current?.terminate()
       document.removeEventListener('visibilitychange', onHide)
     }
@@ -422,7 +490,7 @@ export default function CCRemoteController() {
             <span className="sys-stat-k">WebSocket</span>
             <span className="sys-stat-v">{wsConnected ? 'connected' : 'reconnecting…'}</span>
           </div>
-          {isGuest && (
+          {userLoaded && !isLoggedIn && (
             <div className="sys-stat">
               <Led kind="amber" />
               <span className="sys-stat-k">Guest</span>
@@ -438,16 +506,7 @@ export default function CCRemoteController() {
         </div>
 
         <div className="topbar-actions">
-          {isGuest && (
-            <button
-              className={`btn btn-compact${guestRefreshDisabled ? ' btn-toggled' : ''}`}
-              disabled={guestRefreshDisabled}
-              onClick={() => !guestRefreshDisabled && loadGuestState()}
-            >
-              {guestRefreshDisabled ? 'Refreshed ✓' : 'Refresh'}
-            </button>
-          )}
-          {userLoaded && !isOperator && !isGuest && <OperatorRequest />}
+          {userLoaded && isLoggedIn && !isOperator && <OperatorRequest />}
           <RenderFilters ref={renderFiltersRef} onOpened={() => { blockTransparencyRef.current?.setOpen(false); adminPanelRef.current?.setOpen(false) }} />
           <BlockTransparency ref={blockTransparencyRef} onOpened={() => { renderFiltersRef.current?.setOpen(false); adminPanelRef.current?.setOpen(false) }} />
           {isAdmin && <AdminPanel ref={adminPanelRef} onOpened={() => { renderFiltersRef.current?.setOpen(false); blockTransparencyRef.current?.setOpen(false) }} />}
@@ -601,13 +660,14 @@ export default function CCRemoteController() {
             </div>
           )}
 
-          {isLoading && (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', zIndex: 20 }}>
-              <div className="canvas-overlay" style={{ minWidth: 'unset', padding: '14px 24px' }}>
-                <div className="overlay-value">Loading world…</div>
-              </div>
-            </div>
-          )}
+          {capBlocked
+            ? <ModalOverlay
+                message="Viewer limit reached"
+                subMessage="Too many concurrent viewers. Try again when a slot opens."
+                action={{ label: 'Try again', onClick: () => { setCapBlocked(false); connectWebSocket() } }}
+              />
+            : isLoading && <ModalOverlay message="Loading world…" />
+          }
         </div>
       </div>
 

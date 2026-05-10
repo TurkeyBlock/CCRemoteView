@@ -1,39 +1,18 @@
 'use strict';
 
 const express    = require('express');
-const compression = require('compression');
 const { SAVE_GZ_PATH, BYPASS_AUTH } = require('../config');
 const fs = require('fs');
 
 function createBrowserRoutes({ worldState, auth, log, userManagement, computerIpManager, computerIdManager, operatorManager, config }) {
   const router = express.Router();
-  const { state, cmds, safeId, saveStateToDisk, guestStateLastTime } = worldState;
+  const { state, cmds, safeId } = worldState;
   const { requireAuth, requireAdmin, isAdmin, isOperator, getSession } = auth;
-  const { GUEST_STATE_MIN_INTERVAL_MS, SIGNIN_URL, DEV_AUTH_URL, IS_PROD } = config;
+  const { SIGNIN_URL, DEV_AUTH_URL, IS_PROD } = config;
 
   const HOME_URL = IS_PROD ? process.env.NEXTAUTH_URL : DEV_AUTH_URL;
   router.get('/api/signin', (_req, res) => res.redirect(SIGNIN_URL));
   router.get('/api/home',   (_req, res) => res.redirect(HOME_URL));
-
-  router.get('/api/state', compression(), async (req, res) => {
-    const token = await getSession(req);
-    if (!token) {
-      const ip  = req.ip;
-      const now = Date.now();
-      if (guestStateLastTime[ip] && now - guestStateLastTime[ip] < GUEST_STATE_MIN_INTERVAL_MS) {
-        const retryAfter = Math.ceil((guestStateLastTime[ip] + GUEST_STATE_MIN_INTERVAL_MS - now) / 1000);
-        res.set('Retry-After', String(retryAfter));
-        return res.status(429).json({ error: 'rate limited', retryAfter });
-      }
-      guestStateLastTime[ip] = now;
-    }
-    res.send(state);
-  });
-
-  router.post('/api/saveState', requireAuth, (_req, res) => {
-    saveStateToDisk();
-    res.sendStatus(200);
-  });
 
   router.get('/api/me', async (req, res) => {
     if (BYPASS_AUTH) {

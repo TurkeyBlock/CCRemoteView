@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Block } from '@/types/world';
 import { useWorldViewStore } from '@/store/useWorldView';
+import { worldPalette, worldData, worldDataLen } from '@/store/useWorld';
 import { WorldChunk, CHUNK_SIZE, locToChunkKey } from './WorldChunk';
 import type { BuildRequest, BuildResult, MaterialMeta, SerializedBlock } from '@/workers/chunkBuilder.worker';
 import { isNonOccluding, isLiquid, isAlphaGlass, getConnectionGroups } from '@/utils/blockMaps';
@@ -114,16 +115,16 @@ export class ChunkManager {
    *                  brief UI freeze.
    */
   async bulkLoad(
-    allBlocks: Record<string, Block>,
     isVisible: (locString: string) => boolean,
     skipYield = false,
   ): Promise<void> {
-    // Distribute blocks into chunks — pure JS, no Three.js calls.
-    // for...in avoids materialising a full Object.entries() array for large worlds.
-    for (const locString in allBlocks) {
+    // Distribute blocks into chunks — iterate the typed array directly.
+    for (let i = 0; i < worldDataLen; i += 5) {
+      if (worldData[i + 3] === -1) continue; // tombstone
+      const locString = `${worldData[i]},${worldData[i + 1]},${worldData[i + 2]}`;
       if (!isVisible(locString)) continue;
       const chunk = this.getOrCreate(locToChunkKey(locString));
-      chunk.blocks.set(locString, allBlocks[locString]);
+      chunk.blocks.set(locString, { name: worldPalette[worldData[i + 3]], metadata: worldData[i + 4] });
     }
 
     // Yield once so the browser can paint before the build queue fires.

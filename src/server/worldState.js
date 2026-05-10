@@ -1,9 +1,11 @@
 'use strict';
 
-const fs   = require('fs');
-const zlib = require('zlib');
+const fs             = require('fs');
+const path           = require('path');
+const zlib           = require('zlib');
+const { Worker }     = require('worker_threads');
 const {
-  AUTOSAVE_INTERVAL_MIN, TRANSACTION_CACHE_COUNT,
+  AUTOSAVE_INTERVAL_MIN, TRANSACTION_CACHE_TTL_MS, TRANSACTION_CACHE_MAX_COUNT,
   SAVE_GZ_PATH, SAVE_JSON_PATH,
   SCAN_MIN_INTERVAL_MS, SCAN_INCLUDE_METADATA, SCAN_INCLUDE_STATE,
   CMD_RESULT_CACHE_MAX,
@@ -19,6 +21,8 @@ const state = {
   lastReadyTransactionId: 0,
 };
 const transactionCache    = {};
+const txTimestamps        = [];  // [id, timestampMs] tuples, oldest-first
+let   txTimestampsHead    = 0;   // index of oldest live entry
 const commandResultCache  = {};
 const cmds                = {};
 const stopSignal          = {};
@@ -26,7 +30,6 @@ const wsRequests          = {};
 const computerWs          = {};
 const browserClients      = new Set();
 const scanLastTime        = {};
-const guestStateLastTime  = {};
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
 
@@ -103,10 +106,62 @@ function saveStateToDisk() {
 }
 
 function startAutoSave(onSave) {
+  const worker = new Worker(path.join(__dirname, 'saveState.worker.js'));
+  worker.on('error', (err) => console.error('[autosave] Worker error:', err));
+  let busy = false;
+
+  function doSave() {
+    if (busy) {
+      console.warn('[autosave] Previous save still running — skipping tick');
+      return Promise.resolve();
+    }
+    busy = true;
+
+    // Build typed array on main thread — integer ops only, no JSON/gzip work here.
+    const blocks    = state.world.blocks;
+    const keys      = Object.keys(blocks);
+    const palette   = [];
+    const nameToIdx = {};
+    const typed     = new Int32Array(keys.length * 5);
+    let off = 0;
+    for (const locString of keys) {
+      const block = blocks[locString];
+      const name  = block.name;
+      if (nameToIdx[name] === undefined) { nameToIdx[name] = palette.length; palette.push(name); }
+      const c1 = locString.indexOf(','), c2 = locString.indexOf(',', c1 + 1);
+      typed[off]   = +locString.slice(0, c1);
+      typed[off+1] = +locString.slice(c1+1, c2);
+      typed[off+2] = +locString.slice(c2+1);
+      typed[off+3] = nameToIdx[name];
+      typed[off+4] = block.metadata ?? 0;
+      off += 5;
+    }
+    const computers = {};
+    for (const [id, c] of Object.entries(state.computers)) {
+      const { entities: _e, ...rest } = c;
+      computers[id] = rest;
+    }
+
+    const buf = typed.buffer;
+    return new Promise((resolve) => {
+      worker.once('message', ({ ok, error }) => {
+        busy = false;
+        if (ok) console.log(`[autosave] Saved ${off / 5} blocks, ${Object.keys(computers).length} computers`);
+        else    console.error('[autosave] Save failed:', error);
+        resolve();
+      });
+      worker.postMessage(
+        { palette, buffer: buf, bufLen: off, computers, savePath: SAVE_GZ_PATH, tmpPath: `${SAVE_GZ_PATH}.tmp` },
+        [buf],
+      );
+    });
+  }
+
   function tick() {
-    saveStateToDisk();
-    onSave?.();
-    setTimeout(tick, AUTOSAVE_INTERVAL_MIN * 60 * 1000);
+    doSave().then(() => {
+      onSave?.();
+      setTimeout(tick, AUTOSAVE_INTERVAL_MIN * 60 * 1000);
+    });
   }
   tick();
 }
@@ -159,9 +214,23 @@ function applyTransaction(transaction) {
   for (const [id, computerState] of Object.entries(transaction.computers)) {
     state.computers[id] = computerState;
   }
+  const now = Date.now();
   transactionCache[transaction.id] = transaction;
-  if (transactionCache[transaction.id - TRANSACTION_CACHE_COUNT])
-    delete transactionCache[transaction.id - TRANSACTION_CACHE_COUNT];
+  txTimestamps.push([transaction.id, now]);
+
+  // Evict entries that exceed the time window or the count cap.
+  while (txTimestampsHead < txTimestamps.length) {
+    const age   = now - txTimestamps[txTimestampsHead][1];
+    const count = txTimestamps.length - txTimestampsHead;
+    if (age < TRANSACTION_CACHE_TTL_MS && count <= TRANSACTION_CACHE_MAX_COUNT) break;
+    delete transactionCache[txTimestamps[txTimestampsHead][0]];
+    txTimestampsHead++;
+  }
+  // Compact the timestamps array to prevent unbounded growth.
+  if (txTimestampsHead > 10_000) {
+    txTimestamps.splice(0, txTimestampsHead);
+    txTimestampsHead = 0;
+  }
 }
 
 function extractState(computerState) {
@@ -278,12 +347,20 @@ function processScanBlocks(id, blocks, origin) {
   return transaction;
 }
 
+// Returns the highest transaction ID that is no longer in the cache.
+// Any client whose lastTx is above this value can catch up via delta.
+function getTransactionCacheFloor() {
+  return txTimestampsHead < txTimestamps.length
+    ? txTimestamps[txTimestampsHead][0] - 1
+    : state.lastTransactionId;
+}
+
 module.exports = {
   state,
   transactionCache, commandResultCache, cmds, stopSignal, wsRequests, computerWs,
-  browserClients, scanLastTime, guestStateLastTime,
+  browserClients, scanLastTime,
   safeId, sanitizeForLog,
-  saveStateToDisk, startAutoSave,
+  saveStateToDisk, startAutoSave, getTransactionCacheFloor,
   broadcastToClients,
   setWsRequest, clearCommandQueue,
   transactComputer, applyExtractedState, commitScan,

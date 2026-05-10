@@ -2,8 +2,54 @@
 
 const path = require('path');
 const fs   = require('fs');
-const { BYPASS_AUTH, DEV_TOKEN, LOG_BROWSER_CMDS, MAX_CMD_LENGTH, TRANSACTION_CACHE_COUNT } = require('../config');
+const { BYPASS_AUTH, DEV_TOKEN, LOG_BROWSER_CMDS, MAX_CMD_LENGTH, MAX_UNAUTHED_WS, MAX_AUTHED_GUEST_WS } = require('../config');
 const { commandRouting, validateArgs, buildLuaCommand, isConcurrentCommand } = require('../commandRouting');
+
+const CHUNK_BLOCKS = 20_000;
+
+// Serialize world state using palette + flat array format, then stream it to
+// the client in CHUNK_BLOCKS-sized pieces with setImmediate between each so
+// the event loop stays free to handle other requests during delivery.
+function sendChunkedState(ws, state) {
+  const palette   = [];
+  const nameToIdx = {};
+  const allBlockData = [];
+
+  for (const locString in state.world.blocks) {
+    const block = state.world.blocks[locString];
+    if (nameToIdx[block.name] === undefined) {
+      nameToIdx[block.name] = palette.length;
+      palette.push(block.name);
+    }
+    const c1 = locString.indexOf(',');
+    const c2 = locString.indexOf(',', c1 + 1);
+    allBlockData.push(
+      +locString.slice(0, c1),
+      +locString.slice(c1 + 1, c2),
+      +locString.slice(c2 + 1),
+      nameToIdx[block.name],
+      block.metadata ?? 0,
+    );
+  }
+
+  const total = Math.max(1, Math.ceil(allBlockData.length / (CHUNK_BLOCKS * 5)));
+  const { lastTransactionId, computers } = state;
+  let index = 0;
+
+  function sendNext() {
+    if (ws.readyState !== ws.OPEN) return;
+    const start = index * CHUNK_BLOCKS * 5;
+    const end   = Math.min(start + CHUNK_BLOCKS * 5, allBlockData.length);
+    const msg   = index === 0
+      ? { stateChunk: { index, total, lastTransactionId, palette, computers, blockData: allBlockData.slice(start, end) } }
+      : { stateChunk: { index, total, lastTransactionId,                      blockData: allBlockData.slice(start, end) } };
+    ws.send(JSON.stringify(msg));
+    index++;
+    if (index < total) setImmediate(sendNext);
+  }
+
+  sendNext();
+}
 
 function getClientIp(req) {
   return req.headers['cf-connecting-ip']
@@ -16,9 +62,13 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
     state, cmds, stopSignal, computerWs, browserClients,
     safeId, sanitizeForLog,
     setWsRequest, clearCommandQueue,
-    transactionCache,
+    transactionCache, getTransactionCacheFloor,
   } = worldState;
   const { getSession, isAdmin, isOperator } = auth;
+
+  // Per-type guest connection counters — scoped to this server instance.
+  let unauthedWsCount    = 0;
+  let authedGuestWsCount = 0;
 
   function sendOrQueue(id, luaCmd, concurrent, logLabel) {
     if (concurrent) {
@@ -40,29 +90,52 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
 
   wss.on('connection', async (ws, req) => {
     let userSub, userName, wsIsOperator, wsIsAdmin;
+    let isUnauthedGuest = false;
+    let isAuthedGuest   = false;
 
     if (!BYPASS_AUTH) {
       const token = await getSession(req);
-      if (!token) { ws.close(4401, 'Unauthorized'); return; }
-      userSub     = token.sub;
-      userName    = token.username ?? token.name ?? userSub;
-      wsIsOperator = isOperator(userSub);
-      wsIsAdmin    = isAdmin(userSub);
+      if (token) {
+        userSub      = token.sub;
+        userName     = token.username ?? token.name ?? userSub;
+        wsIsOperator = isOperator(userSub);
+        wsIsAdmin    = isAdmin(userSub);
+        if (!wsIsOperator && !wsIsAdmin) {
+          // Authenticated but unprivileged — read-only guest.
+          if (authedGuestWsCount >= MAX_AUTHED_GUEST_WS) {
+            ws.close(4429, 'Too many guests');
+            return;
+          }
+          isAuthedGuest = true;
+          authedGuestWsCount++;
+        }
+      } else {
+        // No token (or invalid token) — fully anonymous read-only guest.
+        if (unauthedWsCount >= MAX_UNAUTHED_WS) {
+          ws.close(4429, 'Too many guests');
+          return;
+        }
+        isUnauthedGuest = true;
+        unauthedWsCount++;
+        wsIsOperator = false;
+        wsIsAdmin    = false;
+      }
     } else {
-      userSub     = DEV_TOKEN.sub;
-      userName    = DEV_TOKEN.username;
+      userSub      = DEV_TOKEN.sub;
+      userName     = DEV_TOKEN.username;
       wsIsOperator = true;
       wsIsAdmin    = true;
     }
 
     const clientIp = getClientIp(req);
-    console.log(`[ws] Browser client connected from ${clientIp} (total: ${browserClients.size + 1})`);
+    const guestTag = isUnauthedGuest ? ' [unauthed-guest]' : isAuthedGuest ? ' [authed-guest]' : '';
+    console.log(`[ws] Browser client connected from ${clientIp}${guestTag} (total: ${browserClients.size + 1}, unauthed: ${unauthedWsCount}, authed-guest: ${authedGuestWsCount})`);
     browserClients.add(ws);
 
     const qs           = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
     const clientLastTx = parseInt(new URLSearchParams(qs).get('lastTx') ?? '', 10);
     const serverLastTx = state.lastTransactionId;
-    const cacheFloor   = serverLastTx - TRANSACTION_CACHE_COUNT;
+    const cacheFloor   = getTransactionCacheFloor();
 
     if (Number.isInteger(clientLastTx) && clientLastTx >= 0 && clientLastTx >= cacheFloor && clientLastTx <= serverLastTx) {
       const delta = {};
@@ -71,7 +144,7 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
       }
       ws.send(JSON.stringify({ transactions: delta }));
     } else {
-      ws.send(JSON.stringify({ state }));
+      sendChunkedState(ws, state);
     }
 
     ws.on('message', (raw) => {
@@ -174,6 +247,8 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
     });
 
     ws.on('close', (code, reason) => {
+      if (isUnauthedGuest) unauthedWsCount--;
+      if (isAuthedGuest)   authedGuestWsCount--;
       console.log(`[ws] Browser client disconnected — code: ${code}, reason: ${reason?.toString() || '(none)'}`);
       browserClients.delete(ws);
     });

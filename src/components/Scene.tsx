@@ -6,7 +6,7 @@ import { CameraControls } from '@react-three/drei'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { Block } from '@/types/world'
-import { useWorldStore, worldBlocks } from '@/store/useWorld'
+import { useWorldStore, lookupBlock, worldDataLen } from '@/store/useWorld'
 import { useWorldViewStore, clearMaterialsCache } from '@/store/useWorldView'
 import { ChunkManager } from '@/utils/rendering/ChunkManager'
 import { CHUNK_SIZE } from '@/utils/rendering/WorldChunk'
@@ -167,7 +167,7 @@ function SceneSetup() {
       if (!hit.face) continue
       const blockPos = getBlockPosFromHit(hit)
       const locString = `${blockPos.x},${blockPos.y},${blockPos.z}`
-      const block = worldBlocks[locString]
+      const block = lookupBlock(locString)
       if (!block) continue
       if (wvSnap.miningMode && (rcHiddenAll.has(block.name) || rcHiddenSpecific.has(`${block.name}:${block.metadata ?? 0}`))) continue
       useWorldViewStore.setState({
@@ -392,18 +392,19 @@ function SceneSetup() {
     }
     const isHiddenByFilter = (name: string, meta: number | undefined) =>
       hiddenAllMeta.has(name) || hiddenSpecificMeta.has(`${name}:${meta ?? 0}`)
-    const blockSnap = worldBlocks
     const isVisible = (locString: string): boolean => {
       const c1 = locString.indexOf(',')
       const c2 = locString.indexOf(',', c1 + 1)
       const y = +locString.slice(c1 + 1, c2)
       if (y < yMin || y > yMax) return false
-      // In mining mode, filtered blocks are rendered with opacity rather than hidden.
-      if (!miningMode && isHiddenByFilter(blockSnap[locString]?.name, blockSnap[locString]?.metadata)) return false
+      if (!miningMode) {
+        const b = lookupBlock(locString)
+        if (b && isHiddenByFilter(b.name, b.metadata)) return false
+      }
       return true
     }
 
-    await chunkManager.current.bulkLoad(worldBlocks, isVisible, wv.skipLoadYield)
+    await chunkManager.current.bulkLoad(isVisible, wv.skipLoadYield)
 
     updateChunkVisibility()
 
@@ -527,10 +528,10 @@ function SceneSetup() {
 
     // IDB cache may have resolved before R3F mounted (IDB fires as a macrotask,
     // R3F registers callbacks on its first requestAnimationFrame — which comes
-    // after DOM effects).  If worldBlocks is already populated, the
+    // after DOM effects).  If worldData is already populated, the
     // regenerateSceneFromBlocks() call in the cache handler hit the no-op
     // placeholder.  Catch up now that the real function is registered.
-    if (Object.keys(worldBlocks).length > 0) {
+    if (worldDataLen > 0) {
       regenerateSceneFromBlocks()
       invalidate()
     }

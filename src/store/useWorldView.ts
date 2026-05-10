@@ -217,8 +217,8 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
     const y = +locString.split(',')[1]
     if (y < yMin || y > yMax) return false
     if (!miningMode) {
-      const { worldBlocks } = require('./useWorld') as typeof import('./useWorld')
-      const block = worldBlocks[locString]
+      const { lookupBlock } = require('./useWorld') as typeof import('./useWorld')
+      const block = lookupBlock(locString)
       if (block && transparencyList.includes(block.name)) return false
     }
     return true
