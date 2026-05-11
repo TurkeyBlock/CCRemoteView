@@ -16,6 +16,7 @@ A browser-based remote control and live world map for ComputerCraft computers ru
 - **Command queue** — all commands are queued and executed in order; spamming a key queues every press rather than dropping inputs
 - **Inventory management** — drag-and-drop turtle inventory slots, Ctrl+click to move whole stacks, fuel gauge, active slot display
 - **Adjacent chest interaction** — clicking a chest next to a turtle in the 3D view opens its inventory as a GUI overlay; items can be dragged between the chest and the turtle's own inventory without any in-game input
+- **Glasses HUD editor** — co-op browser canvas editor for `plethora:glasses`; place rects, text, and lines on a 512×288 canvas with pixel-accurate Minecraft font preview, then push the scene to the player's HUD in one click (requires Plethora neural interface + glasses module)
 - **Lua terminal** — send arbitrary Lua directly to any connected computer (admin only)
 - **Adjacent block inspection** — front/top/bottom blocks reported after every action without Plethora; full area scans require the Plethora scanner module
 - **Entity detection** — scan nearby mobs and players (requires Plethora)
@@ -67,11 +68,13 @@ cp .env.local.example .env.local
 
 At minimum, set `APP_URL` to the public address of the server. See [docs/deployment.md](docs/deployment.md) for authentication details.
 
-### 3. Extract textures (optional)
+### 3. Extract textures and font (optional)
 
 ```bash
 npm run build-textures "<path/to/minecraft.jar>" "<optional: path/to/mods/>"
 ```
+
+Extracts block/item textures for the 3D world map and the Minecraft bitmap font for pixel-accurate text preview in the glasses editor. Both are optional — the map renders as solid colours without textures, and the glasses editor falls back to a browser font without the font atlas.
 
 ### 4. Build and start
 
