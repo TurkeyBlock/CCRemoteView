@@ -9,6 +9,7 @@ const {
   SAVE_GZ_PATH, SAVE_JSON_PATH,
   SCAN_MIN_INTERVAL_MS, SCAN_INCLUDE_METADATA, SCAN_INCLUDE_STATE,
   CMD_RESULT_CACHE_MAX,
+  SUPPRESS_SAVE_LOGS,
 } = require('./config');
 
 // ─── Mutable state ───────────────────────────────────────────────────────────
@@ -149,8 +150,11 @@ function startAutoSave(onSave) {
     return new Promise((resolve) => {
       worker.once('message', ({ ok, error }) => {
         busy = false;
-        if (ok) console.log(`[autosave] Saved ${off / 5} blocks, ${Object.keys(computers).length} computers`);
-        else    console.error('[autosave] Save failed:', error);
+        if (ok) {
+          if (!SUPPRESS_SAVE_LOGS) console.log(`[autosave] Saved ${off / 5} blocks, ${Object.keys(computers).length} computers`);
+        } else {
+          console.error('[autosave] Save failed:', error);
+        }
         resolve();
       });
       worker.postMessage(

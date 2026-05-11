@@ -22,6 +22,19 @@ const BYPASS_AUTH = LOCAL_ONLY && !LOCAL_REQUIRE_AUTH;
 // Log every browser command request (setCommand, setStopSignal, etc.)
 const LOG_BROWSER_CMDS = true;
 
+// Suppress verbose update logs or autosave logs in production by default.
+// Override with SUPPRESS_UPDATE_LOGS/SUPPRESS_SAVE_LOGS env vars.
+const SUPPRESS_UPDATE_LOGS = process.env.SUPPRESS_UPDATE_LOGS === 'false'
+  ? false
+  : process.env.SUPPRESS_UPDATE_LOGS === 'true'
+    ? true
+    : IS_PROD;
+const SUPPRESS_SAVE_LOGS = process.env.SUPPRESS_SAVE_LOGS === 'false'
+  ? false
+  : process.env.SUPPRESS_SAVE_LOGS === 'true'
+    ? true
+    : IS_PROD;
+
 // BIND_HOST is derived from LOCAL_ONLY and is not independently overridable in
 // local mode — the loopback binding is part of the LOCAL_ONLY guarantee.
 const BIND_HOST = LOCAL_ONLY ? '127.0.0.1' : (process.env.BIND_HOST || '0.0.0.0');
@@ -58,6 +71,7 @@ const DEV_TOKEN = { sub: 'dev', username: 'dev', email: 'dev@localhost' };
 
 module.exports = {
   IS_PROD, LOCAL_ONLY, LOCAL_REQUIRE_AUTH, BYPASS_AUTH, LOG_BROWSER_CMDS,
+  SUPPRESS_UPDATE_LOGS, SUPPRESS_SAVE_LOGS,
   DEV_APP_URL, DEV_AUTH_URL,
   BIND_HOST, COOKIE_NAME, APP_URL, SIGNIN_URL, PORT,
   AUTOSAVE_INTERVAL_MIN, TRANSACTION_CACHE_TTL_MS, TRANSACTION_CACHE_MAX_COUNT,

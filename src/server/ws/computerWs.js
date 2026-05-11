@@ -1,6 +1,6 @@
 'use strict';
 
-const { BYPASS_AUTH } = require('../config');
+const { BYPASS_AUTH, SUPPRESS_UPDATE_LOGS } = require('../config');
 
 function getClientIp(req) {
   return req.headers['cf-connecting-ip']
@@ -69,7 +69,7 @@ function attachComputerWs(wss, { worldState, computerIpManager, computerIdManage
         log.info(`[ws/computer] id=${id} commandResult cid=${cid}`);
         const result = msg.result;
         if (result !== undefined) {
-          console.log(`[ws/computer] Computer ${cid} result:`, result);
+          if (!SUPPRESS_UPDATE_LOGS) console.log(`[ws/computer] Computer ${cid} result:`, result);
           if (!commandResultCache[cid]) commandResultCache[cid] = [];
           commandResultCache[cid].push(result);
           if (commandResultCache[cid].length > CMD_RESULT_CACHE_MAX) commandResultCache[cid].shift();
