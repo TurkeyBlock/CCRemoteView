@@ -215,6 +215,18 @@ kbd.kbd {
   background: var(--ink); border: var(--border); border-radius: 2px;
 }
 .inv-grid-wide { grid-template-columns: repeat(9, 1fr); }
+.inv-grid-wide .inv-slot { min-height: 0; }
+
+.player-armor-row {
+  display: flex; gap: 8px;
+}
+.player-armor-slot {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  flex: 1; max-width: 52px;
+}
+.player-armor-label {
+  font-size: 9px; color: var(--fg-mute); text-transform: capitalize;
+}
 
 .inv-chest-panel {
   background: rgba(37,37,38,0.96);

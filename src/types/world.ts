@@ -22,6 +22,14 @@ interface ComputerState {
     chatLog?: ChatMessage[],
     peripherals?: string[],
     actionSeq?: number,
+    // Player (neural interface) — populated by papi live coroutines / introspection commands
+    playerName?: string,
+    inventory?: Record<string, ItemStack>,
+    equipment?: Record<string, ItemStack>,
+    enderChest?: Record<string, ItemStack>,
+    metaOwner?: unknown,
+    // Glasses canvas — scene persisted by setGlassesScene WS op, synced to all browsers
+    glassesScene?: import('./glasses').GlassesObject[],
 }
 
 interface EntitySighting {

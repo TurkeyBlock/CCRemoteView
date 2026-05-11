@@ -1,5 +1,5 @@
 -- papi: player (neural interface) API
--- Provides GPS location, status updates (position only), and Plethora block scanning.
+-- Provides GPS location, status updates, Plethora block scanning, and introspection.
 -- WS and command-result handling delegated to api_common.make_ws_sender.
 --
 -- Neural interface peripheral model:
@@ -21,6 +21,35 @@ local api_common = dofile("/api_common.lua")
 local headers    = { ["Content-Type"] = "application/json" }
 
 
+-- ─── Configuration ────────────────────────────────────────────────────────────
+
+-- Seconds between GPS position polls (sends only on change, while WebSocket-connected).
+GPS_UPDATE_INTERVAL = 1
+-- Seconds between inventory state polls (sends only on change, while WebSocket-connected).
+INVENTORY_POLL_INTERVAL = 2
+
+-- Plethora neural interface equipment slot indices (1-indexed EntityEquipmentSlot):
+-- 1=mainhand, 2=offhand, 3=feet, 4=legs, 5=chest, 6=head
+local EQUIP_SLOT_NAMES = {
+    ["1"] = "mainhand", ["2"] = "offhand",
+    ["3"] = "feet",     ["4"] = "legs",
+    ["5"] = "chest",    ["6"] = "head",
+}
+
+local function build_equip_table(eq)
+    local items = {}
+    if type(eq.list) == "function" then
+        for slot, item in pairs(eq.list()) do
+            if type(item) == "table" and item.name then
+                local key = EQUIP_SLOT_NAMES[tostring(slot)] or tostring(slot)
+                items[key] = { name = item.name, count = item.count, damage = item.damage }
+            end
+        end
+    end
+    return items
+end
+
+
 -- ─── GPS helpers ─────────────────────────────────────────────
 
 -- [concurrent]
@@ -31,9 +60,12 @@ end
 -- ─── Status / result helpers (HTTP) ──────────────────────────
 
 local _ws = api_common.make_ws_sender(url, headers)
-set_ws              = _ws.set_ws
 send_command_result = _ws.send_command_result
 send_chat           = api_common.make_send_chat(url, headers)
+
+function set_ws(ws)
+    _ws.set_ws(ws)
+end
 
 -- say(message): send chat via the neural interface directly.
 -- Unlike turtle/stationary/minecart which use peripheral.find("plethora:chat"),
@@ -53,9 +85,97 @@ function send_status_update()
         type = "player",
         loc  = x and { x = math.floor(x), y = math.floor(y), z = math.floor(z) } or nil,
     }
+    local neural = peripheral.find("neuralInterface")
+    if neural then
+        if neural.getName then payload.playerName = neural.getName() end
+        if neural.getEquipment then
+            payload.equipment = build_equip_table(neural.getEquipment())
+        end
+    end
     _ws.send_status_update(payload)
 end
 
+
+-- ─── Introspection module ────────────────────────────────────
+
+-- Build a plain slot-indexed table from a Plethora inventory proxy.
+-- Uses pairs(list()) to avoid the __len sparse-array serialization issue, and
+-- copies only {name,count,damage} so no Plethora method references are included.
+local function build_inv_table(inv)
+    local items = {}
+    if type(inv.list) == "function" then
+        for slot, item in pairs(inv.list()) do
+            if type(slot) == "number" and type(item) == "table" then
+                -- String key forces serializeJSON to emit a JSON object (iterates pairs)
+                -- rather than a JSON array (uses # which stops at the first gap).
+                items[tostring(slot)] = { name = item.name, count = item.count, damage = item.damage }
+            end
+        end
+    end
+    return items
+end
+
+-- [concurrent]
+function getInventory()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.getInventory then return false, "introspection module not equipped" end
+    local items = build_inv_table(neural.getInventory())
+    local count = 0
+    for _ in pairs(items) do count = count + 1 end
+    _ws.send_status_update({ id = os.getComputerID(), type = "player", inventory = items })
+    print("? inventory (" .. count .. " stacks)")
+    return true
+end
+
+-- [concurrent]
+function getEquipment()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.getEquipment then return false, "introspection module not equipped" end
+    local items = build_equip_table(neural.getEquipment())
+    _ws.send_status_update({ id = os.getComputerID(), type = "player", equipment = items })
+    return true
+end
+
+-- [concurrent]
+function getID()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.getID then return false, "introspection module not equipped" end
+    return neural.getID()
+end
+
+-- [concurrent]
+function getName()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.getName then return false, "introspection module not equipped" end
+    return neural.getName()
+end
+
+-- [concurrent]
+function getEnder()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.getEnder then return false, "introspection module not equipped" end
+    local items = build_inv_table(neural.getEnder())
+    local count = 0
+    for _ in pairs(items) do count = count + 1 end
+    _ws.send_status_update({ id = os.getComputerID(), type = "player", enderChest = items })
+    print("? ender chest (" .. count .. " stacks)")
+    return true
+end
+
+-- [concurrent]
+function getMetaOwner()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.getMetaOwner then return false, "introspection/sensor module not equipped" end
+    local meta = neural.getMetaOwner()
+    _ws.send_status_update({ id = os.getComputerID(), type = "player", metaOwner = meta })
+    return true
+end
 
 -- ─── Sense helper ────────────────────────────────────────────
 
@@ -109,4 +229,167 @@ function scan()
     end
     print("? block scan (" .. #blocks .. " blocks @ " .. ox .. "," .. oy .. "," .. oz .. ")")
     return true
+end
+
+
+-- ─── Glasses canvas ──────────────────────────────────────────────────────────
+
+-- Diagnostic: draws "A" at size 1–3 next to white reference rectangles of heights
+-- 6, 7, 8, 9, 10, 11, 12 px so you can visually match the text height in-game.
+-- Call via invokeCommand / setCommand, then look at the glasses and report which
+-- rectangle height matches the text. Clear with glassesClear() when done.
+-- [concurrent]
+function canvasTextSizeTest()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.canvas then return false, "glasses module not equipped" end
+    local c = neural.canvas()
+    c.clear()
+    local white = 0xFFFFFF * 256  -- plethoraColor(0xFFFFFF)
+    local x = 10
+    -- Draw reference rectangles of heights 6–12, labelled, all starting at y=20
+    local heights = {6, 7, 8, 9, 10, 11, 12}
+    for i, h in ipairs(heights) do
+        local rx = x + (i - 1) * 18
+        local r = c.addRectangle(rx, 20, 6, h, white)
+        r.setAlpha(255)
+        local t = c.addText({rx, 20 + h + 2}, tostring(h), white, 1)
+        t.setAlpha(255)
+    end
+    -- Draw "Ag" (tall + descender) at size 1, 2, 3 below the reference row
+    local sizes = {1, 2, 3}
+    for i, sz in ipairs(sizes) do
+        local tx = x + (i - 1) * 60
+        local t = c.addText({tx, 60}, "Ag sz=" .. sz, white, sz)
+        t.setAlpha(255)
+    end
+    return true
+end
+
+-- [concurrent]
+function getCanvasSize()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.canvas then return false, "glasses module not equipped" end
+    local c = neural.canvas()
+    if type(c.getSize) ~= "function" then return false, "canvas.getSize not available" end
+    local w, h = c.getSize()
+    if not w then return false, "getSize returned no values" end
+    return tostring(w) .. "x" .. tostring(h)
+end
+
+-- [concurrent]
+function glassesClear()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.canvas then return false, "glasses module not equipped" end
+    neural.canvas().clear()
+    return true
+end
+
+-- Plethora canvas reads color integers as packed RGBA (32-bit): R=bits31-24, G=bits23-16,
+-- B=bits15-8, A=bits7-0. Browser colors are 24-bit 0xRRGGBB with R in bits23-16.
+-- Shifting left 8 places R into bits31-24, G into 23-16, B into 15-8, and leaves A=0
+-- for the per-shape setAlpha() call to override.
+local function plethoraColor(c)
+    return c * 256
+end
+
+-- [concurrent]
+-- json_str: JSON array of scene objects from the browser editor.
+-- Each object has: type ("rect"|"text"|"line"|"dot"), plus type-specific fields.
+-- Clears the canvas then redraws from scratch — no handle tracking.
+function glassesSetCanvas(json_str)
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.canvas then return false, "glasses module not equipped" end
+    local scene = textutils.unserializeJSON(json_str)
+    if type(scene) ~= "table" then return false, "invalid scene JSON" end
+    local c = neural.canvas()
+    c.clear()
+    for _, obj in ipairs(scene) do
+        local col = plethoraColor(obj.color)
+        if obj.type == "rect" then
+            local r = c.addRectangle(obj.x, obj.y, obj.w, obj.h, col)
+            if obj.alpha ~= nil then r.setAlpha(obj.alpha) end
+        elseif obj.type == "text" then
+            -- SVG stores y as the text baseline; Plethora addText uses y as the top edge.
+            -- Subtract size*9 (the glyph height in HUD pixels) to align them.
+            local t = c.addText({obj.x, obj.y - obj.size * 9}, obj.content, col, obj.size)
+            if obj.alpha  ~= nil then t.setAlpha(obj.alpha) end
+            if obj.shadow ~= nil then t.setShadow(obj.shadow) end
+        elseif obj.type == "line" then
+            local l = c.addLine({obj.x1, obj.y1}, {obj.x2, obj.y2}, col, obj.thickness)
+            if obj.alpha ~= nil then l.setAlpha(obj.alpha) end
+        elseif obj.type == "dot" then
+            local d = c.addDot({obj.x, obj.y}, col, obj.size)
+            if obj.alpha ~= nil then d.setAlpha(obj.alpha) end
+        end
+    end
+    return true
+end
+
+
+-- ─── Live update coroutines ───────────────────────────────────────────────────
+-- Passed via opts.extra_parallel in rcPlayer.lua. Run as parallel coroutines
+-- alongside the main rc_loop.
+-- Rule: NEVER send anything to the server unless ws_active. Internal polling is fine.
+
+-- Polls GPS every GPS_UPDATE_INTERVAL seconds. Sends only when position has changed.
+-- Spawned fresh each WS session via session_parallel, so local state resets automatically
+-- on reconnect — the first update after connect always fires.
+function gps_updater()
+    local last_fx, last_fy, last_fz = nil, nil, nil
+    local gps_ok = nil  -- nil = unknown, true/false = last known state
+    while true do
+        local x, y, z = get_location()
+        if x then
+            if gps_ok ~= true then
+                print("GPS fix acquired (" .. math.floor(x) .. "," .. math.floor(y) .. "," .. math.floor(z) .. ")")
+                gps_ok = true
+            end
+            local fx, fy, fz = math.floor(x), math.floor(y), math.floor(z)
+            if fx ~= last_fx or fy ~= last_fy or fz ~= last_fz then
+                last_fx, last_fy, last_fz = fx, fy, fz
+                _ws.send_status_update({
+                    id   = os.getComputerID(),
+                    type = "player",
+                    loc  = { x = fx, y = fy, z = fz },
+                })
+            end
+        elseif gps_ok ~= false then
+            print("! GPS fix failed — loc will not update (no GPS hosts in range?)")
+            gps_ok = false
+        end
+        os.sleep(GPS_UPDATE_INTERVAL)
+    end
+end
+
+-- Polls the player's inventory every INVENTORY_POLL_INTERVAL seconds. Sends only when
+-- contents have changed. Spawned fresh each WS session via session_parallel, so the
+-- cached hash resets automatically on reconnect.
+-- Skips sending an empty inventory until at least one non-empty result has been
+-- observed — prevents a spurious {} overwrite when Plethora's proxy hasn't
+-- populated yet on the first call.
+function inventory_updater()
+    local last_hash          = nil
+    local has_seen_non_empty = false
+    while true do
+        local neural = peripheral.find("neuralInterface")
+        if neural and neural.getInventory then
+            local items = build_inv_table(neural.getInventory())
+            local count = 0
+            for _ in pairs(items) do count = count + 1 end
+            local ok, hash = pcall(textutils.serializeJSON, items)
+            if ok and hash ~= last_hash then
+                if count > 0 or has_seen_non_empty then
+                    has_seen_non_empty = has_seen_non_empty or count > 0
+                    last_hash = hash
+                    _ws.send_status_update({ id = os.getComputerID(), type = "player", inventory = items })
+                    print("? inventory (" .. count .. " stacks)")
+                end
+            end
+        end
+        os.sleep(INVENTORY_POLL_INTERVAL)
+    end
 end

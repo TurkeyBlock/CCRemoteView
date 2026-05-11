@@ -93,7 +93,7 @@ nextApp.prepare().then(() => {
     if (!filePath.startsWith(LUA_DIR)) return res.sendStatus(403);
     fs.readFile(filePath, 'utf8', (err, data) => {
       if (err) return next();
-      res.type('text/plain').send(data.replaceAll('%%APP_URL%%', process.env.APP_URL));
+      res.type('text/plain').send(data.replaceAll('%%APP_URL%%', process.env.APP_URL || config.APP_URL));
     });
   });
 

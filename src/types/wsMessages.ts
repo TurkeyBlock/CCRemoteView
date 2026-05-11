@@ -32,12 +32,30 @@ const ClearCommandQueue = z.object({
   id: z.number().int(),
 })
 
+const SetGlassesScene = z.object({
+  type: z.literal('setGlassesScene'),
+  computerId: z.number().int(),
+  scene: z.array(z.record(z.string(), z.unknown())),
+})
+
+const GlassesSceneOp = z.object({
+  type: z.literal('glassesSceneOp'),
+  computerId: z.number().int(),
+  op: z.enum(['add', 'update', 'remove', 'clear', 'reorder']),
+  object: z.record(z.string(), z.unknown()).optional(),
+  objectId: z.string().optional(),
+  fromIdx: z.number().int().optional(),
+  toIdx: z.number().int().optional(),
+})
+
 export const ClientMessage = z.discriminatedUnion('type', [
   InvokeCommand,
   RunProgram,
   SetCommand,
   SetStopSignal,
   ClearCommandQueue,
+  SetGlassesScene,
+  GlassesSceneOp,
 ])
 export type ClientMessage = z.infer<typeof ClientMessage>
 

@@ -54,6 +54,10 @@ function buildLuaCommand(computerType, commandName, argSchemas, argValues) {
     const [fromSlot, toSlot, count] = argValues;
     return `local s=turtle.getSelectedSlot(); tapi.select(${fromSlot}); turtle.transferTo(${toSlot},${count}); tapi.select(s); tapi.send_status_update()`;
   }
+  if (commandName === 'glassesSetCanvas') {
+    const escaped = String(argValues[0]).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    return `return papi.glassesSetCanvas("${escaped}")`;
+  }
   const module = commandRouting[computerType].module;
   const luaArgs = argSchemas
     .map((schema, i) => {

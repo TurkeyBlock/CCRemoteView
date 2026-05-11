@@ -62,6 +62,7 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
     state, cmds, stopSignal, computerWs, browserClients,
     safeId, sanitizeForLog,
     setWsRequest, clearCommandQueue,
+    transactComputer,
     transactionCache, getTransactionCacheFloor,
   } = worldState;
   const { getSession, isAdmin, isOperator } = auth;
@@ -75,8 +76,12 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
       if (computerWs[id]?.readyState === 1) {
         if (LOG_BROWSER_CMDS) log.info(`${logLabel} (concurrent)`);
         computerWs[id].send(JSON.stringify({ type: 'command', command: luaCmd, concurrent: true }));
+      } else {
+        // Concurrent commands are not queued — they're fire-and-forget.
+        // Still wake the computer so the user can retry once it reconnects.
+        setWsRequest(id);
+        log.info(`${logLabel} — WS offline, concurrent cmd dropped, wsRequest set`);
       }
-      // concurrent commands are not queued — they're fire-and-forget
     } else if (computerWs[id]?.readyState === 1) {
       if (LOG_BROWSER_CMDS) log.info(logLabel);
       computerWs[id].send(JSON.stringify({ type: 'command', command: luaCmd }));
@@ -241,6 +246,76 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
           userManagement.incrementActionCount(userSub);
           clearCommandQueue(id);
           if (LOG_BROWSER_CMDS) log.info(`[ws] clearCommandQueue id=${id} user=${userSub}`);
+          break;
+        }
+
+        case 'setGlassesScene': {
+          const id = safeId(msg.computerId);
+          if (!id) return;
+          const current = state.computers[id];
+          if (!current) return;
+          const scene = Array.isArray(msg.scene)
+            ? msg.scene.filter(o => o && typeof o.type === 'string' && typeof o.id === 'string').slice(0, 512)
+            : [];
+          // 16 000 chars matches the maxLength on the glassesSetCanvas command arg in
+          // command_routing.json. Storing a larger scene would make "Send to Glasses"
+          // permanently broken for this computer without any obvious explanation.
+          if (JSON.stringify(scene).length > 16000) {
+            ws.send(JSON.stringify({ type: 'error', computerId: Number(id), message: 'Scene JSON exceeds 16,000 character limit' }));
+            return;
+          }
+          transactComputer(id, { ...current, glassesScene: scene });
+          log.info(`[ws] setGlassesScene id=${id} user=${userSub} count=${scene.length}`);
+          break;
+        }
+
+        case 'glassesSceneOp': {
+          const id = safeId(msg.computerId);
+          if (!id) return;
+          const current = state.computers[id];
+          if (!current) return;
+          const scene = Array.isArray(current.glassesScene) ? [...current.glassesScene] : [];
+          switch (msg.op) {
+            case 'add': {
+              if (!msg.object || typeof msg.object.id !== 'string' || typeof msg.object.type !== 'string') return;
+              if (scene.length >= 512) return;
+              // Reject if the new object would push the scene past the glassesSetCanvas payload cap.
+              if (JSON.stringify([...scene, msg.object]).length > 16000) return;
+              scene.push(msg.object);
+              break;
+            }
+            case 'update': {
+              if (typeof msg.objectId !== 'string') return;
+              const idx = scene.findIndex(o => o.id === msg.objectId);
+              if (idx === -1) return;
+              const merged = { ...scene[idx], ...msg.object, id: scene[idx].id, type: scene[idx].type };
+              const candidate = [...scene]; candidate[idx] = merged;
+              // Updates can also blow the cap — text content in particular has no inherent length limit.
+              if (JSON.stringify(candidate).length > 16000) return;
+              scene[idx] = merged;
+              break;
+            }
+            case 'remove': {
+              if (typeof msg.objectId !== 'string') return;
+              const idx = scene.findIndex(o => o.id === msg.objectId);
+              if (idx === -1) return;
+              scene.splice(idx, 1);
+              break;
+            }
+            case 'clear': {
+              scene.length = 0;
+              break;
+            }
+            case 'reorder': {
+              const { fromIdx, toIdx } = msg;
+              if (fromIdx == null || toIdx == null || fromIdx < 0 || toIdx < 0 || fromIdx >= scene.length || toIdx >= scene.length) return;
+              const [item] = scene.splice(fromIdx, 1);
+              scene.splice(toIdx, 0, item);
+              break;
+            }
+            default: return;
+          }
+          transactComputer(id, { ...current, glassesScene: scene });
           break;
         }
       }

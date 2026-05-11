@@ -30,9 +30,10 @@ const DEFAULT_JAR = path.join(TECHNIC_BASE, 'cache', 'minecraft_1.12.2.jar');
 const DEFAULT_MODS = path.join(TECHNIC_BASE, 'modpacks', 'tekkit-2', 'mods');
 
 // In-memory stores built while streaming JARs. Reset at the start of each run().
-let blockstates = new Map(); // "mod:blockname"      → parsed blockstate JSON
-let models      = new Map(); // "mod:block/modelname" → parsed model JSON
-let itemModels  = new Map(); // "mod:item/modelname"  → parsed item model JSON
+let blockstates     = new Map(); // "mod:blockname"      → parsed blockstate JSON
+let models          = new Map(); // "mod:block/modelname" → parsed model JSON
+let itemModels      = new Map(); // "mod:item/modelname"  → parsed item model JSON
+let fontAtlasBuffer = null;      // raw PNG bytes for assets/minecraft/textures/font/ascii.png
 
 // ── Extraction helpers ────────────────────────────────────────────────────────
 
@@ -115,6 +116,14 @@ function extractFromJar(fileName) {
             if (!buf) return;
             try { itemModels.set(`${mod}:item/${name}`, JSON.parse(buf.toString())); } catch {}
           }));
+          return;
+        }
+
+        // ── Minecraft default font atlas ─────────────────────────────────────
+        // Buffered for post-processing: character widths are computed from pixel
+        // data after all JARs are streamed, then written alongside the PNG.
+        if (p === 'assets/minecraft/textures/font/ascii.png' && !fontAtlasBuffer) {
+          pending.push(collectEntry(entry).then(buf => { if (buf) fontAtlasBuffer = buf; }));
           return;
         }
 
@@ -748,12 +757,43 @@ const LEGACY_1_12_ALIASES = {
   'minecraft:double_wooden_slab:5': 'minecraft:dark_oak_slab',
 };
 
+// ── Font extraction ────────────────────────────────────────────────────────────
+
+// Computes per-character advance widths from the 128×128 Minecraft ASCII font atlas:
+// scan each 8×8 cell for the rightmost non-transparent pixel to get the glyph width,
+// then add 1 px for the inter-character gap Minecraft inserts during rendering.
+// Writes assets/font/ascii.png and assets/font/minecraft-font-widths.json.
+async function extractFont(pngBuffer) {
+  const sharp = require('sharp');
+  const { data, info } = await sharp(pngBuffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const CELL = info.width / 16; // 8 if atlas is the standard 128×128
+  const widths = [];
+  for (let code = 0; code < 256; code++) {
+    if (code === 32) { widths.push(3); continue; } // space advance = 4 px total; our renderer adds 1 gap, so store 3
+    const charRow = code >> 4, charCol = code & 0xF;
+    const startX = charCol * CELL, startY = charRow * CELL;
+    let glyphW = 0;
+    for (let py = 0; py < CELL; py++) {
+      for (let px = CELL - 1; px >= 0; px--) {
+        const idx = ((startY + py) * info.width + startX + px) * info.channels;
+        if (data[idx + 3] > 0) { glyphW = Math.max(glyphW, px + 1); break; }
+      }
+    }
+    widths.push(glyphW || 6);
+  }
+  fs.mkdirSync('assets/font', { recursive: true });
+  fs.writeFileSync('assets/font/ascii.png', pngBuffer);
+  fs.writeFileSync('assets/font/minecraft-font-widths.json', JSON.stringify(widths));
+  console.log('Minecraft font extracted → assets/font/ascii.png + minecraft-font-widths.json');
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function run(jarPath, modDir) {
-  blockstates = new Map();
-  models      = new Map();
-  itemModels  = new Map();
+  blockstates     = new Map();
+  models          = new Map();
+  itemModels      = new Map();
+  fontAtlasBuffer = null;
 
   const MC_FILE = ((jarPath ?? DEFAULT_JAR) + '').replaceAll('\\\\', '/').replaceAll('\\', '/');
   const MOD_DIR = ((modDir  ?? DEFAULT_MODS) + '').replaceAll('\\\\', '/').replaceAll('\\', '/');
@@ -777,6 +817,12 @@ async function run(jarPath, modDir) {
     }
   }
   process.stdout.write('\n');
+
+  if (fontAtlasBuffer) {
+    await extractFont(fontAtlasBuffer);
+  } else {
+    console.log('Minecraft font atlas not found in JAR — skipping font extraction');
+  }
 
   pickMultiFaceBlockDisplaySide();
 

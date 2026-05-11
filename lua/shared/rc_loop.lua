@@ -194,13 +194,24 @@ return function(api, ws_url, opts)
                     api.set_ws(ws)
                     api.send_status_update()
 
-                    local ok, err = pcall(receiver_fn, ws)
+                    -- Run receiver alongside any session_parallel coroutines.
+                    -- waitForAny kills all of them the moment receiver_fn returns (WS drop),
+                    -- so session_parallel coroutines are always scoped to exactly one session.
+                    --
+                    -- WARNING: session_parallel coroutines must not block on os.pullEvent
+                    -- waiting for a specific event — doing so can delay teardown because
+                    -- waitForAny only terminates after each coroutine yields back to the
+                    -- scheduler. Coroutines that only use os.sleep() are safe.
+                    local session_fns = { function() pcall(receiver_fn, ws) end }
+                    for _, fn in ipairs(opts.session_parallel or {}) do
+                        table.insert(session_fns, fn)
+                    end
+                    parallel.waitForAny(unpack(session_fns))
 
                     api.set_ws(nil)
                     ws.close()
                     active_ws = nil
 
-                    if not ok then print("WS session error: " .. tostring(err)) end
                     print("WS dropped, reconnecting in 2s")
                     os.sleep(2)
                 end

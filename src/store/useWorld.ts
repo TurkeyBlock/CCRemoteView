@@ -141,6 +141,11 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       const entitiesChanged = JSON.stringify(existing?.entities) !== JSON.stringify(entities)
       const chatLogChanged = JSON.stringify(existing?.chatLog) !== JSON.stringify(computerState.chatLog)
       const adjInvChanged = JSON.stringify(computerState.adjacentInventory ?? {}) !== JSON.stringify((existing as any)?.adjacentInventory ?? {})
+      const playerInventoryChanged = JSON.stringify(existing?.inventory) !== JSON.stringify(computerState.inventory)
+      const playerEquipmentChanged = JSON.stringify(existing?.equipment) !== JSON.stringify(computerState.equipment)
+      const playerEnderChanged = JSON.stringify(existing?.enderChest) !== JSON.stringify(computerState.enderChest)
+      const playerNameChanged = existing?.playerName !== computerState.playerName
+      const glassesSceneChanged = JSON.stringify(existing?.glassesScene) !== JSON.stringify(computerState.glassesScene)
       const changed = !existing
         || existing.fuelLevel !== computerState.fuelLevel
         || existing.label !== computerState.label
@@ -154,6 +159,11 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         || entitiesChanged
         || chatLogChanged
         || adjInvChanged
+        || playerInventoryChanged
+        || playerEquipmentChanged
+        || playerEnderChanged
+        || playerNameChanged
+        || glassesSceneChanged
 
       if (changed) {
         if (existing?.ws_connected && !ws_connected) {
