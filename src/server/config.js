@@ -19,9 +19,6 @@ const LOCAL_REQUIRE_AUTH = false;
 // LOCAL_REQUIRE_AUTH. Can never be true in production.
 const BYPASS_AUTH = LOCAL_ONLY && !LOCAL_REQUIRE_AUTH;
 
-// Log every browser command request (setCommand, setStopSignal, etc.)
-const LOG_BROWSER_CMDS = true;
-
 // Suppress verbose update logs or autosave logs in production by default.
 // Override with SUPPRESS_UPDATE_LOGS/SUPPRESS_SAVE_LOGS env vars.
 const SUPPRESS_UPDATE_LOGS = process.env.SUPPRESS_UPDATE_LOGS === 'false'
@@ -34,6 +31,9 @@ const SUPPRESS_SAVE_LOGS = process.env.SUPPRESS_SAVE_LOGS === 'false'
   : process.env.SUPPRESS_SAVE_LOGS === 'true'
     ? true
     : IS_PROD;
+
+// Log every browser command request (setCommand, setStopSignal, etc.)
+const LOG_BROWSER_CMDS = !SUPPRESS_UPDATE_LOGS;
 
 // BIND_HOST is derived from LOCAL_ONLY and is not independently overridable in
 // local mode — the loopback binding is part of the LOCAL_ONLY guarantee.

@@ -62,11 +62,13 @@ function attachComputerWs(wss, { worldState, computerIpManager, computerIdManage
         log.info(`[ws/computer] id=${id} unparseable message: ${String(raw).slice(0, 200)}`);
         return;
       }
-      log.info(`[ws/computer] id=${id} received msg type=${msg.type ?? '(none)'}`);
+      if (!SUPPRESS_UPDATE_LOGS || (msg.type !== 'statusUpdate' && msg.type !== 'commandResult')) {
+        log.info(`[ws/computer] id=${id} received msg type=${msg.type ?? '(none)'}`);
+      }
 
       if (msg.type === 'commandResult') {
         const cid = safeId(msg.computerId) ?? id;
-        log.info(`[ws/computer] id=${id} commandResult cid=${cid}`);
+        if (!SUPPRESS_UPDATE_LOGS) if (!SUPPRESS_UPDATE_LOGS) log.info(`[ws/computer] id=${id} commandResult cid=${cid}`);
         const result = msg.result;
         if (result !== undefined) {
           if (!SUPPRESS_UPDATE_LOGS) console.log(`[ws/computer] Computer ${cid} result:`, result);
