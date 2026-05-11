@@ -64,7 +64,10 @@ function serializeState(s) {
   }
   const computers = {};
   for (const [id, c] of Object.entries(s.computers)) {
-    const { entities: _e, ...rest } = c;
+    // entities: runtime-only sensor data, not persisted
+    // glassesLiveMode: intentionally not persisted — Lua handle table is always empty
+    // after a restart, so the browser must re-enable live mode and re-sync manually.
+    const { entities: _e, glassesLiveMode: _lm, ...rest } = c;
     computers[id] = rest;
   }
   return JSON.stringify({ computers, world: { palette, blockData, blockDataStride: 5 } });

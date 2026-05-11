@@ -83,6 +83,9 @@
       "canvasTextSizeTest":    { "concurrent": true,  "args": [] },
       "glassesSetCanvas":      { "concurrent": true,  "compound": true, "args": [
         { "name": "scene", "type": "string", "required": true, "maxLength": 16000 }
+      ]},
+      "glassesApplyOps":       { "concurrent": true,  "compound": true, "args": [
+        { "name": "ops",   "type": "string", "required": true, "maxLength": 8000 }
       ]}
     }
   },

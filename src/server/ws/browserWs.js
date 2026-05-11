@@ -275,6 +275,11 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
           const current = state.computers[id];
           if (!current) return;
           const scene = Array.isArray(current.glassesScene) ? [...current.glassesScene] : [];
+
+          // liveBatch accumulates the wire-format batch to send to the Lua computer when
+          // live mode is active. Built per-op; null means this op should not be dispatched.
+          let liveBatch = null;
+
           switch (msg.op) {
             case 'add': {
               if (!msg.object || typeof msg.object.id !== 'string' || typeof msg.object.type !== 'string') return;
@@ -282,6 +287,7 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
               // Reject if the new object would push the scene past the glassesSetCanvas payload cap.
               if (JSON.stringify([...scene, msg.object]).length > 16000) return;
               scene.push(msg.object);
+              liveBatch = { add: { [msg.object.type]: [msg.object] } };
               break;
             }
             case 'update': {
@@ -293,6 +299,9 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
               // Updates can also blow the cap — text content in particular has no inherent length limit.
               if (JSON.stringify(candidate).length > 16000) return;
               scene[idx] = merged;
+              if (msg.object && Object.keys(msg.object).length > 0) {
+                liveBatch = { upd: { [msg.objectId]: msg.object } };
+              }
               break;
             }
             case 'remove': {
@@ -300,22 +309,50 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
               const idx = scene.findIndex(o => o.id === msg.objectId);
               if (idx === -1) return;
               scene.splice(idx, 1);
+              liveBatch = { rm: [msg.objectId] };
               break;
             }
             case 'clear': {
               scene.length = 0;
+              liveBatch = { clear: true };
               break;
             }
             case 'reorder': {
               const { fromIdx, toIdx } = msg;
               if (fromIdx == null || toIdx == null || fromIdx < 0 || toIdx < 0 || fromIdx >= scene.length || toIdx >= scene.length) return;
+              const minIdx = Math.min(fromIdx, toIdx);
               const [item] = scene.splice(fromIdx, 1);
               scene.splice(toIdx, 0, item);
+              // reorder batch: just the new suffix ID order. The Lua reorder handler
+              // removes handles itself (without clearing glassesProps) before re-adding.
+              liveBatch = { reorder: scene.slice(minIdx).map(o => o.id) };
               break;
             }
             default: return;
           }
           transactComputer(id, { ...current, glassesScene: scene });
+
+          // Dispatch live op to the Lua computer if live mode is enabled.
+          if (liveBatch && state.computers[id]?.glassesLiveMode) {
+            const opsJson = JSON.stringify(liveBatch);
+            if (opsJson.length <= 8000) {
+              const escaped = opsJson.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+              sendOrQueue(id, `return papi.glassesApplyOps("${escaped}")`, true, `[ws] glassesApplyOps id=${id}`);
+            } else {
+              log.warn(`[ws] glassesApplyOps batch too large (${opsJson.length} chars), skipping live dispatch for id=${id}`);
+            }
+          }
+          break;
+        }
+
+        case 'setGlassesLiveMode': {
+          const id = safeId(msg.computerId);
+          if (!id) return;
+          const current = state.computers[id];
+          if (!current) return;
+          const enabled = Boolean(msg.enabled);
+          transactComputer(id, { ...current, glassesLiveMode: enabled });
+          log.info(`[ws] setGlassesLiveMode id=${id} enabled=${enabled} user=${userSub}`);
           break;
         }
       }

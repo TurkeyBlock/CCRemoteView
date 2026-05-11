@@ -48,6 +48,12 @@ const GlassesSceneOp = z.object({
   toIdx: z.number().int().optional(),
 })
 
+const SetGlassesLiveMode = z.object({
+  type: z.literal('setGlassesLiveMode'),
+  computerId: z.number().int(),
+  enabled: z.boolean(),
+})
+
 export const ClientMessage = z.discriminatedUnion('type', [
   InvokeCommand,
   RunProgram,
@@ -56,6 +62,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   ClearCommandQueue,
   SetGlassesScene,
   GlassesSceneOp,
+  SetGlassesLiveMode,
 ])
 export type ClientMessage = z.infer<typeof ClientMessage>
 

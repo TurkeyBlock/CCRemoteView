@@ -58,6 +58,10 @@ function buildLuaCommand(computerType, commandName, argSchemas, argValues) {
     const escaped = String(argValues[0]).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     return `return papi.glassesSetCanvas("${escaped}")`;
   }
+  if (commandName === 'glassesApplyOps') {
+    const escaped = String(argValues[0]).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    return `return papi.glassesApplyOps("${escaped}")`;
+  }
   const module = commandRouting[computerType].module;
   const luaArgs = argSchemas
     .map((schema, i) => {

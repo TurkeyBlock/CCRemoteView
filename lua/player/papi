@@ -234,6 +234,255 @@ end
 
 -- ─── Glasses canvas ──────────────────────────────────────────────────────────
 
+-- Handle and property tables for live incremental canvas updates.
+-- glassesHandles: id → canvas handle object (for setColor/setAlpha/remove)
+-- glassesProps:   id → full GlassesObject data (for reorder + non-color update re-draws)
+-- glassesOrder:   ordered list of IDs in canvas creation order (= z-order, bottom first)
+--                 Required to re-render a suffix when non-color properties change,
+--                 preserving the z-order of all objects above the edited one.
+-- glassesOpQueue: list of pending op batches; drained by glasses_worker
+local glassesHandles = {}
+local glassesProps   = {}
+local glassesOrder   = {}
+local glassesOpQueue = {}
+
+-- rgba is a 32-bit packed integer: (rgb24 * 256) + alpha, matching the browser's
+-- GlassesObject.rgba field. Plethora's addXxx color parameter uses the same bit layout
+-- (R=bits31-24, G=bits23-16, B=bits15-8), but requires A=0 with setAlpha() called after.
+-- pleth_col strips the alpha byte; pleth_a extracts it.
+local function pleth_col(rgba)   return math.floor(rgba / 256) * 256 end
+local function pleth_a(rgba)     return rgba % 256 end
+
+-- Draws one object onto canvas c and records handle, props, and z-order.
+local function draw_and_track(c, obj)
+    -- Items have no rgba field (they use alpha directly); guard to avoid nil arithmetic.
+    local col = obj.rgba ~= nil and pleth_col(obj.rgba) or 0
+    local a   = obj.rgba ~= nil and pleth_a(obj.rgba)   or 0
+    local h
+    if obj.type == "rect" then
+        h = c.addRectangle(obj.x, obj.y, obj.w, obj.h, col)
+        h.setAlpha(a)
+    elseif obj.type == "text" then
+        -- SVG y is the bottom of the text block; Plethora addText uses y as the top edge.
+        -- Subtract (num_lines * size * 9) so the block bottom aligns with the stored y.
+        local content   = obj.content or ""
+        local num_lines = 1
+        for _ in content:gmatch("\n") do num_lines = num_lines + 1 end
+        h = c.addText({obj.x, obj.y - num_lines * obj.size * 9}, content, col, obj.size)
+        h.setAlpha(a)
+        if obj.shadow ~= nil then h.setShadow(obj.shadow) end
+    elseif obj.type == "line" then
+        h = c.addLine({obj.x1, obj.y1}, {obj.x2, obj.y2}, col, obj.thickness)
+        h.setAlpha(a)
+    elseif obj.type == "dot" then
+        h = c.addDot({obj.x, obj.y}, col, obj.size)
+        h.setAlpha(a)
+    elseif obj.type == "polygon" then
+        local args = {}
+        for _, p in ipairs(obj.points) do table.insert(args, {p[1], p[2]}) end
+        table.insert(args, col)
+        h = c.addPolygon(table.unpack(args))
+        h.setAlpha(a)
+    elseif obj.type == "lines" then
+        -- Render as N-1 individual addLine segments so the path stays open (addLines
+        -- wraps back to the first point for 3+ points, which is wrong for a polyline).
+        local segs = {}
+        for i = 1, #obj.points - 1 do
+            local p1, p2 = obj.points[i], obj.points[i + 1]
+            local lh = c.addLine({p1[1], p1[2]}, {p2[1], p2[2]}, col, obj.thickness)
+            lh.setAlpha(a)
+            table.insert(segs, lh)
+        end
+        h = { _multi = true, handles = segs }
+    elseif obj.type == "item" then
+        h = c.addItem({obj.x, obj.y}, obj.item, obj.damage, obj.scale)
+        if h.setAlpha then h.setAlpha(obj.alpha) end
+    end
+    if h then
+        glassesHandles[obj.id] = h
+        glassesProps[obj.id]   = obj
+        table.insert(glassesOrder, obj.id)
+    end
+end
+
+-- Handle wrappers that work for both single handles and the multi-handle table used by
+-- "lines" objects (which are rendered as N-1 individual addLine calls to avoid the
+-- addLines API closing the path back to the first point).
+local function h_remove(entry)
+    if type(entry) == "table" and entry._multi then
+        for _, h in ipairs(entry.handles) do h.remove() end
+    else
+        entry.remove()
+    end
+end
+local function h_set_color(entry, col)
+    if type(entry) == "table" and entry._multi then
+        for _, h in ipairs(entry.handles) do h.setColor(col) end
+    else
+        entry.setColor(col)
+    end
+end
+local function h_set_alpha(entry, a)
+    if type(entry) == "table" and entry._multi then
+        for _, h in ipairs(entry.handles) do h.setAlpha(a) end
+    else
+        entry.setAlpha(a)
+    end
+end
+
+-- Removes id from glassesOrder (linear scan; scenes are small so this is fine).
+local function remove_from_order(id)
+    for i = #glassesOrder, 1, -1 do
+        if glassesOrder[i] == id then
+            table.remove(glassesOrder, i)
+            return
+        end
+    end
+end
+
+-- Removes and re-creates all handles from glassesOrder[start_idx] to the end,
+-- in their current order and with their current (already-updated) glassesProps data.
+-- Used for non-color property updates where Plethora has no reliable position setters —
+-- re-drawing the suffix preserves z-order of everything above the edited object.
+local function rerender_suffix(c, start_idx)
+    -- Collect the suffix ID list before removing anything
+    local suffix = {}
+    for i = start_idx, #glassesOrder do
+        table.insert(suffix, glassesOrder[i])
+    end
+    -- Remove handles and trim glassesOrder to just the prefix
+    for _, id in ipairs(suffix) do
+        if glassesHandles[id] then
+            h_remove(glassesHandles[id])
+            glassesHandles[id] = nil
+        end
+    end
+    for i = #glassesOrder, start_idx, -1 do
+        table.remove(glassesOrder, i)
+    end
+    -- Re-add suffix in same order (glassesProps already updated with new values)
+    for _, id in ipairs(suffix) do
+        local obj = glassesProps[id]
+        if obj then draw_and_track(c, obj) end
+    end
+end
+
+-- Processes one batch from glassesOpQueue. Batch format (all keys optional):
+--   clear:true          — clear canvas and wipe all tracking tables
+--   rm:[id,...]         — remove handles for listed IDs
+--   add:{rect:[...], text:[...], line:[...], dot:[...]}  — add objects grouped by type
+--   upd:{id:{field:val,...},...}  — delta updates; color-only uses setters, anything
+--                                   else re-renders the suffix to preserve z-order
+--   reorder:[id,...]    — new suffix ID order; Lua removes handles then re-adds from props
+-- clear is applied first; add runs after rm so a clear+add pair works in one batch.
+local function apply_glasses_ops(batch, c)
+    if batch.clear then
+        c.clear()
+        glassesHandles = {}
+        glassesProps   = {}
+        glassesOrder   = {}
+    end
+
+    -- explicit removes
+    if type(batch.rm) == "table" then
+        for _, id in ipairs(batch.rm) do
+            if glassesHandles[id] then
+                h_remove(glassesHandles[id])
+                glassesHandles[id] = nil
+                glassesProps[id]   = nil
+                remove_from_order(id)
+            end
+        end
+    end
+
+    -- adds (type-keyed groups; type field is implicit to save wire space)
+    if type(batch.add) == "table" then
+        local type_groups = {"rect", "text", "line", "dot", "polygon", "lines", "item"}
+        for _, t in ipairs(type_groups) do
+            if type(batch.add[t]) == "table" then
+                for _, obj in ipairs(batch.add[t]) do
+                    obj.type = t
+                    draw_and_track(c, obj)
+                end
+            end
+        end
+    end
+
+    -- delta updates. Plethora only reliably exposes setColor/setAlpha on canvas handles;
+    -- position/size/content setters are not guaranteed. Strategy:
+    --   color-only delta  → use setColor + setAlpha (fast, no z-order churn)
+    --   any other field   → merge delta into props, re-render suffix from this object's
+    --                       position in glassesOrder (preserves z-order of higher objects)
+    if type(batch.upd) == "table" then
+        for id, delta in pairs(batch.upd) do
+            local h = glassesHandles[id]
+            local p = glassesProps[id]
+            if h and p then
+                -- merge delta into stored props first (used by rerender_suffix)
+                for k, v in pairs(delta) do p[k] = v end
+
+                if p.type == "item" then
+                    local idx = nil
+                    for i, oid in ipairs(glassesOrder) do
+                        if oid == id then idx = i; break end
+                    end
+                    if idx then rerender_suffix(c, idx) end
+                else
+                    local color_only = true
+                    for k in pairs(delta) do
+                        if k ~= "rgba" then color_only = false; break end
+                    end
+
+                    if color_only then
+                        if delta.rgba ~= nil then
+                            h_set_color(h, pleth_col(delta.rgba))
+                            h_set_alpha(h, pleth_a(delta.rgba))
+                        end
+                    else
+                        local idx = nil
+                        for i, oid in ipairs(glassesOrder) do
+                            if oid == id then idx = i; break end
+                        end
+                        if idx then rerender_suffix(c, idx) end
+                    end
+                end
+            end
+        end
+    end
+
+    -- reorder: suffix IDs in new order. The handler removes handles (NOT props) then
+    -- re-creates them in new order from cached props — no object data re-sent over wire.
+    if type(batch.reorder) == "table" then
+        for _, id in ipairs(batch.reorder) do
+            if glassesHandles[id] then
+                h_remove(glassesHandles[id])
+                glassesHandles[id] = nil
+            end
+            remove_from_order(id)
+        end
+        for _, id in ipairs(batch.reorder) do
+            local obj = glassesProps[id]
+            if obj then draw_and_track(c, obj) end
+        end
+    end
+end
+
+-- session_parallel coroutine: wakes on "glasses_draw" events and drains the op queue.
+-- Concurrent because drawing must not block movement or other sequential commands.
+function glasses_worker()
+    while true do
+        os.pullEvent("glasses_draw")
+        while #glassesOpQueue > 0 do
+            local batch  = table.remove(glassesOpQueue, 1)
+            local neural = peripheral.find("neuralInterface")
+            if neural and neural.canvas then
+                local ok, err = pcall(apply_glasses_ops, batch, neural.canvas())
+                if not ok then print("! glasses_worker: " .. tostring(err)) end
+            end
+        end
+    end
+end
+
 -- Diagnostic: draws "A" at size 1–3 next to white reference rectangles of heights
 -- 6, 7, 8, 9, 10, 11, 12 px so you can visually match the text height in-game.
 -- Call via invokeCommand / setCommand, then look at the glasses and report which
@@ -245,9 +494,8 @@ function canvasTextSizeTest()
     if not neural.canvas then return false, "glasses module not equipped" end
     local c = neural.canvas()
     c.clear()
-    local white = 0xFFFFFF * 256  -- plethoraColor(0xFFFFFF)
+    local white = 0xFFFFFF * 256
     local x = 10
-    -- Draw reference rectangles of heights 6–12, labelled, all starting at y=20
     local heights = {6, 7, 8, 9, 10, 11, 12}
     for i, h in ipairs(heights) do
         local rx = x + (i - 1) * 18
@@ -256,7 +504,6 @@ function canvasTextSizeTest()
         local t = c.addText({rx, 20 + h + 2}, tostring(h), white, 1)
         t.setAlpha(255)
     end
-    -- Draw "Ag" (tall + descender) at size 1, 2, 3 below the reference row
     local sizes = {1, 2, 3}
     for i, sz in ipairs(sizes) do
         local tx = x + (i - 1) * 60
@@ -279,26 +526,23 @@ function getCanvasSize()
 end
 
 -- [concurrent]
+-- Clears the canvas and wipes the handle/prop tracking tables so the live-stream
+-- state is consistent with the blank canvas.
 function glassesClear()
     local neural = peripheral.find("neuralInterface")
     if not neural then return false, "no neural interface found" end
     if not neural.canvas then return false, "glasses module not equipped" end
     neural.canvas().clear()
+    glassesHandles = {}
+    glassesProps   = {}
+    glassesOrder   = {}
     return true
 end
 
--- Plethora canvas reads color integers as packed RGBA (32-bit): R=bits31-24, G=bits23-16,
--- B=bits15-8, A=bits7-0. Browser colors are 24-bit 0xRRGGBB with R in bits23-16.
--- Shifting left 8 places R into bits31-24, G into 23-16, B into 15-8, and leaves A=0
--- for the per-shape setAlpha() call to override.
-local function plethoraColor(c)
-    return c * 256
-end
-
 -- [concurrent]
--- json_str: JSON array of scene objects from the browser editor.
--- Each object has: type ("rect"|"text"|"line"|"dot"), plus type-specific fields.
--- Clears the canvas then redraws from scratch — no handle tracking.
+-- Full scene redraw from JSON. Also populates glassesHandles and glassesProps so
+-- live incremental ops work correctly after a baseline sync.
+-- json_str: JSON array of GlassesObjects with rgba field (32-bit packed: rgb24*256+alpha).
 function glassesSetCanvas(json_str)
     local neural = peripheral.find("neuralInterface")
     if not neural then return false, "no neural interface found" end
@@ -307,25 +551,24 @@ function glassesSetCanvas(json_str)
     if type(scene) ~= "table" then return false, "invalid scene JSON" end
     local c = neural.canvas()
     c.clear()
+    glassesHandles = {}
+    glassesProps   = {}
+    glassesOrder   = {}
     for _, obj in ipairs(scene) do
-        local col = plethoraColor(obj.color)
-        if obj.type == "rect" then
-            local r = c.addRectangle(obj.x, obj.y, obj.w, obj.h, col)
-            if obj.alpha ~= nil then r.setAlpha(obj.alpha) end
-        elseif obj.type == "text" then
-            -- SVG stores y as the text baseline; Plethora addText uses y as the top edge.
-            -- Subtract size*9 (the glyph height in HUD pixels) to align them.
-            local t = c.addText({obj.x, obj.y - obj.size * 9}, obj.content, col, obj.size)
-            if obj.alpha  ~= nil then t.setAlpha(obj.alpha) end
-            if obj.shadow ~= nil then t.setShadow(obj.shadow) end
-        elseif obj.type == "line" then
-            local l = c.addLine({obj.x1, obj.y1}, {obj.x2, obj.y2}, col, obj.thickness)
-            if obj.alpha ~= nil then l.setAlpha(obj.alpha) end
-        elseif obj.type == "dot" then
-            local d = c.addDot({obj.x, obj.y}, col, obj.size)
-            if obj.alpha ~= nil then d.setAlpha(obj.alpha) end
-        end
+        draw_and_track(c, obj)
     end
+    return true
+end
+
+-- [concurrent]
+-- Receives a compact op batch from the server (JSON string) and pushes it onto
+-- glassesOpQueue for glasses_worker to process asynchronously. Returns immediately.
+-- Batch format: {rm, add, upd, reorder, clear} — see apply_glasses_ops for full spec.
+function glassesApplyOps(ops_json)
+    local batch = textutils.unserializeJSON(ops_json)
+    if type(batch) ~= "table" then return false, "invalid ops JSON" end
+    table.insert(glassesOpQueue, batch)
+    os.queueEvent("glasses_draw")
     return true
 end
 
