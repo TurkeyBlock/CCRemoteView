@@ -594,13 +594,21 @@ export default function GlassesEditor({ computerId }: Props) {
 
     if (obj.type === 'polygon') {
       const p = obj as GlassesPolygon
-      const pts = p.points.map(([x, y]) => `${x},${y}`).join(' ')
+      const rawPts = p.points
+      const outlinePts = rawPts.map(([x, y]) => `${x},${y}`).join(' ')
+      const dragHandler = (e: React.PointerEvent) => { const [mx, my] = toSvg(e); startDrag(e, { kind: 'move-pts', id: p.id, mx0: mx, my0: my, origPoints: p.points }) }
       return (
         <g key={p.id}>
-          <polygon points={pts} fill={fill} opacity={opacity} style={{ cursor: 'move' }}
-            onPointerDown={e => { const [mx, my] = toSvg(e); startDrag(e, { kind: 'move-pts', id: p.id, mx0: mx, my0: my, origPoints: p.points }) }} />
+          {/* Triangle fan from rawPts[0] — matches Plethora Polygon2d.draw() */}
+          <g opacity={opacity} style={{ cursor: 'move' }} onPointerDown={dragHandler}>
+            {rawPts.length >= 3 && Array.from({ length: rawPts.length - 2 }, (_, i) => (
+              <polygon key={i}
+                points={`${rawPts[0][0]},${rawPts[0][1]} ${rawPts[i+1][0]},${rawPts[i+1][1]} ${rawPts[i+2][0]},${rawPts[i+2][1]}`}
+                fill={fill} />
+            ))}
+          </g>
           {sel && <>
-            <polygon points={pts} fill="none" stroke={SEL} strokeWidth={0.8} style={{ pointerEvents: 'none' }} />
+            <polygon points={outlinePts} fill="none" stroke={SEL} strokeWidth={0.8} style={{ pointerEvents: 'none' }} />
             {p.points.map(([x, y], i) => (
               <circle key={i} cx={x} cy={y} r={HR + 1} fill={SEL} style={{ cursor: 'move' }}
                 onPointerDown={e => { e.stopPropagation(); const [mx, my] = toSvg(e); startDrag(e, { kind: 'move-vertex', id: p.id, vertIdx: i, mx0: mx, my0: my, origPts: p.points }) }} />
@@ -659,7 +667,15 @@ export default function GlassesEditor({ computerId }: Props) {
       const ptStr = pts.map(([x, y]) => `${x},${y}`).join(' ')
       return (
         <g style={{ pointerEvents: 'none' }}>
-          {pts.length >= 3 && <polygon points={ptStr} fill={drawFill} opacity={0.2} />}
+          {pts.length >= 3 && (
+            <g opacity={0.2}>
+              {Array.from({ length: pts.length - 2 }, (_, i) => (
+                <polygon key={i}
+                  points={`${pts[0][0]},${pts[0][1]} ${pts[i+1][0]},${pts[i+1][1]} ${pts[i+2][0]},${pts[i+2][1]}`}
+                  fill={drawFill} />
+              ))}
+            </g>
+          )}
           {pts.length >= 2 && <polyline points={ptStr} fill="none" stroke={SEL} strokeWidth={1} strokeDasharray="4 2" />}
           {drawCurrent && (
             <line x1={pts[pts.length - 1][0]} y1={pts[pts.length - 1][1]}
