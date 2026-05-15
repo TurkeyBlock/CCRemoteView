@@ -18,6 +18,7 @@ const {
 const state = {
   computers: {},
   world: { blocks: {} },
+  chatLog: [],           // global, dedup'd across all reporting computers
   lastTransactionId: 0,
   lastReadyTransactionId: 0,
 };
@@ -71,7 +72,7 @@ function serializeState(s) {
     const { entities: _e, glassesLiveMode: _lm, ...rest } = c;
     computers[id] = rest;
   }
-  return JSON.stringify({ computers, world: { palette, blockData, blockDataStride: 5 } });
+  return JSON.stringify({ computers, chatLog: s.chatLog || [], world: { palette, blockData, blockDataStride: 5 } });
 }
 
 function deserializeState(raw) {
@@ -98,6 +99,7 @@ function deserializeState(raw) {
     parsed.computers = parsed.turtle;
     delete parsed.turtle;
   }
+  if (!Array.isArray(parsed.chatLog)) parsed.chatLog = [];
   return parsed;
 }
 
@@ -158,7 +160,7 @@ function startAutoSave(onSave) {
         resolve();
       });
       worker.postMessage(
-        { palette, buffer: buf, bufLen: off, computers, savePath: SAVE_GZ_PATH, tmpPath: `${SAVE_GZ_PATH}.tmp` },
+        { palette, buffer: buf, bufLen: off, computers, chatLog: state.chatLog, savePath: SAVE_GZ_PATH, tmpPath: `${SAVE_GZ_PATH}.tmp` },
         [buf],
       );
     });
@@ -209,6 +211,38 @@ function broadcastToClients(data) {
 
 function broadcastTransaction(transaction) {
   broadcastToClients({ transactions: { [transaction.id]: transaction } });
+}
+
+// ─── Chat log ────────────────────────────────────────────────────────────────
+
+// Append a chat message to the global log with cross-computer dedup.
+// Multiple computers can report the same chat event; suppress if a different
+// computer already logged the same player+message within 30 s. A repeat from
+// the SAME computer is never a dup — it means the player said it again.
+// Returns the new entry on success, null if it was a duplicate.
+function addChatMessage(player, message, uuid, computerId) {
+  const now    = Date.now();
+  const cutoff = now - 30_000;
+  const log    = state.chatLog;
+  for (let i = log.length - 1; i >= 0; i--) {
+    if (log[i].timestamp < cutoff) break;
+    if (log[i].player === player && log[i].message === message && log[i].computerId !== computerId) return null;
+  }
+  const entry = { player, message, uuid: uuid || '', timestamp: now, computerId };
+  log.push(entry);
+  if (log.length > 500) log.shift();
+  return entry;
+}
+
+// Create a chat-only transaction, add it to the broadcast cache, and push
+// it to all connected browser clients.  Does NOT touch state.computers or
+// state.world — chat lives entirely in state.chatLog.
+function transactChat(newMsg) {
+  const t = { id: ++state.lastTransactionId, blocks: {}, computers: {}, chatLog: [newMsg] };
+  transactionCache[t.id] = t;
+  txTimestamps.push([t.id, Date.now()]);
+  state.lastReadyTransactionId++;
+  broadcastTransaction(t);
 }
 
 // ─── Core logic ──────────────────────────────────────────────────────────────
@@ -371,6 +405,7 @@ module.exports = {
   broadcastToClients,
   setWsRequest, clearCommandQueue,
   transactComputer, applyExtractedState, commitScan,
+  addChatMessage, transactChat,
   isScanRateLimited,
   CMD_RESULT_CACHE_MAX,
 };

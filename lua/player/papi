@@ -199,9 +199,6 @@ end
 
 -- ─── Scan helper ─────────────────────────────────────────────
 
-local SCAN_INCLUDE_METADATA = true
-local SCAN_INCLUDE_STATE    = false
-
 -- [concurrent]
 function scan()
     local neural = peripheral.find("neuralInterface")
@@ -219,7 +216,7 @@ function scan()
         return false, "GPS fix failed"
     end
     local raw    = neural.scan(4)
-    local blocks = api_common.build_scan_blocks(raw, SCAN_INCLUDE_METADATA, SCAN_INCLUDE_STATE, false)
+    local blocks = api_common.build_scan_blocks(raw, api_common.SCAN_INCLUDE_METADATA, api_common.SCAN_INCLUDE_STATE, false)
     local ox, oy, oz = math.floor(x), math.floor(y), math.floor(z)
     local payload = { id = os.getComputerID(), origin = { x = ox, y = oy, z = oz }, blocks = blocks }
     local ok, err = api_common.send_scan_http(url, headers, payload)

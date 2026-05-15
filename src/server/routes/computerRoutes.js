@@ -8,6 +8,7 @@ function createComputerRoutes({ worldState, auth, log }) {
     state, cmds, stopSignal, commandResultCache,
     safeId, sanitizeForLog,
     transactComputer, applyExtractedState, commitScan, setWsRequest,
+    addChatMessage, transactChat,
     isScanRateLimited,
     CMD_RESULT_CACHE_MAX,
   } = worldState;
@@ -61,13 +62,12 @@ function createComputerRoutes({ worldState, auth, log }) {
     if (!player || !message) return res.status(400).json({ error: 'player and message required' });
     if (typeof player !== 'string' || player.length > 100) return res.status(400).json({ error: 'player name too long' });
     if (typeof message !== 'string' || message.length > 2_000) return res.status(400).json({ error: 'message too long' });
-    const computer = state.computers[id];
-    if (!computer) return res.status(400).json({ error: 'computer unknown — send a state update first' });
-    if (!state.computers[id].chatLog) state.computers[id].chatLog = [];
-    state.computers[id].chatLog.push({ player, message, uuid: uuid || '', timestamp: Date.now() });
-    if (state.computers[id].chatLog.length > 100) state.computers[id].chatLog.shift();
-    transactComputer(id, state.computers[id]);
-    log.info(`/api/chat id=${id} player=${sanitizeForLog(player)} message=${sanitizeForLog(message)}`);
+    if (!state.computers[id]) return res.status(400).json({ error: 'computer unknown — send a state update first' });
+    const newMsg = addChatMessage(player, message, uuid, Number(id));
+    if (newMsg) {
+      transactChat(newMsg);
+      log.info(`/api/chat id=${id} player=${sanitizeForLog(player)} message=${sanitizeForLog(message)}`);
+    }
     res.json({ ok: true });
   });
 

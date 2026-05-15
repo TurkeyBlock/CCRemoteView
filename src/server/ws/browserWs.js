@@ -41,7 +41,7 @@ function sendChunkedState(ws, state) {
     const start = index * CHUNK_BLOCKS * 5;
     const end   = Math.min(start + CHUNK_BLOCKS * 5, allBlockData.length);
     const msg   = index === 0
-      ? { stateChunk: { index, total, lastTransactionId, palette, computers, blockData: allBlockData.slice(start, end) } }
+      ? { stateChunk: { index, total, lastTransactionId, palette, computers, chatLog: state.chatLog, blockData: allBlockData.slice(start, end) } }
       : { stateChunk: { index, total, lastTransactionId,                      blockData: allBlockData.slice(start, end) } };
     ws.send(JSON.stringify(msg));
     index++;

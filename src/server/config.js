@@ -47,6 +47,7 @@ const COOKIE_NAME = IS_PROD ? '__Secure-authjs.session-token' : 'authjs.session-
 const APP_URL     = IS_PROD ? process.env.APP_URL : DEV_APP_URL;
 const SIGNIN_URL  = `${IS_PROD ? process.env.NEXTAUTH_URL : DEV_AUTH_URL}/auth/signin?callbackUrl=${encodeURIComponent(APP_URL)}`;
 
+const COMPUTER_POLL_INTERVAL_S       = 30;
 const AUTOSAVE_INTERVAL_MIN          = 5;
 const TRANSACTION_CACHE_TTL_MS       = 24 * 60 * 60 * 1000;  // 24 hours
 const TRANSACTION_CACHE_MAX_COUNT    = 200_000;               // safety cap against runaway memory
@@ -59,6 +60,7 @@ const SCAN_MIN_INTERVAL_MS      = 1_000;
 // the dominant cost is bandwidth, not CPU.  Tune these to your upload capacity.
 const MAX_UNAUTHED_WS     = 5;
 const MAX_AUTHED_GUEST_WS = 10;
+
 const SCAN_INCLUDE_METADATA     = true;
 const SCAN_INCLUDE_STATE        = false;
 const CMD_RESULT_CACHE_MAX      = 100;
@@ -74,6 +76,7 @@ module.exports = {
   SUPPRESS_UPDATE_LOGS, SUPPRESS_SAVE_LOGS,
   DEV_APP_URL, DEV_AUTH_URL,
   BIND_HOST, COOKIE_NAME, APP_URL, SIGNIN_URL, PORT,
+  COMPUTER_POLL_INTERVAL_S,
   AUTOSAVE_INTERVAL_MIN, TRANSACTION_CACHE_TTL_MS, TRANSACTION_CACHE_MAX_COUNT,
   SCAN_MIN_INTERVAL_MS, SCAN_INCLUDE_METADATA, SCAN_INCLUDE_STATE,
   CMD_RESULT_CACHE_MAX, MAX_CMD_LENGTH,

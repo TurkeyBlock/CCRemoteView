@@ -1,5 +1,9 @@
 -- api_common: shared utilities for all computer API files (tapi/mapi/papi/sapi).
 
+-- Injected at serve time from src/server/config.js — no need to keep in sync manually.
+local SCAN_INCLUDE_METADATA = %%SCAN_INCLUDE_METADATA%%
+local SCAN_INCLUDE_STATE    = %%SCAN_INCLUDE_STATE%%
+
 -- [concurrent] Live GPS fix, 2s timeout. Returns raw x, y, z or nil, nil, nil if unavailable.
 local function gps_locate()
     local x, y, z = gps.locate(2)
@@ -64,15 +68,18 @@ local function make_ws_sender(url, headers)
 end
 
 -- Build a filtered blocks array from a raw peripheral scan result.
+-- Mutates raw entries in-place (nils unwanted fields) rather than allocating new tables.
 -- filter_self: exclude the block at relative (0,0,0) (the computer's own position).
 local function build_scan_blocks(raw, include_metadata, include_state, filter_self)
     local blocks = {}
+    local n = 0
     for _, b in ipairs(raw) do
         if not (filter_self and b.x == 0 and b.y == 0 and b.z == 0) then
-            local entry = { x = b.x, y = b.y, z = b.z, name = b.name }
-            if include_metadata then entry.metadata = b.metadata end
-            if include_state and b.state and next(b.state) then entry.state = b.state end
-            table.insert(blocks, entry)
+            if not include_metadata then b.metadata = nil end
+            if not include_state then b.state = nil
+            elseif not (b.state and next(b.state)) then b.state = nil end
+            n = n + 1
+            blocks[n] = b
         end
     end
     return blocks
@@ -143,7 +150,7 @@ local function make_scan_fn(url, headers, opts)
         if not scanner then return false, "no scanner attached" end
         local raw = scanner.scan(4)
         if not raw then return false, "scan returned nil" end
-        local blocks = build_scan_blocks(raw, true, false, filter_self)
+        local blocks = build_scan_blocks(raw, SCAN_INCLUDE_METADATA, SCAN_INCLUDE_STATE, filter_self)
         local payload = { id = os.getComputerID(), blocks = blocks }
         if opts.get_origin then
             local x, y, z = opts.get_origin()
@@ -170,12 +177,14 @@ local function say(message)
 end
 
 return {
-    make_ws_sender    = make_ws_sender,
-    gps_locate        = gps_locate,
-    build_scan_blocks = build_scan_blocks,
-    send_scan_http    = send_scan_http,
-    make_sense_fn     = make_sense_fn,
-    make_send_chat    = make_send_chat,
-    make_scan_fn      = make_scan_fn,
-    say               = say,
+    SCAN_INCLUDE_METADATA = SCAN_INCLUDE_METADATA,
+    SCAN_INCLUDE_STATE    = SCAN_INCLUDE_STATE,
+    make_ws_sender        = make_ws_sender,
+    gps_locate            = gps_locate,
+    build_scan_blocks     = build_scan_blocks,
+    send_scan_http        = send_scan_http,
+    make_sense_fn         = make_sense_fn,
+    make_send_chat        = make_send_chat,
+    make_scan_fn          = make_scan_fn,
+    say                   = say,
 }

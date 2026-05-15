@@ -8,6 +8,7 @@ interface CachedWorld {
   computers: Record<string, unknown>
   palette: string[]
   blockData: Int32Array
+  chatLog?: unknown[]
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -28,6 +29,7 @@ export async function saveWorldToCache(
   computers: Record<string, unknown>,
   palette: string[],
   blockData: Int32Array,
+  chatLog?: unknown[],
 ): Promise<void> {
   const computersForCache: Record<string, unknown> = {}
   for (const [id, c] of Object.entries(computers)) {
@@ -35,7 +37,7 @@ export async function saveWorldToCache(
     computersForCache[id] = rest
   }
 
-  const entry: CachedWorld = { lastTransactionId, computers: computersForCache, palette, blockData }
+  const entry: CachedWorld = { lastTransactionId, computers: computersForCache, palette, blockData, chatLog: chatLog ?? [] }
   const db = await openDb()
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite')
@@ -52,6 +54,7 @@ export async function loadWorldFromCache(): Promise<{
   palette: string[]
   data: Int32Array
   dataLen: number
+  chatLog: unknown[]
 } | null> {
   const db = await openDb()
   const entry: CachedWorld | undefined = await new Promise((resolve, reject) => {
@@ -73,5 +76,6 @@ export async function loadWorldFromCache(): Promise<{
     palette: entry.palette,
     data,
     dataLen: data.length,
+    chatLog: Array.isArray(entry.chatLog) ? entry.chatLog : [],
   }
 }

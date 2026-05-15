@@ -55,19 +55,6 @@ export default function MinecartPanel({ computerId }: Props) {
       <ActionButtons computerId={computerId} hasScanner={hasScanner} hasSensor={hasSensor} />
       <EntityList entities={computer.entities} />
 
-      {computer.chatLog && computer.chatLog.length > 0 && (
-        <Section label="Chat Log">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 120, overflowY: 'auto' }}>
-            {[...computer.chatLog].reverse().slice(0, 20).map((msg, i) => (
-              <div key={i} className="row-between" style={{ fontSize: 12 }}>
-                <span style={{ color: 'var(--cyan)', whiteSpace: 'nowrap' }}>{msg.player}:</span>
-                <span className="muted" style={{ flex: 1 }}>{msg.message}</span>
-              </div>
-            ))}
-          </div>
-        </Section>
-      )}
-
       <Section label="Terminal">
         <LuaTerminal computerId={computerId} />
       </Section>

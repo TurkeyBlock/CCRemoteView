@@ -8,6 +8,7 @@ import { loadWorldFromCache } from '@/store/worldCache'
 import { useWorldViewStore } from '@/store/useWorldView'
 import { useUserStore } from '@/store/useUser'
 import ComputerPanel from './computers/ComputerPanel'
+import ChatPanel from './computers/chat/ChatPanel'
 import InventoryView from './inventory/Inventory'
 import BlockNameDisplay from './overlay/BlockNameDisplay'
 import Scene from './Scene'
@@ -18,15 +19,26 @@ import BlockTransparency from './overlay/BlockTransparency'
 import RenderFilters from './overlay/RenderFilters'
 import { Led } from './ui'
 import ModalOverlay from './ModalOverlay'
-import { connLedKind } from './computers/PollTimers'
+import { connLedKind, POLL_INTERVAL_MS } from './computers/PollTimers'
 import { ServerMessage } from '@/types/wsMessages'
 
 const ComputerLed = memo(function ComputerLed({ computerId }: { computerId: number }) {
-  const kind = useWorldStore(s => connLedKind(!!s.computers[computerId]?.ws_connected, s.computers[computerId]?.ws_request_at))
-  return <Led kind={kind} />
+  const ws_connected  = useWorldStore(s => s.computers[computerId]?.ws_connected)
+  const ws_request_at = useWorldStore(s => s.computers[computerId]?.ws_request_at)
+  const [now, setNow] = useState(Date.now)
+
+  useEffect(() => {
+    if (!ws_request_at) return
+    const remaining = POLL_INTERVAL_MS - (Date.now() - ws_request_at)
+    if (remaining <= 0) { setNow(Date.now()); return }
+    const id = setTimeout(() => setNow(Date.now()), remaining + 100)
+    return () => clearTimeout(id)
+  }, [ws_request_at])
+
+  return <Led kind={connLedKind(!!ws_connected, ws_request_at, now)} />
 })
 
-interface FloatingPanel { id: number; x: number; y: number }
+interface FloatingPanel { id: number; x: number; y: number; height?: number }
 
 const TYPE_SHORT: Record<string, string> = {
   minecart: 'MC', turtle: 'T', player: 'Ply', stationary: 'Sta',
@@ -89,6 +101,7 @@ export default function CCRemoteController() {
   const [capBlocked, setCapBlocked] = useState(false)
   const [wsConnected, setWsConnected] = useState(false)
   const [dockCollapsed, setDockCollapsed] = useState(false)
+  const [chatTabSelected, setChatTabSelected] = useState(false)
   const [tabOrder, setTabOrder] = useState<number[]>([])
   const [floatingPanels, setFloatingPanels] = useState<FloatingPanel[]>([])
   const [panelZIndexes, setPanelZIndexes] = useState<Record<number, number>>({})
@@ -113,6 +126,7 @@ export default function CCRemoteController() {
     lastTransactionId: number;
     palette: string[];
     computers: Record<string, unknown>;
+    chatLog: unknown[];
     chunks: number[][];
     received: number;
   } | null>(null)
@@ -138,12 +152,15 @@ export default function CCRemoteController() {
     }
   }, [derivedInventory, selectedInventoryPos])
 
+  const CHAT_TAB_ID = -2
+
   const computerIds = Object.keys(computers).map(Number).sort((a, b) => a - b)
 
   useEffect(() => {
     const currSet = new Set(computerIds)
     setTabOrder(prev => prev.filter(id => currSet.has(id)))
-    setFloatingPanels(prev => prev.filter(p => computerIds.includes(p.id)))
+    // Preserve the chat floating panel — it has no backing computer entry.
+    setFloatingPanels(prev => prev.filter(p => p.id === CHAT_TAB_ID || computerIds.includes(p.id)))
   }, [JSON.stringify(computerIds)]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -190,7 +207,8 @@ export default function CCRemoteController() {
     })
     topZRef.current += 1
     setPanelZIndexes(prev => ({ ...prev, [id]: topZRef.current }))
-    if (selectedComputerId === id) useWorldViewStore.setState({ selectedComputerId: -1 })
+    if (id === CHAT_TAB_ID) { setChatTabSelected(false) }
+    else if (selectedComputerId === id) { useWorldViewStore.setState({ selectedComputerId: -1 }) }
   }
 
   function dockPanel(id: number) { setFloatingPanels(prev => prev.filter(p => p.id !== id)) }
@@ -198,7 +216,7 @@ export default function CCRemoteController() {
   function bringToFront(id: number) {
     topZRef.current += 1
     setPanelZIndexes(prev => ({ ...prev, [id]: topZRef.current }))
-    useWorldViewStore.setState({ selectedComputerId: id })
+    if (id !== CHAT_TAB_ID) useWorldViewStore.setState({ selectedComputerId: id })
   }
 
   function addTab(id: number) {
@@ -223,6 +241,21 @@ export default function CCRemoteController() {
       setFloatingPanels(prev => prev.map(p =>
         p.id === panelId ? { ...p, x: initX + ev.clientX - startX, y: initY + ev.clientY - startY } : p
       ))
+    }
+    function onUp() { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+    window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
+  }
+
+  function startPanelResize(e: React.MouseEvent, panelId: number) {
+    e.preventDefault()
+    e.stopPropagation()
+    const startY = e.clientY
+    const panel = floatingPanels.find(p => p.id === panelId)
+    if (!panel) return
+    const initH = panel.height ?? (e.currentTarget.closest('.floating-panel') as HTMLElement | null)?.offsetHeight ?? 400
+    function onMove(ev: MouseEvent) {
+      const newH = Math.max(150, initH + ev.clientY - startY)
+      setFloatingPanels(prev => prev.map(p => p.id === panelId ? { ...p, height: newH } : p))
     }
     function onUp() { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
     window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
@@ -278,6 +311,7 @@ export default function CCRemoteController() {
           w.setComputerStatus(data.state.computers)
           const { pal: sp, data: sd, len: sl } = recordToTypedArray(data.state.world.blocks as Record<string, { name: string; metadata?: number }>)
           replaceWorldBlocks(sp, sd, sl)
+          if (data.state.chatLog?.length) useWorldStore.setState({ chatLog: data.state.chatLog as any })
           useWorldStore.setState({ lastTransactionId: data.state.lastTransactionId })
           const freshComputers = useWorldStore.getState().computers
           const hasCoords = (c: { loc?: { x?: unknown; y?: unknown; z?: unknown } | null } | undefined) =>
@@ -298,7 +332,7 @@ export default function CCRemoteController() {
         const blockDataArr = rawChunk as number[]
 
         if (index === 0) {
-          pendingChunksRef.current = { total, lastTransactionId, palette: palette!, computers: computers!, chunks: [blockDataArr], received: 1 }
+          pendingChunksRef.current = { total, lastTransactionId, palette: palette!, computers: computers!, chatLog: (data.stateChunk.chatLog as unknown[] | undefined) ?? [], chunks: [blockDataArr], received: 1 }
           bufferedTransactionsRef.current = []
         } else if (pendingChunksRef.current) {
           pendingChunksRef.current.chunks.push(blockDataArr)
@@ -310,7 +344,7 @@ export default function CCRemoteController() {
 
         // All chunks received — reconstruct and apply.
         pendingChunksRef.current = null
-        const { palette: pal, computers: comps, chunks, lastTransactionId: txId } = pending
+        const { palette: pal, computers: comps, chatLog: cl, chunks, lastTransactionId: txId } = pending
 
         let totalLen = 0
         for (const chunk of chunks) totalLen += chunk.length
@@ -325,6 +359,7 @@ export default function CCRemoteController() {
 
         w.setComputerStatus(comps as Record<string, any>)
         replaceWorldBlocks(pal, blockData, totalLen)
+        if (cl?.length) useWorldStore.setState({ chatLog: cl as any })
         useWorldStore.setState({ lastTransactionId: txId })
         const freshComputers = useWorldStore.getState().computers
         const hasCoords = (c: { loc?: { x?: unknown; y?: unknown; z?: unknown } | null } | undefined) =>
@@ -405,7 +440,7 @@ export default function CCRemoteController() {
       }
     }
     cacheWorkerRef.current?.postMessage(
-      { lastTransactionId: w.lastTransactionId, computers: w.computers, palette: worldPalette, dataBuffer: compact.buffer, dataLen: compact.length },
+      { lastTransactionId: w.lastTransactionId, computers: w.computers, chatLog: w.chatLog, palette: worldPalette, dataBuffer: compact.buffer, dataLen: compact.length },
       [compact.buffer],
     )
   }
@@ -422,6 +457,7 @@ export default function CCRemoteController() {
         const w = useWorldStore.getState()
         w.setComputerStatus(cached.computers as Record<string, any>)
         replaceWorldBlocks(cached.palette, cached.data, cached.dataLen)
+        if (cached.chatLog?.length) useWorldStore.setState({ chatLog: cached.chatLog as any })
         useWorldStore.setState({ lastTransactionId: cached.lastTransactionId, isLoading: false })
         idbHydratedRef.current = true
         const view = useWorldViewStore.getState()
@@ -530,6 +566,21 @@ export default function CCRemoteController() {
             <div style={{ padding: 10, position: 'relative' }}>
               {/* Tab strip */}
               <div className="tab-strip">
+                {/* Chat log tab — always present */}
+                <div
+                  className={`tab ${chatTabSelected && !floatingIds.has(CHAT_TAB_ID) ? 'tab-active' : ''} ${floatingIds.has(CHAT_TAB_ID) ? 'tab-floating' : ''}`}
+                  onClick={() => {
+                    if (floatingIds.has(CHAT_TAB_ID)) { bringToFront(CHAT_TAB_ID) }
+                    else { setChatTabSelected(c => !c); useWorldViewStore.setState({ selectedComputerId: -1 }) }
+                  }}
+                  onContextMenu={e => { e.preventDefault(); setContextMenu({ id: CHAT_TAB_ID, x: e.clientX, y: e.clientY }) }}
+                  title="Global chat log · right-click for options"
+                >
+                  <span className="tab-type">Ch</span>
+                  <span className="tab-label">Chat</span>
+                  {floatingIds.has(CHAT_TAB_ID) && <span className="tab-float-mark">↗</span>}
+                </div>
+
                 {tabOrder.map((id, idx) => {
                   const c = computers[id]
                   const isFloating = floatingIds.has(id)
@@ -543,6 +594,7 @@ export default function CCRemoteController() {
                       onDragEnd={onTabDragEnd}
                       className={`tab ${isSelected ? 'tab-active' : ''} ${isFloating ? 'tab-floating' : ''}`}
                       onClick={() => {
+                        setChatTabSelected(false)
                         if (isFloating) { bringToFront(id) }
                         else { useWorldViewStore.setState({ selectedComputerId: isSelected ? -1 : id }) }
                       }}
@@ -614,7 +666,18 @@ export default function CCRemoteController() {
           </div>
 
           {/* Active computer panel */}
-          {dockedSelectedId !== -1 ? (
+          {chatTabSelected ? (
+            <div className="panel">
+              <div className="panel-header">
+                <div className="panel-header-title">
+                  <span>Chat Log</span>
+                </div>
+              </div>
+              <div className="panel-body">
+                <ChatPanel />
+              </div>
+            </div>
+          ) : dockedSelectedId !== -1 ? (
             <div className="panel">
               <div className="panel-header">
                 <div className="panel-header-title">
@@ -673,13 +736,32 @@ export default function CCRemoteController() {
 
       {/* ── Floating panels ───────────────────────────────── */}
       {floatingPanels.map(panel => {
+        if (panel.id === CHAT_TAB_ID) {
+          return (
+            <div
+              key="chat"
+              className="floating-panel"
+              style={{ left: panel.x, top: panel.y, zIndex: panelZIndexes[CHAT_TAB_ID] ?? 200, ...(panel.height ? { height: panel.height } : { maxHeight: '90vh' }) }}
+              onMouseDown={() => bringToFront(CHAT_TAB_ID)}
+            >
+              <div className="floating-titlebar" onMouseDown={e => startPanelDrag(e, CHAT_TAB_ID)}>
+                <span className="floating-title">Chat Log</span>
+                <button className="floating-close" onMouseDown={e => e.stopPropagation()} onClick={() => dockPanel(CHAT_TAB_ID)} title="Dock">×</button>
+              </div>
+              <div className="floating-body">
+                <ChatPanel />
+              </div>
+              <div className="floating-resize-handle" onMouseDown={e => startPanelResize(e, CHAT_TAB_ID)} />
+            </div>
+          )
+        }
         const c = computers[panel.id]
         if (!c) return null
         return (
           <div
             key={panel.id}
             className="floating-panel"
-            style={{ left: panel.x, top: panel.y, zIndex: panelZIndexes[panel.id] ?? 200 }}
+            style={{ left: panel.x, top: panel.y, zIndex: panelZIndexes[panel.id] ?? 200, ...(panel.height ? { height: panel.height } : { maxHeight: '90vh' }) }}
             onMouseDown={() => bringToFront(panel.id)}
           >
             <div className="floating-titlebar" onMouseDown={e => startPanelDrag(e, panel.id)}>
@@ -692,6 +774,7 @@ export default function CCRemoteController() {
             <div className="floating-body">
               <ComputerPanel computerId={panel.id} />
             </div>
+            <div className="floating-resize-handle" onMouseDown={e => startPanelResize(e, panel.id)} />
           </div>
         )
       })}
@@ -708,9 +791,11 @@ export default function CCRemoteController() {
               ↗ Detach to float
             </div>
           )}
-          <div className="ctx-item ctx-item-danger" onClick={() => { closeTab(contextMenu.id); setContextMenu(null) }}>
-            × Close tab
-          </div>
+          {contextMenu.id !== CHAT_TAB_ID && (
+            <div className="ctx-item ctx-item-danger" onClick={() => { closeTab(contextMenu.id); setContextMenu(null) }}>
+              × Close tab
+            </div>
+          )}
         </div>
       )}
 

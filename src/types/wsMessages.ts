@@ -70,6 +70,14 @@ export type ClientMessage = z.infer<typeof ClientMessage>
 // These four variants don't share a common discriminant field, so we use
 // z.union and narrow with `'key' in data` checks on the parsed result.
 
+const ChatMessageSchema = z.object({
+  player: z.string(),
+  message: z.string(),
+  uuid: z.string(),
+  timestamp: z.number(),
+  computerId: z.coerce.number().optional().default(0),
+})
+
 const ServerError = z.object({
   type: z.literal('error'),
   computerId: z.number(),
@@ -93,6 +101,7 @@ const ServerState = z.object({
     computers: z.record(z.string(), z.unknown()),
     world: z.object({ blocks: z.record(z.string(), z.unknown()) }),
     lastTransactionId: z.number(),
+    chatLog: z.array(ChatMessageSchema).optional(),
   }),
 })
 
@@ -101,6 +110,7 @@ const ServerTransactions = z.object({
     id: z.number(),
     blocks: z.record(z.string(), z.unknown()),
     computers: z.record(z.string(), z.unknown()),
+    chatLog: z.array(ChatMessageSchema).optional(),
   })),
 })
 
@@ -115,6 +125,7 @@ const ServerStateChunk = z.object({
     blockData: z.unknown(),
     palette: z.array(z.string()).optional(),
     computers: z.record(z.string(), z.unknown()).optional(),
+    chatLog: z.array(ChatMessageSchema).optional(),
   }),
 })
 

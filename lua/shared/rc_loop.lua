@@ -1,7 +1,7 @@
 -- rc_loop: shared WebSocket command loop for all computer types.
 -- Usage:
 --   local make_rc = require("rc_loop")
---   local rc = make_rc(api, ws_url, {
+--   local rc = make_rc(api, {
 --     on_msg         = function(msg) ... end,
 --     extra_parallel = { fn1, fn2 },
 --   })
@@ -27,8 +27,11 @@
 local locks     = require("locks")
 local make_sched = require("scheduler")
 
-return function(api, ws_url, opts)
+return function(api, opts)
     opts = opts or {}
+
+    local WS_BASE = api.url:gsub("/api/$", ""):gsub("^http", "ws")
+    local ws_url  = WS_BASE .. "/ws/computer?id=" .. os.getComputerID()
 
     local IDLE_TIMEOUT     = 300
     local queue            = {}  -- sequential
@@ -250,7 +253,7 @@ return function(api, ws_url, opts)
                     if not ok then print("[rc_loop] post-session send_status_update error: " .. tostring(err)) end
                 end
             end
-            os.sleep(30)
+            os.sleep(%%COMPUTER_POLL_INTERVAL_S%%)
         end
     end
 

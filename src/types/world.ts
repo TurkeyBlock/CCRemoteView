@@ -19,7 +19,6 @@ interface ComputerState {
     modified?: number,
     lastPoll?: number,
     entities?: EntitySighting[],
-    chatLog?: ChatMessage[],
     peripherals?: string[],
     actionSeq?: number,
     // Player (neural interface) — populated by papi live coroutines / introspection commands
@@ -45,11 +44,13 @@ interface ChatMessage {
     message: string,
     uuid: string,
     timestamp: number,
+    computerId?: number,
 }
 
 interface SimState {
     computers: { [id: string]: ComputerState },
     world: { [locString: string]: Block },
+    chatLog: ChatMessage[],
 }
 
 interface Block {

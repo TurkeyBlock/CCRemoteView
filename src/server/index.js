@@ -93,7 +93,13 @@ nextApp.prepare().then(() => {
     if (!filePath.startsWith(LUA_DIR)) return res.sendStatus(403);
     fs.readFile(filePath, 'utf8', (err, data) => {
       if (err) return next();
-      res.type('text/plain').send(data.replaceAll('%%APP_URL%%', process.env.APP_URL || config.APP_URL));
+      res.type('text/plain').send(
+        data
+          .replaceAll('%%APP_URL%%', process.env.APP_URL || config.APP_URL)
+          .replaceAll('%%COMPUTER_POLL_INTERVAL_S%%', String(config.COMPUTER_POLL_INTERVAL_S))
+          .replaceAll('%%SCAN_INCLUDE_METADATA%%', String(config.SCAN_INCLUDE_METADATA))
+          .replaceAll('%%SCAN_INCLUDE_STATE%%',    String(config.SCAN_INCLUDE_STATE))
+      );
     });
   });
 

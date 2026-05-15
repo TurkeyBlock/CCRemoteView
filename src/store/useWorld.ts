@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ComputerState, Block } from '../types/world'
+import type { ComputerState, Block, ChatMessage } from '../types/world'
 import type { ClientMessage } from '../types/wsMessages'
 
 // ─── World Block Store ─────────────────────────────────────────────────────────
@@ -62,6 +62,7 @@ const maxActionSeqPerComputer: Record<string, number> = {}
 
 interface WorldState {
   computers: Record<string, ComputerState>
+  chatLog: ChatMessage[]
   commandResult: Record<string, string>
   URL: string
   apiURL: string
@@ -88,6 +89,7 @@ interface WorldState {
 
 export const useWorldStore = create<WorldState>()((set, get) => ({
   computers: {},
+  chatLog: [],
   commandResult: {},
   URL: '',
   apiURL: 'api/',
@@ -139,7 +141,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         || (loc && (existing.loc?.x !== loc.x || existing.loc?.y !== loc.y || existing.loc?.z !== loc.z))
       const invChanged = JSON.stringify(existing?.inv) !== JSON.stringify(inv)
       const entitiesChanged = JSON.stringify(existing?.entities) !== JSON.stringify(entities)
-      const chatLogChanged = JSON.stringify(existing?.chatLog) !== JSON.stringify(computerState.chatLog)
       const adjInvChanged = JSON.stringify(computerState.adjacentInventory ?? {}) !== JSON.stringify((existing as any)?.adjacentInventory ?? {})
       const playerInventoryChanged = JSON.stringify(existing?.inventory) !== JSON.stringify(computerState.inventory)
       const playerEquipmentChanged = JSON.stringify(existing?.equipment) !== JSON.stringify(computerState.equipment)
@@ -157,7 +158,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         || locChanged
         || invChanged
         || entitiesChanged
-        || chatLogChanged
         || adjInvChanged
         || playerInventoryChanged
         || playerEquipmentChanged
@@ -240,6 +240,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       .map(([k, v]) => [Number(k), v] as [number, any])
       .sort(([a], [b]) => a - b)
 
+    const newChatEntries: ChatMessage[] = []
     for (const [id, t] of sorted) {
       if (!t) continue
       if (id > maxId) maxId = id
@@ -248,6 +249,13 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         else removes.push(locString)
       }
       get().transactionSetComputerState(t.computers ?? {})
+      if (Array.isArray(t.chatLog)) newChatEntries.push(...t.chatLog)
+    }
+    if (newChatEntries.length > 0) {
+      set(s => {
+        const merged = [...s.chatLog, ...newChatEntries]
+        return { chatLog: merged.length > 500 ? merged.slice(merged.length - 500) : merged }
+      })
     }
 
     if (removes.length > 0 || adds.length > 0) {
