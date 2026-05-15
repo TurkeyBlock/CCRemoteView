@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState, useEffect } from 'react'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import { useComputerPanel } from '../useComputerPanel'
 import TurtleInventory from './TurtleInventory'
 import FuelGauge from './FuelGauge'
@@ -17,6 +18,7 @@ export default function TurtlePanel({ computerId }: Props) {
   const commandResult = useWorldStore(s => s.commandResult[computerId])
 
   const [inspectResult, setInspectResult] = useState<unknown>(null)
+  const [stopOpen, setStopOpen] = useState(false)
   const inspectPendingRef = useRef(false)
 
   // Capture the next commandResult that arrives after the Inspect button is clicked
@@ -79,10 +81,19 @@ export default function TurtlePanel({ computerId }: Props) {
         </div>
         <button
           className="btn btn-danger btn-block"
-          onClick={() => sendStopSignal(computerId)}
+          onClick={() => setStopOpen(true)}
         >
           ● Stop ●
         </button>
+        <ConfirmDialog
+          open={stopOpen}
+          title="Stop turtle"
+          message="In-progress actions will be interrupted."
+          confirmLabel="Stop"
+          confirmDanger
+          onConfirm={() => { setStopOpen(false); sendStopSignal(computerId) }}
+          onCancel={() => setStopOpen(false)}
+        />
       </Section>
 
       <Section label="Lua · Remote Execute">

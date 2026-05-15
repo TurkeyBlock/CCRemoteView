@@ -5,6 +5,7 @@ import { useWorldStore } from '@/store/useWorld'
 import { useUserStore } from '@/store/useUser'
 import { isStale } from '@/utils/stale'
 import { closeAllMenus } from '@/components/ui'
+import ConfirmDialog from '@/components/ConfirmDialog'
 
 interface Props { onOpened?: () => void }
 export interface PanelHandle { setOpen: (v: boolean) => void }
@@ -22,6 +23,7 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
   const [operatorRequests, setOperatorRequests] = useState<{ sub: string; email: string; requestedAt: number }[]>([])
   const [operators, setOperators] = useState<{ sub: string; email: string | null }[]>([])
   const [clearingWorld, setClearingWorld] = useState(false)
+  const [pendingConfirm, setPendingConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
   const pollHandle = useRef<ReturnType<typeof setTimeout> | null>(null)
   const computers = useWorldStore(s => s.computers)
   const removeComputer = useWorldStore(s => s.removeComputer)
@@ -134,7 +136,7 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
                 {approved.map(ip => (
                   <div key={ip} style={rowStyle}>
                     <span className="mono">{ip}</span>
-                    <button className="btn btn-compact btn-danger" onClick={() => post('/api/admin/revokeComputer', { ip })}>Revoke</button>
+                    <button className="btn btn-compact btn-danger" onClick={() => setPendingConfirm({ title: 'Revoke IP', message: `Remove ${ip} from approved IPs?`, onConfirm: () => post('/api/admin/revokeComputer', { ip }) })}>Revoke</button>
                   </div>
                 ))}
               </div>
@@ -164,7 +166,7 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
                 {approvedIds.map(id => (
                   <div key={id} style={rowStyle}>
                     <span className="mono">ID {id}</span>
-                    <button className="btn btn-compact btn-danger" onClick={() => post('/api/admin/revokeComputerId', { id })}>Revoke</button>
+                    <button className="btn btn-compact btn-danger" onClick={() => setPendingConfirm({ title: 'Revoke ID', message: `Remove turtle ID ${id} from approved IDs?`, onConfirm: () => post('/api/admin/revokeComputerId', { id }) })}>Revoke</button>
                   </div>
                 ))}
               </div>
@@ -207,7 +209,7 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
                 {operators.map(op => (
                   <div key={op.sub} style={rowStyle}>
                     <span>{op.email ?? 'unknown'}</span>
-                    <button className="btn btn-compact btn-danger" onClick={() => handleRevokeOperator(op.sub)}>Revoke</button>
+                    <button className="btn btn-compact btn-danger" onClick={() => setPendingConfirm({ title: 'Revoke operator', message: `Remove operator access for ${op.email ?? 'this user'}?`, onConfirm: () => handleRevokeOperator(op.sub) })}>Revoke</button>
                   </div>
                 ))}
               </div>
@@ -233,13 +235,22 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
             <button
               className="btn btn-danger btn-block"
               disabled={clearingWorld}
-              onClick={handleClearWorld}
+              onClick={() => setPendingConfirm({ title: 'Clear world', message: 'This will remove all scanned block data. This cannot be undone.', onConfirm: handleClearWorld })}
             >
               {clearingWorld ? 'Clearing...' : 'Clear World'}
             </button>
           </div>
         </>
       )}
+      <ConfirmDialog
+        open={pendingConfirm !== null}
+        title={pendingConfirm?.title ?? ''}
+        message={pendingConfirm?.message ?? ''}
+        confirmLabel={pendingConfirm?.title.startsWith('Clear') ? 'Clear' : 'Revoke'}
+        confirmDanger
+        onConfirm={() => { pendingConfirm?.onConfirm(); setPendingConfirm(null) }}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </div>
   )
 })

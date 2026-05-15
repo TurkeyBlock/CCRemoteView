@@ -77,14 +77,19 @@ return function(api, opts)
                     local cmd, load_err = loadstring(msg.command)
                     if cmd then
                         setfenv(cmd, getfenv())
+                        local was_stopped = false
                         parallel.waitForAny(
                             function() api.send_command_result(pcall(cmd)) end,
                             function()
                                 os.pullEvent("stop_signal")
+                                was_stopped = true
                                 queue = {}
                                 concurrent_queue = {}
                             end
                         )
+                        if was_stopped and api.gps_resync then
+                            pcall(api.gps_resync)
+                        end
                     else
                         print("[rc_loop] loadstring error: " .. tostring(load_err))
                         api.send_command_result(false, load_err)

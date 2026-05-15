@@ -1,7 +1,9 @@
 'use client'
 
+import { useState } from 'react'
 import { Section } from '@/components/ui'
 import { useComputerPanel } from './useComputerPanel'
+import ConfirmDialog from '@/components/ConfirmDialog'
 
 interface Props {
   computerId: number
@@ -11,6 +13,7 @@ interface Props {
 
 export default function ActionButtons({ computerId, hasScanner, hasSensor }: Props) {
   const { invokeCommand, sendStopSignal, focusOnComputer, followComputer, isFollowing } = useComputerPanel(computerId)
+  const [stopOpen, setStopOpen] = useState(false)
 
   return (
     <Section label="Actions">
@@ -32,8 +35,17 @@ export default function ActionButtons({ computerId, hasScanner, hasSensor }: Pro
           className={`btn btn-compact${isFollowing ? ' btn-toggled' : ''}`}
           onClick={() => followComputer(computerId)}
         >{isFollowing ? 'Unfollow' : 'Follow'}</button>
-        <button className="btn btn-compact btn-danger" onClick={() => sendStopSignal(computerId)}>Stop</button>
+        <button className="btn btn-compact btn-danger" onClick={() => setStopOpen(true)}>Stop</button>
       </div>
+      <ConfirmDialog
+        open={stopOpen}
+        title="Stop computer"
+        message="In-progress actions will be interrupted."
+        confirmLabel="Stop"
+        confirmDanger
+        onConfirm={() => { setStopOpen(false); sendStopSignal(computerId) }}
+        onCancel={() => setStopOpen(false)}
+      />
     </Section>
   )
 }
