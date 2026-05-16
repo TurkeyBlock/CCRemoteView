@@ -232,16 +232,24 @@ end
 -- ─── Glasses canvas ──────────────────────────────────────────────────────────
 
 -- Handle and property tables for live incremental canvas updates.
--- glassesHandles: id → canvas handle object (for setColor/setAlpha/remove)
--- glassesProps:   id → full GlassesObject data (for reorder + non-color update re-draws)
--- glassesOrder:   ordered list of IDs in canvas creation order (= z-order, bottom first)
---                 Required to re-render a suffix when non-color properties change,
---                 preserving the z-order of all objects above the edited one.
--- glassesOpQueue: list of pending op batches; drained by glasses_worker
-local glassesHandles = {}
-local glassesProps   = {}
-local glassesOrder   = {}
-local glassesOpQueue = {}
+-- glassesHandles:      id → canvas handle object (for setColor/setAlpha/remove)
+-- glassesProps:        id → full GlassesObject data (for reorder + non-color update re-draws)
+-- glassesOrder:        ordered list of IDs in canvas creation order (= z-order, bottom first)
+--                      Required to re-render a suffix when non-color properties change,
+--                      preserving the z-order of all objects above the edited one.
+-- glassesChildHandles: groupId → { childId → handle } for per-child setPosition without rerender
+-- glassesOpQueue:      list of pending op batches; drained by glasses_worker
+local glassesHandles      = {}
+local glassesProps        = {}
+local glassesOrder        = {}
+local glassesChildHandles = {}
+local glassesOpQueue      = {}
+
+-- Clear any stale canvas content left over from before the last reboot.
+do
+    local neural = peripheral.find("neuralInterface")
+    if neural and neural.canvas then neural.canvas().clear() end
+end
 
 -- rgba is a 32-bit packed integer: (rgb24 * 256) + alpha, matching the browser's
 -- GlassesObject.rgba field. Plethora's addXxx color parameter uses the same bit layout
@@ -249,6 +257,57 @@ local glassesOpQueue = {}
 -- pleth_col strips the alpha byte; pleth_a extracts it.
 local function pleth_col(rgba)   return math.floor(rgba / 256) * 256 end
 local function pleth_a(rgba)     return rgba % 256 end
+
+-- Draws one object into canvas/group c WITHOUT updating global tracking tables.
+-- Used for group children. parent_id (optional): if provided, the returned handle is stored
+-- in glassesChildHandles[parent_id][obj.id] so per-child setPosition can be used later.
+-- alpha_factor (optional, 0–1): group transparency factor. Applied only when the child's
+-- own alpha is 255 (full opacity), so custom per-child opacity is preserved.
+local function draw_into(c, obj, parent_id, alpha_factor)
+    alpha_factor = alpha_factor or 1.0
+    local col = obj.rgba ~= nil and pleth_col(obj.rgba) or 0
+    local raw_a = obj.rgba ~= nil and pleth_a(obj.rgba) or 0
+    -- Bake group alpha into child only when child is fully opaque
+    local a = (raw_a == 255) and math.floor(255 * alpha_factor) or raw_a
+    local h
+    if obj.type == "rect" then
+        h = c.addRectangle(obj.x, obj.y, obj.w, obj.h, col); h.setAlpha(a)
+    elseif obj.type == "text" then
+        local content   = obj.content or ""
+        local num_lines = 1
+        for _ in content:gmatch("\n") do num_lines = num_lines + 1 end
+        h = c.addText({obj.x, obj.y - num_lines * obj.size * 9}, content, col, obj.size)
+        h.setAlpha(a)
+        if obj.shadow ~= nil then h.setShadow(obj.shadow) end
+    elseif obj.type == "line" then
+        h = c.addLine({obj.x1, obj.y1}, {obj.x2, obj.y2}, col, obj.thickness); h.setAlpha(a)
+    elseif obj.type == "dot" then
+        h = c.addDot({obj.x, obj.y}, col, obj.size); h.setAlpha(a)
+    elseif obj.type == "polygon" then
+        local args = {}
+        for _, p in ipairs(obj.points) do table.insert(args, {p[1], p[2]}) end
+        table.insert(args, col)
+        h = c.addPolygon(table.unpack(args)); h.setAlpha(a)
+    elseif obj.type == "lines" then
+        local segs = {}
+        for i = 1, #obj.points - 1 do
+            local p1, p2 = obj.points[i], obj.points[i + 1]
+            local lh = c.addLine({p1[1], p1[2]}, {p2[1], p2[2]}, col, obj.thickness)
+            lh.setAlpha(a)
+            table.insert(segs, lh)
+        end
+        h = { _multi = true, handles = segs }
+    elseif obj.type == "item" then
+        local raw_item_a = obj.alpha or 255
+        local item_a = (raw_item_a == 255) and math.floor(255 * alpha_factor) or raw_item_a
+        h = c.addItem({obj.x, obj.y}, obj.item, obj.damage, obj.scale)
+        if h.setAlpha then h.setAlpha(item_a) end
+    end
+    if h and parent_id and obj.id then
+        if not glassesChildHandles[parent_id] then glassesChildHandles[parent_id] = {} end
+        glassesChildHandles[parent_id][obj.id] = h
+    end
+end
 
 -- Draws one object onto canvas c and records handle, props, and z-order.
 local function draw_and_track(c, obj)
@@ -294,6 +353,17 @@ local function draw_and_track(c, obj)
     elseif obj.type == "item" then
         h = c.addItem({obj.x, obj.y}, obj.item, obj.damage, obj.scale)
         if h.setAlpha then h.setAlpha(obj.alpha) end
+    elseif obj.type == "group" then
+        -- addGroup places children at coordinates relative to the group origin.
+        -- Moving the group handle moves all children automatically via Plethora.
+        -- Group2D.setAlpha exists but does not propagate to children in Plethora's renderer,
+        -- so we bake the group alpha factor into each fully-opaque child's setAlpha call.
+        h = c.addGroup({obj.x, obj.y})
+        local gaf = (obj.alpha ~= nil and obj.alpha or 255) / 255
+        glassesChildHandles[obj.id] = {}
+        for _, child in ipairs(obj.children or {}) do
+            draw_into(h, child, obj.id, gaf)
+        end
     end
     if h then
         glassesHandles[obj.id] = h
@@ -352,6 +422,7 @@ local function rerender_suffix(c, start_idx)
         if glassesHandles[id] then
             h_remove(glassesHandles[id])
             glassesHandles[id] = nil
+            glassesChildHandles[id] = nil  -- clear stale child handles for groups
         end
     end
     for i = #glassesOrder, start_idx, -1 do
@@ -365,19 +436,21 @@ local function rerender_suffix(c, start_idx)
 end
 
 -- Processes one batch from glassesOpQueue. Batch format (all keys optional):
---   clear:true          — clear canvas and wipe all tracking tables
---   rm:[id,...]         — remove handles for listed IDs
---   add:{rect:[...], text:[...], line:[...], dot:[...]}  — add objects grouped by type
---   upd:{id:{field:val,...},...}  — delta updates; color-only uses setters, anything
---                                   else re-renders the suffix to preserve z-order
---   reorder:[id,...]    — new suffix ID order; Lua removes handles then re-adds from props
+--   clear:true                      — clear canvas and wipe all tracking tables
+--   rm:[id,...]                     — remove handles for listed IDs
+--   add:{rect:[...], group:[...]}   — add objects grouped by type
+--   upd:{id:{field:val,...},...}    — delta updates; color-only uses setters, anything
+--                                     else re-renders the suffix to preserve z-order
+--   child_upd:{gId:{cId:{x,y},...}} — move/update individual children via stored handles
+--   reorder:[id,...]                — new suffix ID order; re-adds from props
 -- clear is applied first; add runs after rm so a clear+add pair works in one batch.
 local function apply_glasses_ops(batch, c)
     if batch.clear then
         c.clear()
-        glassesHandles = {}
-        glassesProps   = {}
-        glassesOrder   = {}
+        glassesHandles      = {}
+        glassesProps        = {}
+        glassesOrder        = {}
+        glassesChildHandles = {}
     end
 
     -- explicit removes
@@ -385,8 +458,9 @@ local function apply_glasses_ops(batch, c)
         for _, id in ipairs(batch.rm) do
             if glassesHandles[id] then
                 h_remove(glassesHandles[id])
-                glassesHandles[id] = nil
-                glassesProps[id]   = nil
+                glassesHandles[id]      = nil
+                glassesProps[id]        = nil
+                glassesChildHandles[id] = nil  -- drop child handles if this was a group
                 remove_from_order(id)
             end
         end
@@ -394,7 +468,7 @@ local function apply_glasses_ops(batch, c)
 
     -- adds (type-keyed groups; type field is implicit to save wire space)
     if type(batch.add) == "table" then
-        local type_groups = {"rect", "text", "line", "dot", "polygon", "lines", "item"}
+        local type_groups = {"rect", "text", "line", "dot", "polygon", "lines", "item", "group"}
         for _, t in ipairs(type_groups) do
             if type(batch.add[t]) == "table" then
                 for _, obj in ipairs(batch.add[t]) do
@@ -405,11 +479,16 @@ local function apply_glasses_ops(batch, c)
         end
     end
 
-    -- delta updates. Plethora only reliably exposes setColor/setAlpha on canvas handles;
-    -- position/size/content setters are not guaranteed. Strategy:
-    --   color-only delta  → use setColor + setAlpha (fast, no z-order churn)
-    --   any other field   → merge delta into props, re-render suffix from this object's
-    --                       position in glassesOrder (preserves z-order of higher objects)
+    -- delta updates. Strategy per field:
+    --   rgba              → setColor + setAlpha
+    --   x/y (non-line/poly) → setPosition
+    --   content (text)    → setText
+    --   shadow (text)     → setShadow
+    --   size (text/dot)   → setScale
+    --   scale (item)      → setScale
+    --   alpha (item)      → setAlpha
+    --   alpha (group)     → rerender_suffix (bakes factor into fully-opaque children)
+    --   w/h/points/x1..   → no native setter; re-render suffix to preserve z-order
     if type(batch.upd) == "table" then
         for id, delta in pairs(batch.upd) do
             local h = glassesHandles[id]
@@ -418,29 +497,60 @@ local function apply_glasses_ops(batch, c)
                 -- merge delta into stored props first (used by rerender_suffix)
                 for k, v in pairs(delta) do p[k] = v end
 
-                if p.type == "item" then
+                -- Decide if any field needs a full re-render
+                local needs_rerender = false
+                for k in pairs(delta) do
+                    if k == "rgba" then
+                        -- handled by setter
+                    elseif k == "alpha" then
+                        -- items: handled by setter; groups: must rerender to bake factor into children
+                        if p.type == "group" then needs_rerender = true; break end
+                    elseif k == "x" or k == "y" then
+                        if p.type ~= "rect" and p.type ~= "text" and p.type ~= "dot" and p.type ~= "item" and p.type ~= "group" then
+                            needs_rerender = true; break
+                        end
+                    elseif k == "content" then
+                        if p.type ~= "text" then needs_rerender = true; break end
+                    elseif k == "shadow" then
+                        if p.type ~= "text" then needs_rerender = true; break end
+                    elseif k == "size" then
+                        if p.type ~= "text" and p.type ~= "dot" then needs_rerender = true; break end
+                    elseif k == "scale" then
+                        if p.type ~= "item" then needs_rerender = true; break end
+                    else
+                        -- w, h, x1, y1, x2, y2, points, thickness, damage, item, children
+                        needs_rerender = true; break
+                    end
+                end
+
+                if needs_rerender then
                     local idx = nil
                     for i, oid in ipairs(glassesOrder) do
                         if oid == id then idx = i; break end
                     end
                     if idx then rerender_suffix(c, idx) end
                 else
-                    local color_only = true
-                    for k in pairs(delta) do
-                        if k ~= "rgba" then color_only = false; break end
+                    if delta.rgba ~= nil then
+                        h_set_color(h, pleth_col(p.rgba))
+                        h_set_alpha(h, pleth_a(p.rgba))
                     end
-
-                    if color_only then
-                        if delta.rgba ~= nil then
-                            h_set_color(h, pleth_col(delta.rgba))
-                            h_set_alpha(h, pleth_a(delta.rgba))
-                        end
-                    else
-                        local idx = nil
-                        for i, oid in ipairs(glassesOrder) do
-                            if oid == id then idx = i; break end
-                        end
-                        if idx then rerender_suffix(c, idx) end
+                    if delta.alpha ~= nil and p.type == "item" and type(h.setAlpha) == "function" then
+                        h.setAlpha(p.alpha)
+                    end
+                    if (delta.x ~= nil or delta.y ~= nil) and type(h.setPosition) == "function" then
+                        h.setPosition(p.x, p.y)
+                    end
+                    if delta.content ~= nil and p.type == "text" and type(h.setText) == "function" then
+                        h.setText(p.content)
+                    end
+                    if delta.shadow ~= nil and p.type == "text" and type(h.setShadow) == "function" then
+                        h.setShadow(p.shadow)
+                    end
+                    if delta.size ~= nil and (p.type == "text" or p.type == "dot") and type(h.setScale) == "function" then
+                        h.setScale(p.size)
+                    end
+                    if delta.scale ~= nil and p.type == "item" and type(h.setScale) == "function" then
+                        h.setScale(p.scale)
                     end
                 end
             end
@@ -453,13 +563,56 @@ local function apply_glasses_ops(batch, c)
         for _, id in ipairs(batch.reorder) do
             if glassesHandles[id] then
                 h_remove(glassesHandles[id])
-                glassesHandles[id] = nil
+                glassesHandles[id]      = nil
+                glassesChildHandles[id] = nil
             end
             remove_from_order(id)
         end
         for _, id in ipairs(batch.reorder) do
             local obj = glassesProps[id]
             if obj then draw_and_track(c, obj) end
+        end
+    end
+
+    -- child_upd: move/update individual children within a group using stored handles.
+    -- { child_upd: { groupId: { childId: { x, y, ... } } } }
+    -- Uses setPosition for x/y when possible; falls back to full group rerender otherwise.
+    if type(batch.child_upd) == "table" then
+        for group_id, children_delta in pairs(batch.child_upd) do
+            local ch = glassesChildHandles[group_id]
+            local gp = glassesProps[group_id]
+            if ch and gp then
+                local needs_group_rerender = false
+                for child_id, delta in pairs(children_delta) do
+                    -- Update stored child props
+                    for _, child in ipairs(gp.children or {}) do
+                        if child.id == child_id then
+                            for k, v in pairs(delta) do child[k] = v end
+                            break
+                        end
+                    end
+                    local h = ch[child_id]
+                    -- x/y-only on non-multi handle → setPosition; anything else → full rerender
+                    local xy_only = true
+                    for k in pairs(delta) do
+                        if k ~= "x" and k ~= "y" then xy_only = false; break end
+                    end
+                    if h and xy_only and not (type(h) == "table" and h._multi) and type(h.setPosition) == "function" then
+                        -- Find child props to get the updated x/y
+                        local cx, cy = delta.x, delta.y
+                        if cx ~= nil and cy ~= nil then h.setPosition(cx, cy) end
+                    else
+                        needs_group_rerender = true
+                    end
+                end
+                if needs_group_rerender then
+                    local idx = nil
+                    for i, oid in ipairs(glassesOrder) do
+                        if oid == group_id then idx = i; break end
+                    end
+                    if idx then rerender_suffix(c, idx) end
+                end
+            end
         end
     end
 end
@@ -548,9 +701,10 @@ function glassesSetCanvas(json_str)
     if type(scene) ~= "table" then return false, "invalid scene JSON" end
     local c = neural.canvas()
     c.clear()
-    glassesHandles = {}
-    glassesProps   = {}
-    glassesOrder   = {}
+    glassesHandles      = {}
+    glassesProps        = {}
+    glassesOrder        = {}
+    glassesChildHandles = {}
     for _, obj in ipairs(scene) do
         draw_and_track(c, obj)
     end

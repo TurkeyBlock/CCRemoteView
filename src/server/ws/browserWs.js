@@ -7,6 +7,76 @@ const { commandRouting, validateArgs, buildLuaCommand, isConcurrentCommand } = r
 
 const CHUNK_BLOCKS = 20_000;
 
+// Per-type allowlist for partial-update ops ('update', 'groupChildUpdate').
+// Only listed keys are merged into stored objects; arbitrary client keys are dropped.
+const ALLOWED_UPDATE_FIELDS = {
+  rect:    ['x','y','w','h','rgba'],
+  text:    ['x','y','content','rgba','size','shadow'],
+  line:    ['x1','y1','x2','y2','rgba','thickness'],
+  dot:     ['x','y','rgba','size'],
+  polygon: ['points','rgba'],
+  lines:   ['points','rgba','thickness'],
+  item:    ['x','y','item','damage','scale','alpha'],
+  group:   ['x','y','alpha'],
+};
+
+const GLASSES_TYPES = new Set(['rect','text','line','dot','polygon','lines','item','group']);
+
+function _isFinNum(v) { return typeof v === 'number' && Number.isFinite(v); }
+
+function _isPointsArray(arr, min, max) {
+  if (!Array.isArray(arr) || arr.length < min || arr.length > max) return false;
+  return arr.every(p => Array.isArray(p) && p.length >= 2 && _isFinNum(p[0]) && _isFinNum(p[1]));
+}
+
+// Returns true only if obj is a structurally valid GlassesObject.
+// depth=0 for top-level objects; depth=1 inside a group's children (groups cannot nest).
+function validateGlassesObject(obj, depth = 0) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
+  if (typeof obj.id !== 'string' || obj.id.length === 0 || obj.id.length > 64) return false;
+  if (!GLASSES_TYPES.has(obj.type)) return false;
+  const n = _isFinNum;
+  switch (obj.type) {
+    case 'rect':
+      return n(obj.x) && n(obj.y) && n(obj.w) && n(obj.h) && n(obj.rgba);
+    case 'text':
+      return n(obj.x) && n(obj.y) && typeof obj.content === 'string' && obj.content.length <= 512
+          && n(obj.rgba) && n(obj.size) && typeof obj.shadow === 'boolean';
+    case 'line':
+      return n(obj.x1) && n(obj.y1) && n(obj.x2) && n(obj.y2) && n(obj.rgba) && n(obj.thickness);
+    case 'dot':
+      return n(obj.x) && n(obj.y) && n(obj.rgba) && n(obj.size);
+    case 'polygon':
+      return _isPointsArray(obj.points, 3, 32) && n(obj.rgba);
+    case 'lines':
+      return _isPointsArray(obj.points, 2, 64) && n(obj.rgba) && n(obj.thickness);
+    case 'item':
+      return n(obj.x) && n(obj.y) && typeof obj.item === 'string'
+          && n(obj.damage) && n(obj.scale) && n(obj.alpha);
+    case 'group':
+      if (!n(obj.x) || !n(obj.y)) return false;
+      if (obj.alpha !== undefined && !n(obj.alpha)) return false;
+      if (depth > 0) return false; // groups cannot nest in Plethora
+      if (!Array.isArray(obj.children)) return false;
+      return obj.children.every(c => validateGlassesObject(c, 1));
+    default:
+      return false;
+  }
+}
+
+// Strip glassesScene from a computers map. Canvas state is subscription-only;
+// it is never sent in bulk state loads or transactions.
+function stripCanvas(computers) {
+  const out = {};
+  for (const id of Object.keys(computers)) {
+    const c = computers[id];
+    if (!c?.glassesScene) { out[id] = c; continue; }
+    const { glassesScene: _, ...rest } = c;
+    out[id] = rest;
+  }
+  return out;
+}
+
 // Serialize world state using palette + flat array format, then stream it to
 // the client in CHUNK_BLOCKS-sized pieces with setImmediate between each so
 // the event loop stays free to handle other requests during delivery.
@@ -33,7 +103,8 @@ function sendChunkedState(ws, state) {
   }
 
   const total = Math.max(1, Math.ceil(allBlockData.length / (CHUNK_BLOCKS * 5)));
-  const { lastTransactionId, computers } = state;
+  const { lastTransactionId } = state;
+  const computers = stripCanvas(state.computers);
   let index = 0;
 
   function sendNext() {
@@ -59,7 +130,7 @@ function getClientIp(req) {
 
 function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
   const {
-    state, cmds, stopSignal, computerWs, browserClients,
+    state, cmds, stopSignal, computerWs, glassesNeedsSync, browserClients,
     safeId, sanitizeForLog,
     setWsRequest, clearCommandQueue,
     transactComputer,
@@ -70,6 +141,11 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
   // Per-type guest connection counters — scoped to this server instance.
   let unauthedWsCount    = 0;
   let authedGuestWsCount = 0;
+
+  // computerId → Set of browser ws connections subscribed to that computer's canvas updates.
+  // Canvas state (glassesScene) is never sent in bulk transactions; subscribers receive it
+  // via targeted canvasUpdate messages so uninterested clients aren't spammed.
+  const canvasSubscriptions = {};
 
   function sendOrQueue(id, luaCmd, concurrent, logLabel) {
     if (concurrent) {
@@ -97,6 +173,8 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
     let userSub, userName, wsIsOperator, wsIsAdmin;
     let isUnauthedGuest = false;
     let isAuthedGuest   = false;
+    let canvasOpCount = 0;
+    let canvasOpWindowStart = Date.now();
 
     if (!BYPASS_AUTH) {
       const token = await getSession(req);
@@ -145,7 +223,11 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
     if (Number.isInteger(clientLastTx) && clientLastTx >= 0 && clientLastTx >= cacheFloor && clientLastTx <= serverLastTx) {
       const delta = {};
       for (let i = clientLastTx + 1; i <= serverLastTx; i++) {
-        if (transactionCache[i]) delta[i] = transactionCache[i];
+        const t = transactionCache[i];
+        if (!t) continue;
+        // Strip glassesScene from cached transactions — canvas is subscription-only.
+        const hasCanvas = Object.values(t.computers || {}).some(c => c?.glassesScene);
+        delta[i] = hasCanvas ? { ...t, computers: stripCanvas(t.computers) } : t;
       }
       ws.send(JSON.stringify({ transactions: delta }));
     } else {
@@ -157,6 +239,7 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
       try { msg = JSON.parse(raw); } catch { return; }
       if (!wsIsOperator) return;
 
+      try {
       switch (msg.type) {
         case 'invokeCommand': {
           const id = safeId(msg.id);
@@ -250,30 +333,56 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
         }
 
         case 'setGlassesScene': {
+          { const _now = Date.now(); if (_now - canvasOpWindowStart > 1000) { canvasOpCount = 0; canvasOpWindowStart = _now; } if (++canvasOpCount > 10) return; }
           const id = safeId(msg.computerId);
           if (!id) return;
           const current = state.computers[id];
           if (!current) return;
+          if (!computerWs[id] || computerWs[id].readyState !== 1) { setWsRequest(id); return; }
+          glassesNeedsSync.delete(id);
           const scene = Array.isArray(msg.scene)
-            ? msg.scene.filter(o => o && typeof o.type === 'string' && typeof o.id === 'string').slice(0, 512)
+            ? msg.scene.filter(o => validateGlassesObject(o)).slice(0, 512)
             : [];
+          const sceneJson = JSON.stringify(scene);
           // 16 000 chars matches the maxLength on the glassesSetCanvas command arg in
           // command_routing.json. Storing a larger scene would make "Send to Glasses"
           // permanently broken for this computer without any obvious explanation.
-          if (JSON.stringify(scene).length > 16000) {
+          if (sceneJson.length > 16000) {
             ws.send(JSON.stringify({ type: 'error', computerId: Number(id), message: 'Scene JSON exceeds 16,000 character limit' }));
             return;
           }
-          transactComputer(id, { ...current, glassesScene: scene });
+          state.computers[id] = { ...current, glassesScene: scene };
           log.info(`[ws] setGlassesScene id=${id} user=${userSub} count=${scene.length}`);
+          // Push full scene to the Lua computer (baseline sync for wholesale replacements).
+          const escaped = sceneJson.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+          sendOrQueue(id, `return papi.glassesSetCanvas("${escaped}")`, true, `[ws] glassesSetCanvas id=${id}`);
+          // Notify subscribed browsers.
+          const canvasMsg = JSON.stringify({ canvasUpdate: { computerId: Number(id), scene } });
+          for (const sub of canvasSubscriptions[id] ?? []) {
+            if (sub.readyState === 1) sub.send(canvasMsg);
+          }
           break;
         }
 
         case 'glassesSceneOp': {
+          { const _now = Date.now(); if (_now - canvasOpWindowStart > 1000) { canvasOpCount = 0; canvasOpWindowStart = _now; } if (++canvasOpCount > 10) return; }
           const id = safeId(msg.computerId);
           if (!id) return;
           const current = state.computers[id];
           if (!current) return;
+          if (!computerWs[id] || computerWs[id].readyState !== 1) { setWsRequest(id); return; }
+          if (glassesNeedsSync.has(id)) {
+            glassesNeedsSync.delete(id);
+            const existing = Array.isArray(current.glassesScene) ? current.glassesScene : [];
+            if (existing.length > 0) {
+              const sj = JSON.stringify(existing);
+              if (sj.length <= 16000) {
+                const esc = sj.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                computerWs[id].send(JSON.stringify({ type: 'command', command: `return papi.glassesSetCanvas("${esc}")`, concurrent: true }));
+                log.info(`[ws] glassesNeedsSync id=${id} — sent full scene before first op (${sj.length} chars)`);
+              }
+            }
+          }
           const scene = Array.isArray(current.glassesScene) ? [...current.glassesScene] : [];
 
           // liveBatch accumulates the wire-format batch to send to the Lua computer when
@@ -282,7 +391,7 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
 
           switch (msg.op) {
             case 'add': {
-              if (!msg.object || typeof msg.object.id !== 'string' || typeof msg.object.type !== 'string') return;
+              if (!validateGlassesObject(msg.object)) return;
               if (scene.length >= 512) return;
               // Reject if the new object would push the scene past the glassesSetCanvas payload cap.
               if (JSON.stringify([...scene, msg.object]).length > 16000) return;
@@ -294,13 +403,22 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
               if (typeof msg.objectId !== 'string') return;
               const idx = scene.findIndex(o => o.id === msg.objectId);
               if (idx === -1) return;
-              const merged = { ...scene[idx], ...msg.object, id: scene[idx].id, type: scene[idx].type };
+              const existingType = scene[idx].type;
+              const allowed = ALLOWED_UPDATE_FIELDS[existingType];
+              if (!allowed) return;
+              if (!msg.object || typeof msg.object !== 'object' || Array.isArray(msg.object)) return;
+              const patch = {};
+              for (const key of allowed) {
+                if (Object.prototype.hasOwnProperty.call(msg.object, key)) patch[key] = msg.object[key];
+              }
+              const merged = { ...scene[idx], ...patch, id: scene[idx].id, type: scene[idx].type };
+              if (!validateGlassesObject(merged)) return;
               const candidate = [...scene]; candidate[idx] = merged;
               // Updates can also blow the cap — text content in particular has no inherent length limit.
               if (JSON.stringify(candidate).length > 16000) return;
               scene[idx] = merged;
-              if (msg.object && Object.keys(msg.object).length > 0) {
-                liveBatch = { upd: { [msg.objectId]: msg.object } };
+              if (Object.keys(patch).length > 0) {
+                liveBatch = { upd: { [msg.objectId]: patch } };
               }
               break;
             }
@@ -328,44 +446,126 @@ function attachBrowserWs(wss, { worldState, auth, log, userManagement }) {
               liveBatch = { reorder: scene.slice(minIdx).map(o => o.id) };
               break;
             }
+            case 'groupChildUpdate': {
+              if (typeof msg.groupId !== 'string' || typeof msg.childId !== 'string') return;
+              if (!msg.delta || typeof msg.delta !== 'object' || Array.isArray(msg.delta)) return;
+              const gIdx = scene.findIndex(o => o.id === msg.groupId);
+              if (gIdx === -1 || scene[gIdx].type !== 'group') return;
+              const group = scene[gIdx];
+              const cIdx = (group.children || []).findIndex(c => c.id === msg.childId);
+              if (cIdx === -1) return;
+              const childType = group.children[cIdx].type;
+              const allowedChild = ALLOWED_UPDATE_FIELDS[childType];
+              if (!allowedChild) return;
+              const childPatch = {};
+              for (const key of allowedChild) {
+                if (Object.prototype.hasOwnProperty.call(msg.delta, key)) childPatch[key] = msg.delta[key];
+              }
+              const newChildren = [...group.children];
+              const mergedChild = { ...newChildren[cIdx], ...childPatch, id: newChildren[cIdx].id, type: newChildren[cIdx].type };
+              if (!validateGlassesObject(mergedChild, 1)) return;
+              newChildren[cIdx] = mergedChild;
+              const updatedGroup = { ...group, children: newChildren };
+              const candidate = [...scene]; candidate[gIdx] = updatedGroup;
+              if (JSON.stringify(candidate).length > 16000) return;
+              scene[gIdx] = updatedGroup;
+              liveBatch = { child_upd: { [msg.groupId]: { [msg.childId]: childPatch } } };
+              break;
+            }
+            case 'group': {
+              if (!Array.isArray(msg.objectIds) || msg.objectIds.length < 2) return;
+              if (!validateGlassesObject(msg.groupObject)) return;
+              if (!msg.objectIds.every(oid => typeof oid === 'string' && scene.some(o => o.id === oid))) return;
+              const idSet = new Set(msg.objectIds);
+              const next = [...scene.filter(o => !idSet.has(o.id)), msg.groupObject];
+              if (JSON.stringify(next).length > 16000) return;
+              scene.splice(0, scene.length, ...next);
+              liveBatch = { rm: msg.objectIds, add: { group: [msg.groupObject] } };
+              break;
+            }
+            case 'ungroup': {
+              if (typeof msg.objectId !== 'string') return;
+              const idx = scene.findIndex(o => o.id === msg.objectId);
+              if (idx === -1 || scene[idx].type !== 'group') return;
+              const g = scene[idx];
+              const flat = (g.children || []).map(child => {
+                if (child.type === 'line') return { ...child, x1: child.x1 + g.x, y1: child.y1 + g.y, x2: child.x2 + g.x, y2: child.y2 + g.y };
+                if ((child.type === 'polygon' || child.type === 'lines') && Array.isArray(child.points))
+                  return { ...child, points: child.points.map(([x, y]) => [x + g.x, y + g.y]) };
+                return { ...child, x: (child.x ?? 0) + g.x, y: (child.y ?? 0) + g.y };
+              });
+              scene.splice(idx, 1, ...flat);
+              const addMap = {};
+              for (const child of flat) {
+                if (!addMap[child.type]) addMap[child.type] = [];
+                addMap[child.type].push(child);
+              }
+              liveBatch = { rm: [msg.objectId], add: addMap };
+              break;
+            }
             default: return;
           }
-          transactComputer(id, { ...current, glassesScene: scene });
+          state.computers[id] = { ...current, glassesScene: scene };
 
-          // Dispatch live op to the Lua computer if live mode is enabled.
-          if (liveBatch && state.computers[id]?.glassesLiveMode) {
+          // Always dispatch the incremental op to the Lua computer.
+          if (liveBatch) {
             const opsJson = JSON.stringify(liveBatch);
             if (opsJson.length <= 8000) {
               const escaped = opsJson.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
               sendOrQueue(id, `return papi.glassesApplyOps("${escaped}")`, true, `[ws] glassesApplyOps id=${id}`);
             } else {
-              log.warn(`[ws] glassesApplyOps batch too large (${opsJson.length} chars), skipping live dispatch for id=${id}`);
+              log.warn(`[ws] glassesApplyOps batch too large (${opsJson.length} chars), skipping dispatch for id=${id}`);
             }
+          }
+          // Notify subscribed browsers with the full updated scene.
+          const canvasMsg = JSON.stringify({ canvasUpdate: { computerId: Number(id), scene } });
+          for (const sub of canvasSubscriptions[id] ?? []) {
+            if (sub.readyState === 1) sub.send(canvasMsg);
           }
           break;
         }
 
-        case 'setGlassesLiveMode': {
+        case 'subscribeCanvas': {
           const id = safeId(msg.computerId);
           if (!id) return;
-          const current = state.computers[id];
-          if (!current) return;
-          const enabled = Boolean(msg.enabled);
-          transactComputer(id, { ...current, glassesLiveMode: enabled });
-          log.info(`[ws] setGlassesLiveMode id=${id} enabled=${enabled} user=${userSub}`);
+          if (msg.subscribe) {
+            if (!canvasSubscriptions[id]) canvasSubscriptions[id] = new Set();
+            canvasSubscriptions[id].add(ws);
+            // Send the current scene immediately so the subscriber is in sync.
+            const scene = state.computers[id]?.glassesScene ?? [];
+            ws.send(JSON.stringify({ canvasUpdate: { computerId: Number(id), scene } }));
+            log.info(`[ws] subscribeCanvas id=${id} user=${userSub} (${canvasSubscriptions[id].size} subscribers)`);
+          } else {
+            canvasSubscriptions[id]?.delete(ws);
+            if (canvasSubscriptions[id]?.size === 0) delete canvasSubscriptions[id];
+            log.info(`[ws] unsubscribeCanvas id=${id} user=${userSub}`);
+          }
           break;
         }
+      }
+      } catch (err) {
+        log.error({ err }, '[ws] Unhandled error in message handler');
       }
     });
 
     ws.on('close', (code, reason) => {
       if (isUnauthedGuest) unauthedWsCount--;
       if (isAuthedGuest)   authedGuestWsCount--;
+      // Remove this connection from any canvas subscriptions it held.
+      for (const id of Object.keys(canvasSubscriptions)) {
+        if (!canvasSubscriptions[id].has(ws)) continue;
+        canvasSubscriptions[id].delete(ws);
+        if (canvasSubscriptions[id].size === 0) delete canvasSubscriptions[id];
+      }
       console.log(`[ws] Browser client disconnected — code: ${code}, reason: ${reason?.toString() || '(none)'}`);
       browserClients.delete(ws);
     });
     ws.on('error', (err) => {
-      console.log(`[ws] Browser client error: ${err.message}`);
+      if (err.message === 'Max payload size exceeded') {
+        log.warn(`[ws] Browser client from ${clientIp} rejected — message exceeded 32 KB limit (user=${userSub ?? 'unauthed'})`);
+      } else {
+        console.log(`[ws] Browser client error: ${err.message}`);
+      }
       browserClients.delete(ws);
       ws.terminate();
     });

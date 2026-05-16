@@ -48,7 +48,7 @@ function createBrowserRoutes({ worldState, auth, log, userManagement, computerIp
 
   router.post('/api/admin/denyComputer', requireAdmin, (req, res) => {
     const { ip } = req.body;
-    if (!ip) return res.status(400).json({ error: 'ip required' });
+    if (!ip || typeof ip !== 'string' || ip.length > 45) return res.status(400).json({ error: 'ip required' });
     computerIpManager.deny(ip);
     log.info(`Turtle IP denied: ${ip} by ${req.token.sub}`);
     res.json({ ok: true });
@@ -56,7 +56,7 @@ function createBrowserRoutes({ worldState, auth, log, userManagement, computerIp
 
   router.post('/api/admin/approveComputer', requireAdmin, (req, res) => {
     const { ip } = req.body;
-    if (!ip) return res.status(400).json({ error: 'ip required' });
+    if (!ip || typeof ip !== 'string' || ip.length > 45) return res.status(400).json({ error: 'ip required' });
     computerIpManager.approve(ip);
     log.info(`Turtle IP approved: ${ip} by ${req.token.sub}`);
     res.json({ ok: true });
@@ -64,7 +64,7 @@ function createBrowserRoutes({ worldState, auth, log, userManagement, computerIp
 
   router.post('/api/admin/revokeComputer', requireAdmin, (req, res) => {
     const { ip } = req.body;
-    if (!ip) return res.status(400).json({ error: 'ip required' });
+    if (!ip || typeof ip !== 'string' || ip.length > 45) return res.status(400).json({ error: 'ip required' });
     computerIpManager.revoke(ip);
     log.info(`Turtle IP revoked: ${ip} by ${req.token.sub}`);
     res.json({ ok: true });
@@ -75,7 +75,7 @@ function createBrowserRoutes({ worldState, auth, log, userManagement, computerIp
 
   router.post('/api/admin/approveOperator', requireAdmin, (req, res) => {
     const { sub } = req.body;
-    if (!sub) return res.status(400).json({ error: 'sub required' });
+    if (!sub || typeof sub !== 'string' || sub.length > 256) return res.status(400).json({ error: 'sub required' });
     operatorManager.approveRequest(sub);
     log.info(`Operator approved: ${sub} by ${req.token.sub}`);
     res.json({ ok: true });
@@ -83,7 +83,7 @@ function createBrowserRoutes({ worldState, auth, log, userManagement, computerIp
 
   router.post('/api/admin/denyOperatorRequest', requireAdmin, (req, res) => {
     const { sub } = req.body;
-    if (!sub) return res.status(400).json({ error: 'sub required' });
+    if (!sub || typeof sub !== 'string' || sub.length > 256) return res.status(400).json({ error: 'sub required' });
     operatorManager.denyRequest(sub);
     log.info(`Operator request denied: ${sub} by ${req.token.sub}`);
     res.json({ ok: true });
@@ -91,7 +91,7 @@ function createBrowserRoutes({ worldState, auth, log, userManagement, computerIp
 
   router.post('/api/admin/revokeOperator', requireAdmin, (req, res) => {
     const { sub } = req.body;
-    if (!sub) return res.status(400).json({ error: 'sub required' });
+    if (!sub || typeof sub !== 'string' || sub.length > 256) return res.status(400).json({ error: 'sub required' });
     operatorManager.revokeOperator(sub);
     log.info(`Operator revoked: ${sub} by ${req.token.sub}`);
     res.json({ ok: true });

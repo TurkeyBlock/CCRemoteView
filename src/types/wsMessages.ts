@@ -41,17 +41,24 @@ const SetGlassesScene = z.object({
 const GlassesSceneOp = z.object({
   type: z.literal('glassesSceneOp'),
   computerId: z.number().int(),
-  op: z.enum(['add', 'update', 'remove', 'clear', 'reorder']),
+  op: z.enum(['add', 'update', 'remove', 'clear', 'reorder', 'group', 'ungroup', 'groupChildUpdate']),
   object: z.record(z.string(), z.unknown()).optional(),
   objectId: z.string().optional(),
   fromIdx: z.number().int().optional(),
   toIdx: z.number().int().optional(),
+  // group op
+  objectIds: z.array(z.string()).optional(),
+  groupObject: z.record(z.string(), z.unknown()).optional(),
+  // groupChildUpdate op
+  groupId: z.string().optional(),
+  childId: z.string().optional(),
+  delta: z.record(z.string(), z.unknown()).optional(),
 })
 
-const SetGlassesLiveMode = z.object({
-  type: z.literal('setGlassesLiveMode'),
+const SubscribeCanvas = z.object({
+  type: z.literal('subscribeCanvas'),
   computerId: z.number().int(),
-  enabled: z.boolean(),
+  subscribe: z.boolean(),
 })
 
 export const ClientMessage = z.discriminatedUnion('type', [
@@ -62,7 +69,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   ClearCommandQueue,
   SetGlassesScene,
   GlassesSceneOp,
-  SetGlassesLiveMode,
+  SubscribeCanvas,
 ])
 export type ClientMessage = z.infer<typeof ClientMessage>
 
@@ -129,11 +136,19 @@ const ServerStateChunk = z.object({
   }),
 })
 
+const ServerCanvasUpdate = z.object({
+  canvasUpdate: z.object({
+    computerId: z.number(),
+    scene: z.array(z.record(z.string(), z.unknown())),
+  }),
+})
+
 export const ServerMessage = z.union([
   ServerError,
   ServerCommandResult,
   ServerState,
   ServerStateChunk,
+  ServerCanvasUpdate,
   ServerTransactions,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>

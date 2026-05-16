@@ -76,4 +76,16 @@ export interface GlassesItem {
   alpha: number
 }
 
-export type GlassesObject = GlassesRect | GlassesText | GlassesLine | GlassesDot | GlassesPolygon | GlassesLines | GlassesItem
+// Group: children use coordinates relative to the group origin (x, y).
+// Moving the group handle moves all children automatically in Plethora.
+// alpha (0–255): opacity of the whole group via Group2D.setAlpha(). Defaults to 255 (opaque).
+export interface GlassesGroup {
+  id: string
+  type: 'group'
+  x: number
+  y: number
+  alpha?: number
+  children: GlassesObject[]
+}
+
+export type GlassesObject = GlassesRect | GlassesText | GlassesLine | GlassesDot | GlassesPolygon | GlassesLines | GlassesItem | GlassesGroup

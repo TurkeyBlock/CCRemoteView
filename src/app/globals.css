@@ -484,6 +484,11 @@ kbd.kbd {
 .muted { color: var(--fg-mute); }
 .bright { color: var(--fg); }
 
+/* ── Glasses editor toolbar: hide spinners on compact number inputs ── */
+.glasses-toolbar-num::-webkit-inner-spin-button,
+.glasses-toolbar-num::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.glasses-toolbar-num { -moz-appearance: textfield; appearance: textfield; }
+
 /* ── Scrollbar ────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }

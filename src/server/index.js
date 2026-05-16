@@ -123,8 +123,8 @@ nextApp.prepare().then(() => {
 
   // ─── WebSocket servers ───────────────────────────────────────────────────────
 
-  const wss         = new WebSocketServer({ noServer: true, perMessageDeflate: { threshold: 1024 } });
-  const computerWss = new WebSocketServer({ noServer: true });
+  const wss         = new WebSocketServer({ noServer: true, maxPayload: 32 * 1024, perMessageDeflate: { threshold: 1024 } });
+  const computerWss = new WebSocketServer({ noServer: true, maxPayload: 5 * 1024 * 1024 });
 
   attachComputerWs(computerWss, { worldState, computerIpManager, computerIdManager, log });
   attachBrowserWs(wss,          { worldState, auth, log, userManagement });

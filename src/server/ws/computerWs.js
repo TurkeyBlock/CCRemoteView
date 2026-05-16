@@ -11,6 +11,7 @@ function getClientIp(req) {
 function attachComputerWs(wss, { worldState, computerIpManager, computerIdManager, log }) {
   const {
     state, cmds, stopSignal, commandResultCache, computerWs,
+    glassesNeedsSync,
     safeId,
     transactComputer, applyExtractedState, commitScan,
     broadcastToClients,
@@ -50,6 +51,8 @@ function attachComputerWs(wss, { worldState, computerIpManager, computerIdManage
       transactComputer(id, { ...state.computers[id] });
     }
 
+    glassesNeedsSync.add(id);
+
     if (cmds[id]?.length > 0) {
       log.info(`[ws/computer] id=${id} — flushing ${cmds[id].length} offline-queued cmd(s)`);
       for (const cmd of cmds[id]) ws.send(JSON.stringify({ type: 'command', command: cmd }));
@@ -65,6 +68,8 @@ function attachComputerWs(wss, { worldState, computerIpManager, computerIdManage
       if (!SUPPRESS_UPDATE_LOGS || (msg.type !== 'statusUpdate' && msg.type !== 'commandResult')) {
         log.info(`[ws/computer] id=${id} received msg type=${msg.type ?? '(none)'}`);
       }
+
+      try {
 
       if (msg.type === 'commandResult') {
         const cid = safeId(msg.computerId) ?? id;
@@ -115,12 +120,17 @@ function attachComputerWs(wss, { worldState, computerIpManager, computerIdManage
         transactComputer(id, state.computers[id]);
         log.info(`[ws/computer] sense id=${id} reported ${entities.length} entities`);
       }
+
+      } catch (err) {
+        log.error({ err }, `[ws/computer] Unhandled error in message handler id=${id}`);
+      }
     });
 
     function onDisconnect(label, code) {
       console.log(`[ws/computer] Computer ${id} ${label} — code: ${code}`);
       if (computerWs[id] !== ws) return;
       delete computerWs[id];
+      glassesNeedsSync.delete(id);
       if (cmds[id]?.length > 0) worldState.wsRequests[id] = true;
       if (state.computers[id]) {
         state.computers[id].ws_connected  = false;

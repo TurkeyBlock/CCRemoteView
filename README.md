@@ -16,7 +16,7 @@ A browser-based remote control and live world map for ComputerCraft computers ru
 - **Command queue** — all commands are queued and executed in order; spamming a key queues every press rather than dropping inputs
 - **Inventory management** — drag-and-drop turtle inventory slots, Ctrl+click to move whole stacks, fuel gauge, active slot display
 - **Adjacent chest interaction** — clicking a chest next to a turtle in the 3D view opens its inventory as a GUI overlay; items can be dragged between the chest and the turtle's own inventory without any in-game input
-- **Glasses HUD editor** — co-op browser canvas editor for `plethora:glasses`; place rects, text, and lines on a 512×288 canvas with pixel-accurate Minecraft font preview, then push the scene to the player's HUD in one click (requires Plethora neural interface + glasses module)
+- **Glasses HUD editor** — co-op browser canvas editor for `plethora:glasses`; draw rects, polygons, text, lines, item icons and groups on a 512×288 canvas with pixel-accurate Minecraft font preview; Live tab streams every edit directly to the player's HUD in real time; Draft tab supports undo/redo before publishing (requires Plethora neural interface + glasses module)
 - **Lua terminal** — send arbitrary Lua directly to any connected computer (admin only)
 - **Adjacent block inspection** — front/top/bottom blocks reported after every action without Plethora; full area scans require the Plethora scanner module
 - **Entity detection** — scan nearby mobs and players (requires Plethora)

@@ -30,6 +30,7 @@ const cmds                = {};
 const stopSignal          = {};
 const wsRequests          = {};
 const computerWs          = {};
+const glassesNeedsSync    = new Set();
 const browserClients      = new Set();
 const scanLastTime        = {};
 
@@ -144,7 +145,7 @@ function startAutoSave(onSave) {
     }
     const computers = {};
     for (const [id, c] of Object.entries(state.computers)) {
-      const { entities: _e, ...rest } = c;
+      const { entities: _e, glassesLiveMode: _lm, ...rest } = c;
       computers[id] = rest;
     }
 
@@ -210,7 +211,19 @@ function broadcastToClients(data) {
 }
 
 function broadcastTransaction(transaction) {
-  broadcastToClients({ transactions: { [transaction.id]: transaction } });
+  // Strip glassesScene from computer states before broadcasting. Canvas state is
+  // subscription-only and delivered via targeted canvasUpdate messages in browserWs.js.
+  const hasCanvas = Object.values(transaction.computers).some(c => c?.glassesScene);
+  const t = hasCanvas
+    ? { ...transaction, computers: Object.fromEntries(
+        Object.entries(transaction.computers).map(([id, c]) => {
+          if (!c?.glassesScene) return [id, c];
+          const { glassesScene: _, ...rest } = c;
+          return [id, rest];
+        })
+      )}
+    : transaction;
+  broadcastToClients({ transactions: { [t.id]: t } });
 }
 
 // ─── Chat log ────────────────────────────────────────────────────────────────
@@ -399,7 +412,7 @@ function getTransactionCacheFloor() {
 module.exports = {
   state,
   transactionCache, commandResultCache, cmds, stopSignal, wsRequests, computerWs,
-  browserClients, scanLastTime,
+  glassesNeedsSync, browserClients, scanLastTime,
   safeId, sanitizeForLog,
   saveStateToDisk, startAutoSave, getTransactionCacheFloor,
   broadcastToClients,

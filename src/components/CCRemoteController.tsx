@@ -381,6 +381,10 @@ export default function CCRemoteController() {
 
         persistWorldToCache()
 
+      } else if ('canvasUpdate' in data) {
+        // ServerCanvasUpdate — canvas state for a subscribed computer's glasses.
+        const { computerId, scene } = data.canvasUpdate
+        useWorldStore.getState().setCanvasScene(computerId, scene as unknown[])
       } else {
         // ServerTransactions — buffer while chunk assembly is in progress.
         if (pendingChunksRef.current) {

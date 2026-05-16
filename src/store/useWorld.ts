@@ -64,6 +64,7 @@ interface WorldState {
   computers: Record<string, ComputerState>
   chatLog: ChatMessage[]
   commandResult: Record<string, string>
+  canvasScenes: Record<number, unknown[]>
   URL: string
   apiURL: string
   assetURL: string
@@ -76,6 +77,7 @@ interface WorldState {
   transactionAddBlock: (locString: string, block: Block) => void
   transactionSetComputerState: (computerState: Record<string, any>) => void
   applyTransactions: (transactions: Record<string, any>) => void
+  setCanvasScene: (computerId: number, scene: unknown[]) => void
   wsSend: ((msg: ClientMessage) => void) | null
   invokeCommand: (computerId: number, command: string, args?: (string | number | boolean | null | undefined)[]) => void
   runProgram: (computerId: number, programName: string) => void
@@ -91,6 +93,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   computers: {},
   chatLog: [],
   commandResult: {},
+  canvasScenes: {},
   URL: '',
   apiURL: 'api/',
   assetURL: 'assets/',
@@ -98,6 +101,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   isLoading: true,
   isUnauthorized: false,
   wsSend: null,
+
+  setCanvasScene: (computerId, scene) => set(s => ({ canvasScenes: { ...s.canvasScenes, [computerId]: scene } })),
 
   getComputerIds: () => Object.keys(get().computers).map(Number),
 
