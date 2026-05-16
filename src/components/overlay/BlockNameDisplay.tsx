@@ -1,8 +1,9 @@
 'use client'
 
+import { memo } from 'react'
 import { useWorldViewStore } from '@/store/useWorldView'
 
-export default function BlockNameDisplay() {
+export default memo(function BlockNameDisplay() {
   const hoveredBlock    = useWorldViewStore(s => s.hoveredBlock)
   const hoveredBlockPos = useWorldViewStore(s => s.hoveredBlockPos)
   const hoveredEntity   = useWorldViewStore(s => s.hoveredEntity)
@@ -40,4 +41,4 @@ export default function BlockNameDisplay() {
       </div>
     </div>
   )
-}
+})

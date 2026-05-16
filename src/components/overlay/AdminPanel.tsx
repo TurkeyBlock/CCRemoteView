@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react'
+import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useWorldStore } from '@/store/useWorld'
 import { useUserStore } from '@/store/useUser'
-import { isStale } from '@/utils/stale'
 import { closeAllMenus } from '@/components/ui'
 import ConfirmDialog from '@/components/ConfirmDialog'
 
@@ -25,7 +25,18 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
   const [clearingWorld, setClearingWorld] = useState(false)
   const [pendingConfirm, setPendingConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
   const pollHandle = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const computers = useWorldStore(s => s.computers)
+  const computers = useStoreWithEqualityFn(
+    useWorldStore,
+    s => s.computers,
+    (prev, next) => {
+      const pk = Object.keys(prev), nk = Object.keys(next)
+      if (pk.length !== nk.length) return false
+      for (const id of nk) {
+        if (!prev[id] || prev[id].label !== next[id].label) return false
+      }
+      return true
+    }
+  )
   const removeComputer = useWorldStore(s => s.removeComputer)
   const clearBlocks = useWorldStore(s => s.clearBlocks)
 
@@ -221,9 +232,8 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
               <div className="heading">Turtles</div>
               {Object.keys(computers).length > 0 ? Object.entries(computers).map(([id, turtle]) => (
                 <div key={id} style={rowStyle}>
-                  <span style={isStale(turtle) ? { color: 'var(--accent)' } : {}}>
+                  <span>
                     <span className="mono">#{id}</span> {turtle.label ?? ''}
-                    {isStale(turtle) && <span className="muted" style={{ fontSize: 11 }}> (stale)</span>}
                   </span>
                   <button className="btn btn-compact btn-danger" onClick={() => deleteComputer(id)}>Delete</button>
                 </div>

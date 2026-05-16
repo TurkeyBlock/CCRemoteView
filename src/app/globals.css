@@ -374,6 +374,28 @@ kbd.kbd {
 .overlay-body { padding: 0 10px 7px; }
 .overlay-value { font-family: var(--font-mono); font-weight: 500; font-size: 12.5px; color: var(--fg); }
 
+.live-view-fill { position: absolute; inset: 0; }
+
+.live-view-bars {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  container-type: size;
+}
+
+.live-view-viewport {
+  position: relative;
+  aspect-ratio: 512 / 288;
+  width: min(100cqw, calc(100cqh * 512 / 288));
+  overflow: hidden;
+}
+
+.live-view-overlay {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  display: block;
+  pointer-events: all;
+}
+
 /* ── Dropdown / HeaderMenu ────────────────────────────────── */
 .dropdown {
   position: fixed; z-index: 1000;

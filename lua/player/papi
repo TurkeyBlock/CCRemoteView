@@ -20,11 +20,17 @@ url = "%%APP_URL%%/api/"
 local api_common = dofile("/api_common.lua")
 local headers    = { ["Content-Type"] = "application/json" }
 
+-- Detect introspection module availability once at load time.
+-- Avoids repeated peripheral.find() calls in the hot poll loop.
+local _nc = peripheral.find("neuralInterface")
+local has_introspection = _nc ~= nil and type(_nc.getMetaOwner) == "function"
+_nc = nil
+
 
 -- ─── Configuration ────────────────────────────────────────────────────────────
 
 -- Seconds between GPS position polls (sends only on change, while WebSocket-connected).
-GPS_UPDATE_INTERVAL = 1
+GPS_UPDATE_INTERVAL = 0.5
 -- Seconds between inventory state polls (sends only on change, while WebSocket-connected).
 INVENTORY_POLL_INTERVAL = 2
 
@@ -68,9 +74,15 @@ local function get_location_via_gps()
     return api_common.gps_locate()
 end
 
--- [concurrent] Returns x, y, z from GPS (raw floats; callers floor as needed).
+-- [concurrent] Returns x, y, z from GPS plus yaw, pitch from introspection when available.
+-- Returns up to 5 values: x, y, z (may be nil on GPS failure), yaw, pitch (nil if no introspection).
 function get_location()
-    return get_location_via_gps()
+    local x, y, z = get_location_via_gps()
+    if has_introspection then
+        local _, _, _, yaw, pitch = get_orientation_via_introspection()
+        return x, y, z, yaw, pitch
+    end
+    return x, y, z
 end
 
 -- ─── Status / result helpers (HTTP) ──────────────────────────
@@ -758,18 +770,8 @@ function gps_updater()
     local last_yaw, last_pitch = nil, nil
     local gps_ok = nil  -- nil=unknown, true=working, false=failed
 
-    -- Returns a large delta when transitioning from nil (first valid reading always fires).
-    local function angle_delta(a, b)
-        if a == nil then return 0 end
-        if b == nil then return 360 end
-        local d = math.abs(a - b) % 360
-        return d > 180 and 360 - d or d
-    end
-
     while true do
-        -- Introspection gives yaw/pitch only; GPS gives absolute position.
-        local _, _, _, yaw, pitch = get_orientation_via_introspection()
-        local gx, gy, gz = get_location_via_gps()
+        local gx, gy, gz, yaw, pitch = get_location()
         local ix, iy, iz
         if gx then
             ix, iy, iz = math.floor(gx), math.floor(gy), math.floor(gz)
@@ -782,17 +784,16 @@ function gps_updater()
             gps_ok = false
         end
 
-        local pos_changed   = ix ~= nil and (ix ~= last_fx or iy ~= last_fy or iz ~= last_fz)
-        local yaw_changed   = angle_delta(yaw, last_yaw) >= 5
-        local pitch_changed = angle_delta(pitch, last_pitch) >= 5
-        local has_data      = ix ~= nil or yaw ~= nil or pitch ~= nil
+        local pos_changed  = ix ~= nil and (ix ~= last_fx or iy ~= last_fy or iz ~= last_fz)
+        local look_changed = has_introspection and (yaw ~= last_yaw or pitch ~= last_pitch)
+        local has_data     = ix ~= nil or yaw ~= nil or pitch ~= nil
 
-        if has_data and (pos_changed or yaw_changed or pitch_changed) then
+        if has_data and (pos_changed or look_changed) then
             last_fx, last_fy, last_fz = ix or last_fx, iy or last_fy, iz or last_fz
             last_yaw, last_pitch = yaw, pitch
             local upd = { id = os.getComputerID(), type = "player" }
-            if ix    ~= nil then upd.loc   = { x = ix, y = iy, z = iz } end
-            if yaw   ~= nil then upd.yaw   = yaw   end
+            if ix  ~= nil then upd.loc   = { x = ix, y = iy, z = iz } end
+            if yaw ~= nil then upd.yaw   = yaw   end
             if pitch ~= nil then upd.pitch = pitch end
             _ws.send_status_update(upd)
         end

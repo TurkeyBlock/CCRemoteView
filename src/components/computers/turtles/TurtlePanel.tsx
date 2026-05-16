@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, useEffect } from 'react'
+import { memo, useRef, useState, useEffect } from 'react'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import { useComputerPanel } from '../useComputerPanel'
 import TurtleInventory from './TurtleInventory'
@@ -12,8 +12,9 @@ import { useWorldStore } from '@/store/useWorld'
 
 interface Props { computerId: number }
 
-export default function TurtlePanel({ computerId }: Props) {
-  const { computer, focusOnComputer, followComputer, sendStopSignal, isFollowing } = useComputerPanel(computerId)
+export default memo(function TurtlePanel({ computerId }: Props) {
+  const { focusOnComputer, followComputer, sendStopSignal, isFollowing } = useComputerPanel(computerId)
+  const computer = useWorldStore(s => s.computers[computerId])
   const invokeCommand = useWorldStore(s => s.invokeCommand)
   const commandResult = useWorldStore(s => s.commandResult[computerId])
 
@@ -101,4 +102,4 @@ export default function TurtlePanel({ computerId }: Props) {
       </Section>
     </>
   )
-}
+})

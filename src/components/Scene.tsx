@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { CameraControls } from '@react-three/drei'
 import * as THREE from 'three'
@@ -549,6 +549,37 @@ function SceneSetup() {
 
   useFrame((state, delta) => {
     const wv = useWorldViewStore.getState()
+
+    // ── Ride-along: first-person camera locked to player yaw/pitch ──────────
+    const rideId = wv.rideAlongComputerId
+    if (rideId !== -1) {
+      const comp = useWorldStore.getState().computers[rideId]
+      if (comp?.loc) {
+        const { x, y, z } = comp.loc
+        const eyeY = y + 1.62
+        // Minecraft yaw: 0=South(+Z), 90=West(-X), 180=North(-Z), 270=East(+X)
+        // Three.js: same XYZ axes, so dx=-sin(yaw), dz=cos(yaw)
+        const yawRad   = (comp.yaw   ?? 0) * Math.PI / 180
+        const pitchRad = (comp.pitch ?? 0) * Math.PI / 180
+        const lookDist = 20
+        const lx = x - lookDist * Math.sin(yawRad) * Math.cos(pitchRad)
+        const ly = eyeY - lookDist * Math.sin(pitchRad)
+        const lz = z + lookDist * Math.cos(yawRad) * Math.cos(pitchRad)
+        controlsRef.current?.setLookAt(x, eyeY, z, lx, ly, lz, true)
+        const cam = state.camera as THREE.PerspectiveCamera
+        if (cam.fov !== 70) { cam.fov = 70; cam.updateProjectionMatrix() }
+        if (controlsRef.current) controlsRef.current.enabled = false
+        state.invalidate()
+      }
+    } else {
+      if (controlsRef.current && !controlsRef.current.enabled) {
+        controlsRef.current.enabled = true
+      }
+      const cam = state.camera as THREE.PerspectiveCamera
+      if (cam.fov !== 45) { cam.fov = 45; cam.updateProjectionMatrix() }
+    }
+
+    // ── Follow: 3rd-person orbit target tracks computer position ────────────
     const computerId = wv.followedComputer.computerId
     if (computerId !== -1) {
       const currPos = useWorldStore.getState().computers[computerId]?.loc
@@ -622,7 +653,7 @@ function SceneSetup() {
 
 // ─── Public export — renders the R3F Canvas ───────────────────────────────────
 
-export default function Scene() {
+export default memo(function Scene() {
   const blockPickMode = useWorldViewStore(s => s.blockPickMode)
   return (
     <Canvas
@@ -633,4 +664,4 @@ export default function Scene() {
       <SceneSetup />
     </Canvas>
   )
-}
+})

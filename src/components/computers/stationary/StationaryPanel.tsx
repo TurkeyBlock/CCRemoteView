@@ -1,8 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { useWorldStore } from '@/store/useWorld'
-import { useComputerPanel } from '../useComputerPanel'
 import LuaTerminal from '../LuaTerminal'
 import { Section } from '@/components/ui'
 import ActionButtons from '../ActionButtons'
@@ -10,8 +9,8 @@ import EntityList from '../EntityList'
 
 interface Props { computerId: number }
 
-export default function StationaryPanel({ computerId }: Props) {
-  const { computer } = useComputerPanel(computerId)
+export default memo(function StationaryPanel({ computerId }: Props) {
+  const computer = useWorldStore(s => s.computers[computerId])
   const sendChatMessage = useWorldStore(s => s.sendChatMessage)
   const [chatInput, setChatInput] = useState('')
 
@@ -50,4 +49,4 @@ export default function StationaryPanel({ computerId }: Props) {
       </Section>
     </div>
   )
-}
+})

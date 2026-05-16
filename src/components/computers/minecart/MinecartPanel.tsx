@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { memo, useState } from 'react'
+import { useWorldStore } from '@/store/useWorld'
 import { useComputerPanel } from '../useComputerPanel'
 import LuaTerminal from '../LuaTerminal'
 import { Section } from '@/components/ui'
@@ -9,8 +10,9 @@ import EntityList from '../EntityList'
 
 interface Props { computerId: number }
 
-export default function MinecartPanel({ computerId }: Props) {
-  const { computer, invokeCommand, sendStopSignal } = useComputerPanel(computerId)
+export default memo(function MinecartPanel({ computerId }: Props) {
+  const { invokeCommand, sendStopSignal } = useComputerPanel(computerId)
+  const computer = useWorldStore(s => s.computers[computerId])
   const [propelPower, setPropelPower] = useState(1)
   const [loopPropelActive, setLoopPropelActive] = useState(false)
 
@@ -60,4 +62,4 @@ export default function MinecartPanel({ computerId }: Props) {
       </Section>
     </div>
   )
-}
+})

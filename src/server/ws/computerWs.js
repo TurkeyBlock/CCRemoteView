@@ -13,7 +13,7 @@ function attachComputerWs(wss, { worldState, computerIpManager, computerIdManage
     state, cmds, stopSignal, commandResultCache, computerWs,
     glassesNeedsSync,
     safeId,
-    transactComputer, applyExtractedState, commitScan,
+    transactComputer, transactComputerDelta, applyExtractedState, commitScan,
     broadcastToClients,
     isScanRateLimited,
     CMD_RESULT_CACHE_MAX,
@@ -99,10 +99,7 @@ function attachComputerWs(wss, { worldState, computerIpManager, computerIdManage
           Object.entries(msg.data || {}).filter(([k]) => !BLOCKED_KEYS.has(k))
         );
         data.id = Number(id);
-        const existing = state.computers[id] || {};
-        const merged = { ...existing, ...data };
-        if (!merged.loc && existing.loc) merged.loc = existing.loc;
-        transactComputer(id, merged);
+        transactComputerDelta(id, data);
 
       } else if (msg.type === 'state') {
         const data = msg.data || {};

@@ -31,6 +31,9 @@ interface ComputerState {
     metaOwner?: unknown,
     // Glasses canvas — scene persisted by setGlassesScene WS op, synced to all browsers
     glassesScene?: import('./glasses').GlassesObject[],
+    // Transport marker — present only on delta transactions sent by transactComputerDelta.
+    // Tells the browser to merge rather than replace. Never persisted in Zustand.
+    _delta?: true,
 }
 
 interface EntitySighting {

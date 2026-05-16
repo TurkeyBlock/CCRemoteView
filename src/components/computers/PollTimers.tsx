@@ -36,16 +36,21 @@ export default function PollTimers({ computerId }: Props) {
   const [now, setNow] = useState(Date.now)
 
   const wsRequestAt = computer?.ws_request_at ?? null
+  const wsConnected = !!computer?.ws_connected
 
   useEffect(() => {
-    if (!wsRequestAt) return
-    const id = setInterval(() => setNow(Date.now()), 500)
+    if (!wsRequestAt || wsConnected) return
+    if (Date.now() - wsRequestAt > POLL_INTERVAL_MS) { setNow(Date.now()); return }
+    const id = setInterval(() => {
+      const now = Date.now()
+      setNow(now)
+      if (now - wsRequestAt > POLL_INTERVAL_MS) clearInterval(id)
+    }, 500)
     return () => clearInterval(id)
-  }, [!!wsRequestAt]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [wsRequestAt, wsConnected]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!computer) return null
 
-  const wsConnected = !!computer.ws_connected
   const wakeMs = wsRequestAt !== null ? POLL_INTERVAL_MS - (now - wsRequestAt) : null
   const overdue = wakeMs !== null && wakeMs < 0
   const kind = connLedKind(wsConnected, wsRequestAt, now)

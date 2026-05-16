@@ -339,6 +339,23 @@ function transactComputer(id, computerState, blockUpdates = {}) {
   return t;
 }
 
+// Like transactComputer but for sparse statusUpdate deltas. Merges delta into the
+// server-side authoritative state, then broadcasts ONLY the delta fields (not full state).
+// Browsers that receive a transaction with _delta:true merge it instead of replacing.
+function transactComputerDelta(id, delta) {
+  const existing = state.computers[id] || {};
+  const merged = { ...existing, ...delta };
+  if (!merged.loc && existing.loc) merged.loc = existing.loc;
+  state.computers[id] = merged;
+  const t = { id: ++state.lastTransactionId, blocks: {}, computers: { [id]: { ...delta, _delta: true } } };
+  // Apply only updates the in-memory cache; browsers merge rather than replace.
+  transactionCache[t.id] = t;
+  txTimestamps.push([t.id, Date.now()]);
+  state.lastReadyTransactionId++;
+  broadcastTransaction(t);
+  return t;
+}
+
 // Run extractState (which increments lastReadyTransactionId internally), then apply + broadcast.
 function applyExtractedState(mergedData) {
   const t = extractState(mergedData);
@@ -417,7 +434,7 @@ module.exports = {
   saveStateToDisk, startAutoSave, getTransactionCacheFloor,
   broadcastToClients,
   setWsRequest, clearCommandQueue,
-  transactComputer, applyExtractedState, commitScan,
+  transactComputer, transactComputerDelta, applyExtractedState, commitScan,
   addChatMessage, transactChat,
   isScanRateLimited,
   CMD_RESULT_CACHE_MAX,

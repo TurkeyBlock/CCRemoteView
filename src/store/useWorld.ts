@@ -134,43 +134,66 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         }
       }
 
-      const inv = computerState.inv ? [...computerState.inv] : undefined
-      if (inv) for (let i = 0; i < inv.length; i++) if (inv[i] === 0) inv[i] = undefined
-      const entities = computerState.entities ? [...computerState.entities] : undefined
-
       const ws_connected  = computerState.ws_connected  !== undefined ? computerState.ws_connected  : existing?.ws_connected
       const ws_request_at = computerState.ws_request_at !== undefined ? computerState.ws_request_at : existing?.ws_request_at
 
-      const loc = computerState.loc
-      const locChanged = !existing?.loc !== !loc
-        || (loc && (existing.loc?.x !== loc.x || existing.loc?.y !== loc.y || existing.loc?.z !== loc.z))
-      const invChanged = JSON.stringify(existing?.inv) !== JSON.stringify(inv)
-      const entitiesChanged = JSON.stringify(existing?.entities) !== JSON.stringify(entities)
-      const adjInvChanged = JSON.stringify(computerState.adjacentInventory ?? {}) !== JSON.stringify((existing as any)?.adjacentInventory ?? {})
-      const playerInventoryChanged = JSON.stringify(existing?.inventory) !== JSON.stringify(computerState.inventory)
-      const playerEquipmentChanged = JSON.stringify(existing?.equipment) !== JSON.stringify(computerState.equipment)
-      const playerEnderChanged = JSON.stringify(existing?.enderChest) !== JSON.stringify(computerState.enderChest)
-      const playerNameChanged = existing?.playerName !== computerState.playerName
-      const glassesSceneChanged = JSON.stringify(existing?.glassesScene) !== JSON.stringify(computerState.glassesScene)
-      const changed = !existing
-        || existing.fuelLevel !== computerState.fuelLevel
-        || existing.label !== computerState.label
-        || existing.type !== computerState.type
-        || existing.ws_connected !== ws_connected
-        || existing.ws_request_at !== ws_request_at
-        || existing.rot !== computerState.rot
-        || existing.selectedSlot !== computerState.selectedSlot
-        || existing.yaw !== computerState.yaw
-        || existing.pitch !== computerState.pitch
-        || locChanged
-        || invChanged
-        || entitiesChanged
-        || adjInvChanged
-        || playerInventoryChanged
-        || playerEquipmentChanged
-        || playerEnderChanged
-        || playerNameChanged
-        || glassesSceneChanged
+      let changed: boolean
+      let nextState: Record<string, any>
+
+      if (computerState._delta) {
+        // ── Delta path: only the fields that actually changed are in computerState ──
+        // Check only those fields; merge over existing for the update object.
+        const { _delta: _, ...fields } = computerState as any
+        const deltaInv = fields.inv ? [...fields.inv].map((v: any) => v === 0 ? undefined : v) : undefined
+        const deltaEntities = fields.entities ? [...fields.entities] : undefined
+
+        changed = !existing || Object.keys(fields).some(k => {
+          if (k === 'inv')      return JSON.stringify(existing?.inv)      !== JSON.stringify(deltaInv)
+          if (k === 'entities') return JSON.stringify(existing?.entities) !== JSON.stringify(deltaEntities)
+          if (k === 'loc') {
+            const l = fields.loc
+            return !existing?.loc !== !l || (l && (existing.loc?.x !== l.x || existing.loc?.y !== l.y || existing.loc?.z !== l.z))
+          }
+          const a = (existing as any)[k], b = (fields as any)[k]
+          return typeof b === 'object' && b !== null ? JSON.stringify(a) !== JSON.stringify(b) : a !== b
+        })
+
+        if (changed) {
+          nextState = { ...existing, ...fields, ws_connected, ws_request_at, modified: Date.now() }
+          if (deltaInv      !== undefined) nextState.inv      = deltaInv
+          if (deltaEntities !== undefined) nextState.entities = deltaEntities
+        }
+      } else {
+        // ── Full-state path: existing behavior ────────────────────────────────────
+        const inv = computerState.inv ? [...computerState.inv] : undefined
+        if (inv) for (let i = 0; i < inv.length; i++) if (inv[i] === 0) inv[i] = undefined
+        const entities = computerState.entities ? [...computerState.entities] : undefined
+
+        const loc = computerState.loc
+        const locChanged = !existing?.loc !== !loc
+          || (loc && (existing.loc?.x !== loc.x || existing.loc?.y !== loc.y || existing.loc?.z !== loc.z))
+        changed = !existing
+          || existing.fuelLevel !== computerState.fuelLevel
+          || existing.label !== computerState.label
+          || existing.type !== computerState.type
+          || existing.ws_connected !== ws_connected
+          || existing.ws_request_at !== ws_request_at
+          || existing.rot !== computerState.rot
+          || existing.selectedSlot !== computerState.selectedSlot
+          || existing.yaw !== computerState.yaw
+          || existing.pitch !== computerState.pitch
+          || locChanged
+          || JSON.stringify(existing?.inv)      !== JSON.stringify(inv)
+          || JSON.stringify(existing?.entities) !== JSON.stringify(entities)
+          || JSON.stringify(computerState.adjacentInventory ?? {}) !== JSON.stringify((existing as any)?.adjacentInventory ?? {})
+          || JSON.stringify(existing?.inventory) !== JSON.stringify(computerState.inventory)
+          || JSON.stringify(existing?.equipment) !== JSON.stringify(computerState.equipment)
+          || JSON.stringify(existing?.enderChest) !== JSON.stringify(computerState.enderChest)
+          || existing?.playerName !== computerState.playerName
+          || JSON.stringify(existing?.glassesScene) !== JSON.stringify(computerState.glassesScene)
+
+        nextState = { ...computerState, ws_connected, ws_request_at, entities, inv, modified: Date.now() }
+      }
 
       if (changed) {
         if (existing?.ws_connected && !ws_connected) {
@@ -188,7 +211,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
             }
           )
         }
-        updates[id] = { ...computerState, ws_connected, ws_request_at, entities, inv, modified: Date.now() }
+        updates[id] = nextState!
       }
     }
 

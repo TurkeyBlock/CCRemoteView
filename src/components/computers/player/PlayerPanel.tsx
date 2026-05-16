@@ -1,9 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorldStore } from '@/store/useWorld'
-import { useComputerPanel } from '../useComputerPanel'
 import LuaTerminal from '../LuaTerminal'
 import ActionButtons from '../ActionButtons'
 import EntityList from '../EntityList'
@@ -30,8 +29,8 @@ function normalizeInv(inv: unknown): Record<number, ItemStack> {
 
 interface Props { computerId: number }
 
-export default function PlayerPanel({ computerId }: Props) {
-  const { computer } = useComputerPanel(computerId)
+export default memo(function PlayerPanel({ computerId }: Props) {
+  const computer = useWorldStore(s => s.computers[computerId])
   const invokeCommand = useWorldStore(s => s.invokeCommand)
 
   const { inventory, equipment, enderChest, playerName } = useWorldStore(
@@ -61,7 +60,7 @@ export default function PlayerPanel({ computerId }: Props) {
 
   return (
     <div className="group">
-      <ActionButtons computerId={computerId} hasScanner={hasScanner} />
+      <ActionButtons computerId={computerId} hasScanner={hasScanner} hasRideAlong />
 
       <Section label={playerName ? `Armor · ${playerName}` : 'Armor'}>
         <div className="player-armor-row">
@@ -128,4 +127,4 @@ export default function PlayerPanel({ computerId }: Props) {
       </Section>
     </div>
   )
-}
+})

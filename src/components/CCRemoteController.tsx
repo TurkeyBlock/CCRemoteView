@@ -12,6 +12,9 @@ import ChatPanel from './computers/chat/ChatPanel'
 import InventoryView from './inventory/Inventory'
 import BlockNameDisplay from './overlay/BlockNameDisplay'
 import Scene from './Scene'
+import GlassesEditorLayout from './computers/player/GlassesEditorLayout'
+import GlassesSvgCanvas from './computers/player/GlassesSvgCanvas'
+import { liveEditorRef } from './computers/player/useGlassesEditor'
 import KeyboardBindings from './computers/turtles/KeyboardBindings'
 import AdminPanel from './overlay/AdminPanel'
 import OperatorRequest from './overlay/OperatorRequest'
@@ -21,6 +24,7 @@ import { Led } from './ui'
 import ModalOverlay from './ModalOverlay'
 import { connLedKind, POLL_INTERVAL_MS } from './computers/PollTimers'
 import { ServerMessage } from '@/types/wsMessages'
+import type { GlassesObject } from '@/types/glasses'
 
 const ComputerLed = memo(function ComputerLed({ computerId }: { computerId: number }) {
   const ws_connected  = useWorldStore(s => s.computers[computerId]?.ws_connected)
@@ -39,6 +43,8 @@ const ComputerLed = memo(function ComputerLed({ computerId }: { computerId: numb
 })
 
 interface FloatingPanel { id: number; x: number; y: number; height?: number }
+
+const EMPTY_GLASSES: GlassesObject[] = []
 
 const TYPE_SHORT: Record<string, string> = {
   minecart: 'MC', turtle: 'T', player: 'Ply', stationary: 'Sta',
@@ -74,15 +80,30 @@ export default function CCRemoteController() {
     for (const id of nextIds) {
       if (!prev[id]) return false
       const p = prev[id], n = next[id]
-      if (p.ws_connected !== n.ws_connected ||
-          p.ws_request_at !== n.ws_request_at ||
-          p.type !== n.type ||
+      if (p.type !== n.type ||
           p.label !== n.label ||
           (p as any).adjacentInventory !== (n as any).adjacentInventory) return false
     }
     return true
   })
   const selectedInventoryPos = useWorldViewStore(s => s.selectedInventoryPos)
+  const liveViewComputerId   = useWorldViewStore(s => s.liveViewComputerId)
+  const isLiveView           = liveViewComputerId !== -1
+  const liveEditorMutable    = useWorldViewStore(s => liveViewComputerId !== -1 ? s.glassesEditorMutable[liveViewComputerId] : undefined)
+  const liveViewLiveObjects  = useWorldStore(s => (liveViewComputerId !== -1 ? s.canvasScenes[liveViewComputerId] ?? EMPTY_GLASSES : EMPTY_GLASSES) as GlassesObject[])
+
+  const liveEditorForLayout = useMemo(() => {
+    if (!liveEditorRef.current || !liveEditorMutable) return null
+    const activeScene = liveEditorMutable.editorMode === 'live'
+      ? liveViewLiveObjects
+      : liveEditorMutable.draftScene
+    return {
+      ...liveEditorRef.current,
+      ...liveEditorMutable,
+      liveObjects: liveViewLiveObjects,
+      activeScene,
+    }
+  }, [liveEditorMutable, liveViewLiveObjects])
   // Derive inventory live from world state so it updates after suck/drop and auto-closes when removed
   const derivedInventory = useMemo(() => {
     if (!selectedInventoryPos) return null
@@ -702,19 +723,38 @@ export default function CCRemoteController() {
 
         {/* World canvas */}
         <div className="panel canvas">
-          <Scene />
+          {/* Always keep Scene mounted in the same wrapper to avoid WebGL context loss */}
+          {isLiveView && liveEditorForLayout ? (
+            <GlassesEditorLayout
+              editor={liveEditorForLayout}
+              canvasArea={
+                <div className="live-view-bars">
+                  <div className="live-view-viewport">
+                    <Scene />
+                    <GlassesSvgCanvas editor={liveEditorForLayout} bgFill="transparent" />
+                  </div>
+                </div>
+              }
+            />
+          ) : (
+            <div className={isLiveView ? 'live-view-bars' : 'live-view-fill'}>
+              <div className={isLiveView ? 'live-view-viewport' : 'live-view-fill'}>
+                <Scene />
+              </div>
+            </div>
+          )}
 
           {/* Canvas overlays */}
-          <div className="canvas-overlay" style={{ top: 12, left: 12 }}>
+          {!isLiveView && <div className="canvas-overlay" style={{ top: 12, left: 12 }}>
             <div className="overlay-title">Focus</div>
             <div className="overlay-body">
               <div className="overlay-value">
                 {dockedSelectedId !== -1 ? computerTitle(dockedSelectedId) : '—'}
               </div>
             </div>
-          </div>
+          </div>}
 
-          <BlockNameDisplay />
+          {!isLiveView && <BlockNameDisplay />}
 
           {derivedInventory && selectedInventoryPos && (
             <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 5 }}>

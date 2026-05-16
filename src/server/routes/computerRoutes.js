@@ -7,7 +7,7 @@ function createComputerRoutes({ worldState, auth, log }) {
   const {
     state, cmds, stopSignal, commandResultCache,
     safeId, sanitizeForLog,
-    transactComputer, applyExtractedState, commitScan, setWsRequest,
+    transactComputer, transactComputerDelta, applyExtractedState, commitScan, setWsRequest,
     addChatMessage, transactChat,
     isScanRateLimited,
     CMD_RESULT_CACHE_MAX,
@@ -79,10 +79,7 @@ function createComputerRoutes({ worldState, auth, log }) {
       Object.entries(req.body).filter(([k]) => !BLOCKED_KEYS.has(k))
     );
     body.id = Number(id);
-    const existing = state.computers[id] || {};
-    const merged = { ...existing, ...body };
-    if (!merged.loc && existing.loc) merged.loc = existing.loc;
-    transactComputer(id, merged);
+    transactComputerDelta(id, body);
     res.sendStatus(200);
   });
 

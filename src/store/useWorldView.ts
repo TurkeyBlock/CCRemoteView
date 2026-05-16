@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import * as THREE from 'three'
 import type { Block, EntitySighting } from '../types/world'
+import type { EditorMutableState } from '../components/computers/player/glassesEditorTypes'
+import { DEFAULT_EDITOR_MUTABLE } from '../components/computers/player/glassesEditorTypes'
 import { GEOMETRY, geometryMap, CROSS_BY_NAME, FLAT_BY_NAME, textureAliases, uvOverrides, blockTint, BIOME_TINT, hasBiomeTint, isLiquid, isAlphaGlass, itemTextureAliases } from '../utils/blockMaps'
 
 // Materials and texture caches live outside Zustand — no re-renders on load.
@@ -170,6 +172,12 @@ interface WorldViewState {
   getBlockMaterial: (name: string, metadata?: number) => THREE.MeshPhongMaterial
   loadBlockMaps: () => void
   followComputer: (computerId: number) => void
+  rideAlongComputerId: number
+  rideAlongComputer: (computerId: number) => void
+  liveViewComputerId: number
+  setLiveView: (computerId: number) => void
+  glassesEditorMutable: Record<number, EditorMutableState>
+  updateGlassesEditor: (computerId: number, patch: Partial<EditorMutableState>) => void
 }
 
 export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
@@ -187,6 +195,8 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
   updateChunkVisibility: () => {},
 
   followedComputer: { computerId: -1, lastPos: { x: 0, y: 0, z: 0 } },
+  rideAlongComputerId: -1,
+  liveViewComputerId: -1,
   hoveredBlock: null,
   hoveredBlockPos: null,
   hoveredEntity: null,
@@ -440,7 +450,7 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
   followComputer: (computerId) => {
     const current = get().followedComputer.computerId
     const nextId = current === computerId ? -1 : computerId
-    set((s) => ({ followedComputer: { ...s.followedComputer, computerId: nextId } }))
+    set((s) => ({ followedComputer: { ...s.followedComputer, computerId: nextId }, rideAlongComputerId: -1 }))
     if (nextId === -1) return
     const { useWorldStore } = require('./useWorld') as typeof import('./useWorld')
     const loc = useWorldStore.getState().computers[computerId]?.loc
@@ -449,4 +459,36 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
       get().focusOnComputer(computerId)
     }
   },
+
+  rideAlongComputer: (computerId) => {
+    const nextId = get().rideAlongComputerId === computerId ? -1 : computerId
+    set((s) => ({
+      rideAlongComputerId: nextId,
+      followedComputer: { ...s.followedComputer, computerId: -1 },
+      // Exiting ride-along also exits live-view (live-view requires ride-along)
+      liveViewComputerId: nextId === -1 ? -1 : s.liveViewComputerId,
+    }))
+    if (nextId === -1) return
+    const { useWorldStore } = require('./useWorld') as typeof import('./useWorld')
+    const loc = useWorldStore.getState().computers[computerId]?.loc
+    if (loc) get().focusOnComputer(computerId)
+  },
+
+  setLiveView: (computerId) => {
+    const nextId = get().liveViewComputerId === computerId ? -1 : computerId
+    set({ liveViewComputerId: nextId })
+    if (nextId !== -1) {
+      // Activating live-view implies ride-along
+      const s = get()
+      if (s.rideAlongComputerId !== computerId) s.rideAlongComputer(computerId)
+    }
+  },
+
+  glassesEditorMutable: {},
+  updateGlassesEditor: (computerId, patch) => set(s => ({
+    glassesEditorMutable: {
+      ...s.glassesEditorMutable,
+      [computerId]: { ...(s.glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE), ...patch },
+    },
+  })),
 }))
