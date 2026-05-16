@@ -26,6 +26,8 @@ interface ComputerState {
     inventory?: Record<string, ItemStack>,
     equipment?: Record<string, ItemStack>,
     enderChest?: Record<string, ItemStack>,
+    yaw?: number,   // Player facing yaw in Minecraft degrees (0=south, 90=west, 180=north, ±90/270=east). Populated by introspection module. Absent when unavailable.
+    pitch?: number, // Player vertical look angle in Minecraft degrees (0=level, -90=up, 90=down). Populated by introspection module. Absent when unavailable.
     metaOwner?: unknown,
     // Glasses canvas — scene persisted by setGlassesScene WS op, synced to all browsers
     glassesScene?: import('./glasses').GlassesObject[],

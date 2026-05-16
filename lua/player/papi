@@ -50,11 +50,27 @@ local function build_equip_table(eq)
 end
 
 
--- ─── GPS helpers ─────────────────────────────────────────────
+-- ─── Location helpers ────────────────────────────────────────
 
--- [concurrent]
-function get_location()
+-- Returns nil, nil, nil, yaw, pitch from the neural interface's getMetaOwner().
+-- Plethora's getMetaOwner() returns 0,0,0 for x/y/z in this version (not absolute
+-- world coords), so position is always nil here — callers use GPS for that.
+local function get_orientation_via_introspection()
+    local neural = peripheral.find("neuralInterface")
+    if not neural or not neural.getMetaOwner then return nil, nil, nil, nil, nil end
+    local ok, meta = pcall(neural.getMetaOwner)
+    if not ok or type(meta) ~= "table" then return nil, nil, nil, nil, nil end
+    return nil, nil, nil, tonumber(meta.yaw), tonumber(meta.pitch)
+end
+
+-- Returns raw x, y, z floats from GPS (2s timeout). Returns nil, nil, nil on failure.
+local function get_location_via_gps()
     return api_common.gps_locate()
+end
+
+-- [concurrent] Returns x, y, z from GPS (raw floats; callers floor as needed).
+function get_location()
+    return get_location_via_gps()
 end
 
 -- ─── Status / result helpers (HTTP) ──────────────────────────
@@ -79,11 +95,15 @@ function say(message)
 end
 
 function send_status_update()
-    local x, y, z = get_location()
+    local _, _, _, yaw, pitch = get_orientation_via_introspection()
+    local x, y, z = get_location_via_gps()
+    if x then x, y, z = math.floor(x), math.floor(y), math.floor(z) end
     local payload = {
-        id   = os.getComputerID(),
-        type = "player",
-        loc  = x and { x = math.floor(x), y = math.floor(y), z = math.floor(z) } or nil,
+        id    = os.getComputerID(),
+        type  = "player",
+        loc   = x and { x = x, y = y, z = z } or nil,
+        yaw   = yaw,    -- nil when introspection unavailable; serializeJSON omits nil
+        pitch = pitch,  -- nil when introspection unavailable; serializeJSON omits nil
     }
     local neural = peripheral.find("neuralInterface")
     if neural then
@@ -250,6 +270,7 @@ do
     local neural = peripheral.find("neuralInterface")
     if neural and neural.canvas then neural.canvas().clear() end
 end
+
 
 -- rgba is a 32-bit packed integer: (rgb24 * 256) + alpha, matching the browser's
 -- GlassesObject.rgba field. Plethora's addXxx color parameter uses the same bit layout
@@ -734,27 +755,48 @@ end
 -- on reconnect — the first update after connect always fires.
 function gps_updater()
     local last_fx, last_fy, last_fz = nil, nil, nil
-    local gps_ok = nil  -- nil = unknown, true/false = last known state
+    local last_yaw, last_pitch = nil, nil
+    local gps_ok = nil  -- nil=unknown, true=working, false=failed
+
+    -- Returns a large delta when transitioning from nil (first valid reading always fires).
+    local function angle_delta(a, b)
+        if a == nil then return 0 end
+        if b == nil then return 360 end
+        local d = math.abs(a - b) % 360
+        return d > 180 and 360 - d or d
+    end
+
     while true do
-        local x, y, z = get_location()
-        if x then
+        -- Introspection gives yaw/pitch only; GPS gives absolute position.
+        local _, _, _, yaw, pitch = get_orientation_via_introspection()
+        local gx, gy, gz = get_location_via_gps()
+        local ix, iy, iz
+        if gx then
+            ix, iy, iz = math.floor(gx), math.floor(gy), math.floor(gz)
             if gps_ok ~= true then
-                print("GPS fix acquired (" .. math.floor(x) .. "," .. math.floor(y) .. "," .. math.floor(z) .. ")")
+                print("GPS fix (" .. ix .. "," .. iy .. "," .. iz .. ")")
                 gps_ok = true
-            end
-            local fx, fy, fz = math.floor(x), math.floor(y), math.floor(z)
-            if fx ~= last_fx or fy ~= last_fy or fz ~= last_fz then
-                last_fx, last_fy, last_fz = fx, fy, fz
-                _ws.send_status_update({
-                    id   = os.getComputerID(),
-                    type = "player",
-                    loc  = { x = fx, y = fy, z = fz },
-                })
             end
         elseif gps_ok ~= false then
             print("! GPS fix failed — loc will not update (no GPS hosts in range?)")
             gps_ok = false
         end
+
+        local pos_changed   = ix ~= nil and (ix ~= last_fx or iy ~= last_fy or iz ~= last_fz)
+        local yaw_changed   = angle_delta(yaw, last_yaw) >= 5
+        local pitch_changed = angle_delta(pitch, last_pitch) >= 5
+        local has_data      = ix ~= nil or yaw ~= nil or pitch ~= nil
+
+        if has_data and (pos_changed or yaw_changed or pitch_changed) then
+            last_fx, last_fy, last_fz = ix or last_fx, iy or last_fy, iz or last_fz
+            last_yaw, last_pitch = yaw, pitch
+            local upd = { id = os.getComputerID(), type = "player" }
+            if ix    ~= nil then upd.loc   = { x = ix, y = iy, z = iz } end
+            if yaw   ~= nil then upd.yaw   = yaw   end
+            if pitch ~= nil then upd.pitch = pitch end
+            _ws.send_status_update(upd)
+        end
+
         os.sleep(GPS_UPDATE_INTERVAL)
     end
 end

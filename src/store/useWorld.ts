@@ -160,6 +160,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         || existing.ws_request_at !== ws_request_at
         || existing.rot !== computerState.rot
         || existing.selectedSlot !== computerState.selectedSlot
+        || existing.yaw !== computerState.yaw
+        || existing.pitch !== computerState.pitch
         || locChanged
         || invChanged
         || entitiesChanged
