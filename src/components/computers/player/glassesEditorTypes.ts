@@ -27,7 +27,8 @@ export const packRgba    = (rgb24: number, alpha: number) => rgb24 * 256 + alpha
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type DragInfo =
   | { kind: 'move';        id: string; mx0: number; my0: number; ox: number; oy: number }
-  | { kind: 'multi-move';  anchors: { id: string; ox: number; oy: number; origPoints?: [number,number][] }[]; mx0: number; my0: number }
+  | { kind: 'move-line';   id: string; mx0: number; my0: number; ox1: number; oy1: number; ox2: number; oy2: number }
+  | { kind: 'multi-move';  anchors: { id: string; ox: number; oy: number; ox2?: number; oy2?: number; origPoints?: [number,number][] }[]; mx0: number; my0: number }
   | { kind: 'move-pts';    id: string; mx0: number; my0: number; origPoints: [number, number][] }
   | { kind: 'move-vertex'; id: string; vertIdx: number; mx0: number; my0: number; origPts: [number, number][] }
   | { kind: 'resize';      id: string; corner: 'nw'|'ne'|'sw'|'se'; mx0: number; my0: number; ox: number; oy: number; ow: number; oh: number }

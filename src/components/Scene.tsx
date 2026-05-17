@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useEffect, useRef } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { CameraControls } from '@react-three/drei'
 import * as THREE from 'three'
@@ -10,6 +10,7 @@ import { useWorldStore, lookupBlock, worldDataLen } from '@/store/useWorld'
 import { useWorldViewStore, clearMaterialsCache } from '@/store/useWorldView'
 import { ChunkManager } from '@/utils/rendering/ChunkManager'
 import { CHUNK_SIZE } from '@/utils/rendering/WorldChunk'
+import RideAlongSettingsModal from './RideAlongSettingsModal'
 
 class TextureAnimator {
   texture: THREE.Texture
@@ -604,7 +605,10 @@ function SceneSetup() {
         const lz = camZ  + lookDist * Math.cos(yawRad) * Math.cos(pitchRad)
         controlsRef.current?.setLookAt(camX, eyeY, camZ, lx, ly, lz, false)
         const cam = state.camera as THREE.PerspectiveCamera
-        if (cam.fov !== 70) { cam.fov = 70; cam.updateProjectionMatrix() }
+        const targetFov = wv.rideAlongFov
+        if (cam.fov !== targetFov || cam.near !== 0.05) {
+          cam.fov = targetFov; cam.near = 0.05; cam.updateProjectionMatrix()
+        }
         if (controlsRef.current) controlsRef.current.enabled = false
         state.invalidate()
       }
@@ -614,7 +618,7 @@ function SceneSetup() {
         controlsRef.current.enabled = true
       }
       const cam = state.camera as THREE.PerspectiveCamera
-      if (cam.fov !== 45) { cam.fov = 45; cam.updateProjectionMatrix() }
+      if (cam.fov !== 45 || cam.near !== 1) { cam.fov = 45; cam.near = 1; cam.updateProjectionMatrix() }
     }
 
     // ── Follow: 3rd-person orbit target tracks computer position ────────────
@@ -692,14 +696,71 @@ function SceneSetup() {
 // ─── Public export — renders the R3F Canvas ───────────────────────────────────
 
 export default memo(function Scene() {
-  const blockPickMode = useWorldViewStore(s => s.blockPickMode)
+  const blockPickMode   = useWorldViewStore(s => s.blockPickMode)
+  const rideAlongAspect = useWorldViewStore(s => s.rideAlongAspect)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(entries => {
+      const { width, height } = entries[0].contentRect
+      setContainerSize({ w: width, h: height })
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  useEffect(() => {
+    let downX = 0, downY = 0
+    const onDown = (e: PointerEvent) => {
+      if (e.button !== 2) return
+      downX = e.clientX; downY = e.clientY
+      if (useWorldViewStore.getState().rideAlongComputerId !== -1) e.stopPropagation()
+    }
+    const onMenu = (e: MouseEvent) => {
+      if (useWorldViewStore.getState().rideAlongComputerId === -1) return
+      e.preventDefault()
+      const dx = e.clientX - downX, dy = e.clientY - downY
+      if (dx * dx + dy * dy > 25) return  // was a drag
+      setSettingsOpen(true)
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    document.addEventListener('contextmenu', onMenu, true)
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true)
+      document.removeEventListener('contextmenu', onMenu, true)
+    }
+  }, [])
+
+  // Fit the canvas to the target aspect ratio inside the container (letterbox/pillarbox).
+  // When no aspect is locked, fill the container normally.
+  let canvasStyle: React.CSSProperties = { position: 'absolute', inset: 0, cursor: blockPickMode ? 'crosshair' : 'default' }
+  if (rideAlongAspect && containerSize.w > 0 && containerSize.h > 0) {
+    const cw = containerSize.w, ch = containerSize.h
+    let w: number, h: number
+    if (rideAlongAspect > cw / ch) { w = cw; h = cw / rideAlongAspect }
+    else                            { h = ch; w = ch * rideAlongAspect }
+    canvasStyle = {
+      position: 'absolute',
+      left: (cw - w) / 2, top: (ch - h) / 2,
+      width: w, height: h,
+      cursor: blockPickMode ? 'crosshair' : 'default',
+    }
+  }
+
   return (
-    <Canvas
-      frameloop="demand"
-      style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, cursor: blockPickMode ? 'crosshair' : 'default' }}
-      camera={{ fov: 45, near: 1, far: 10000, position: [-4, 5, -10] }}
-    >
-      <SceneSetup />
-    </Canvas>
+    <div ref={containerRef} style={{ position: 'absolute', inset: 0, background: '#111318' }}>
+      <Canvas
+        frameloop="demand"
+        style={canvasStyle}
+        camera={{ fov: 45, near: 1, far: 10000, position: [-4, 5, -10] }}
+      >
+        <SceneSetup />
+      </Canvas>
+      {settingsOpen && <RideAlongSettingsModal onClose={() => setSettingsOpen(false)} />}
+    </div>
   )
 })

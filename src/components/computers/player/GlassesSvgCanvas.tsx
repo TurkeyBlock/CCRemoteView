@@ -173,8 +173,8 @@ export default function GlassesSvgCanvas({ editor, bgFill = '#111' }: Props) {
         <g key={l.id}>
           <line x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke={fill} strokeWidth={l.thickness} opacity={opacity} vectorEffect="non-scaling-stroke" />
           <line x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke="transparent" strokeWidth={8}
-            style={{ cursor: 'pointer' }}
-            onPointerDown={e => { e.stopPropagation(); if (e.shiftKey) setSelectedIds(selectedIds.includes(l.id) ? selectedIds.filter(i=>i!==l.id) : [...selectedIds,l.id]); else setSelectedIds([l.id]) }} />
+            style={{ cursor: 'move' }}
+            onPointerDown={e => { const [mx, my] = toSvg(e); startDrag(e, { kind: 'move-line', id: l.id, mx0: mx, my0: my, ox1: l.x1, oy1: l.y1, ox2: l.x2, oy2: l.y2 }) }} />
           {sel && <>
             <circle cx={l.x1} cy={l.y1} r={HR+1} fill={selCol} style={{ cursor: 'move' }}
               onPointerDown={e => { const [mx, my] = toSvg(e); startDrag(e, { kind: 'endpoint', id: l.id, pt: 1, mx0: mx, my0: my, ox: l.x1, oy: l.y1 }) }} />

@@ -262,7 +262,7 @@ function PropertiesPanel({ editor }: { editor: EditorState }) {
 function ObjectList({ editor }: { editor: EditorState }) {
   const {
     activeScene, selectedIds, setSelectedIds, selectedChildId, setSelectedChildId,
-    setEditObj, activeReorder, activeRemove,
+    activeReorder, activeRemove,
     listDragIdx, listOverIdx, handleListDragStart, handleListDragOver, handleListDrop, handleListDragEnd,
     jsonLen,
   } = editor
@@ -322,9 +322,7 @@ function ObjectList({ editor }: { editor: EditorState }) {
                       }}
                       onClick={ev => {
                         ev.stopPropagation()
-                        setSelectedIds([obj.id])
-                        setSelectedChildId(child.id)
-                        setEditObj(child)
+                        editor.selectChild(obj.id, child)
                       }}>
                       <span style={{ color: 'var(--fg-mute)', fontSize: 9, padding: '0 2px', userSelect: 'none' }}>└</span>
                       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, color: isChildSelected ? 'var(--accent)' : 'var(--fg-dim)' }}>
@@ -379,11 +377,8 @@ function Toolbar({ editor, onClose }: { editor: EditorState; onClose?: () => voi
         <label style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }} title="Color / alpha for new objects">
           <input type="color" value={intToHex(rgbOfRgba(drawRgba))} style={{ width: 26, height: 22, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }}
             onChange={ev => setDrawRgba(packRgba(hexToInt(ev.target.value), alphaOfRgba(drawRgba)))} />
-          <input type="range" value={alphaOfRgba(drawRgba)} min={0} max={255} step={1}
-            style={{ width: 56, accentColor: 'var(--accent)', flexShrink: 0 }}
-            onChange={ev => setDrawRgba(packRgba(rgbOfRgba(drawRgba), Number(ev.target.value)))} />
           <input type="number" value={alphaOfRgba(drawRgba)} min={0} max={255} step={1} title="Alpha"
-            style={{ width: 40, background: 'var(--surface-3)', border: '1px solid var(--line)', borderRadius: 2, color: 'var(--fg)', padding: '1px 4px', fontSize: 11 }}
+            style={{ width: 46, background: 'var(--surface-3)', border: '1px solid var(--line)', borderRadius: 2, color: 'var(--fg)', padding: '1px 4px', fontSize: 11 }}
             onChange={ev => { const v = Number(ev.target.value); if (!isNaN(v)) setDrawRgba(packRgba(rgbOfRgba(drawRgba), Math.max(0, Math.min(255, v)))) }} />
         </label>
         <span style={{ width: 1, background: 'rgba(59,130,246,0.5)', alignSelf: 'stretch', margin: '0 1px' }} />
@@ -404,15 +399,14 @@ function Toolbar({ editor, onClose }: { editor: EditorState; onClose?: () => voi
         ))}
       </div>
 
-      {/* Group/Ungroup (purple) */}
-      {(selectedIds.length >= 2 || (selectedIds.length === 1 && activeScene.find(o => o.id === selectedIds[0])?.type === 'group')) && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, padding: '3px 6px', borderRadius: 4, border: '1px solid rgba(139,92,246,0.5)', background: '#221b38' }}>
-          {selectedIds.length >= 2 && <button className="btn btn-compact" onClick={handleGroup}>Group</button>}
-          {selectedIds.length === 1 && activeScene.find(o => o.id === selectedIds[0])?.type === 'group' && (
-            <button className="btn btn-compact" onClick={handleUngroup}>Ungroup</button>
-          )}
-        </div>
-      )}
+      {/* Group/Ungroup (purple) — always visible to avoid header layout shifts */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, padding: '3px 6px', borderRadius: 4, border: '1px solid rgba(139,92,246,0.5)', background: '#221b38' }}>
+        <button className="btn btn-compact" onClick={handleGroup} disabled={selectedIds.length < 2}>Group</button>
+        <button className="btn btn-compact" onClick={handleUngroup}
+          disabled={!(selectedIds.length === 1 && activeScene.find(o => o.id === selectedIds[0])?.type === 'group')}>
+          Ungroup
+        </button>
+      </div>
 
       {/* History + Publish (purple, draft only) */}
       {editorMode === 'draft' && (

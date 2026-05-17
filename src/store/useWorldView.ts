@@ -174,6 +174,9 @@ interface WorldViewState {
   followComputer: (computerId: number) => void
   rideAlongComputerId: number
   rideAlongComputer: (computerId: number) => void
+  rideAlongFov: number
+  rideAlongAspect: number | null
+  setRideAlongSettings: (fov: number, aspect: number | null) => void
   liveViewComputerId: number
   setLiveView: (computerId: number) => void
   glassesEditorMutable: Record<number, EditorMutableState>
@@ -196,6 +199,9 @@ export const useWorldViewStore = create<WorldViewState>()((set, get) => ({
 
   followedComputer: { computerId: -1, lastPos: { x: 0, y: 0, z: 0 } },
   rideAlongComputerId: -1,
+  rideAlongFov: 70,
+  rideAlongAspect: null,
+  setRideAlongSettings: (fov, aspect) => set({ rideAlongFov: fov, rideAlongAspect: aspect }),
   liveViewComputerId: -1,
   hoveredBlock: null,
   hoveredBlockPos: null,

@@ -74,6 +74,7 @@ export interface EditorState {
   setSelectedChildId: (id: string | null) => void
   editObj: GlassesObject | null
   setEditObj: (obj: GlassesObject | null) => void
+  selectChild: (parentId: string, child: GlassesObject) => void
 
   // Draw tools
   drawMode: DrawMode | null
@@ -581,10 +582,10 @@ export function useGlassesEditor(computerId: number): EditorState {
     }
     pendingCaptureRef.current = e.pointerId
 
-    if (info.kind === 'move' && selectedIds.length > 1 && selectedIds.includes(info.id)) {
+    if ((info.kind === 'move' || info.kind === 'move-line') && selectedIds.length > 1 && selectedIds.includes(info.id)) {
       const [mx0, my0] = toSvg(e)
       const anchors = activeScene.filter(o => selectedIds.includes(o.id)).map(o => {
-        if (o.type === 'line')    return { id: o.id, ox: o.x1, oy: o.y1 }
+        if (o.type === 'line')    return { id: o.id, ox: o.x1, oy: o.y1, ox2: o.x2, oy2: o.y2 }
         if (o.type === 'polygon' || o.type === 'lines') return { id: o.id, ox: 0, oy: 0, origPoints: o.points }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return { id: o.id, ox: (o as any).x as number, oy: (o as any).y as number }
@@ -633,8 +634,13 @@ export function useGlassesEditor(computerId: number): EditorState {
       const dx = Math.round(mx - d.mx0), dy = Math.round(my - d.my0)
       updateEditor({ overrides: d.anchors.map(a => a.origPoints
         ? { id: a.id, props: { points: a.origPoints.map(([px,py]) => [px+dx, py+dy] as [number,number]) } }
-        : { id: a.id, props: { x: a.ox+dx, y: a.oy+dy } }
+        : a.ox2 !== undefined
+          ? { id: a.id, props: { x1: a.ox+dx, y1: a.oy+dy, x2: a.ox2+dx, y2: a.oy2!+dy } }
+          : { id: a.id, props: { x: a.ox+dx, y: a.oy+dy } }
       )})
+    } else if (d.kind === 'move-line') {
+      const dx = Math.round(mx - d.mx0), dy = Math.round(my - d.my0)
+      updateEditor({ overrides: [{ id: d.id, props: { x1: d.ox1+dx, y1: d.oy1+dy, x2: d.ox2+dx, y2: d.oy2+dy } }] })
     } else if (d.kind === 'move') {
       const dx = Math.round(mx - d.mx0), dy = Math.round(my - d.my0)
       updateEditor({ overrides: [{ id: d.id, props: { x: d.ox+dx, y: d.oy+dy } }] })
@@ -761,14 +767,25 @@ export function useGlassesEditor(computerId: number): EditorState {
   // ─── Properties ────────────────────────────────────────────────────────────
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const selectChild = (parentId: string, child: GlassesObject) =>
+    updateEditor({ selectedIds: [parentId], selectedChildId: child.id, editObj: child })
+
   const updateProp = (key: string, val: any) => {
     if (!editObj) return
     const updated = { ...editObj, [key]: val } as GlassesObject
     if (selectedChildId && selectedIds.length === 1) {
-      updateEditor({ editObj: updated })
       if (editorMode === 'draft') {
-        handleGroupChildUpdate(selectedIds[0], selectedChildId, { [key]: val })
+        const groupId = selectedIds[0]
+        const childId = selectedChildId
+        const curDraft = (useWorldViewStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE).draftScene
+        const newScene = curDraft.map(o => {
+          if (o.id !== groupId || o.type !== 'group') return o
+          const g = o as GlassesGroup
+          return { ...g, children: g.children.map(c => c.id === childId ? { ...c, [key]: val } as GlassesObject : c) }
+        })
+        updateEditor({ editObj: updated, draftScene: newScene })
       } else {
+        updateEditor({ editObj: updated })
         sendChildUpdateDebounced(selectedIds[0], selectedChildId, { [key]: val })
       }
     } else {
@@ -787,7 +804,7 @@ export function useGlassesEditor(computerId: number): EditorState {
     draftScene, undoStack, redoStack, undo, redo,
     selectedIds, setSelectedIds,
     selectedChildId, setSelectedChildId,
-    editObj, setEditObj,
+    editObj, setEditObj, selectChild,
     drawMode, setDrawMode,
     drawCurrent, setDrawCurrent,
     drawRgba, setDrawRgba,
