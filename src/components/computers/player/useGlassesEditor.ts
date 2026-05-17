@@ -1,8 +1,12 @@
 'use client'
 
+// All editor state and logic for the glasses canvas editor.
+// Handles live/draft mode, undo/redo history, selection, drag, box-select,
+// pen drawing (with RDP simplification), and server op dispatch.
+// Returns an EditorState object consumed by GlassesEditorLayout and its sub-panels.
 import { useRef, useEffect, useCallback } from 'react'
 import { useWorldStore } from '@/store/useWorld'
-import { useWorldViewStore } from '@/store/useWorldView'
+import { useWorldViewStore, useEditorStateStore } from '@/store/useWorldView'
 import type { GlassesObject, GlassesPolygon, GlassesLines, GlassesGroup, GlassesItem } from '@/types/glasses'
 import { loadMinecraftFont } from '@/utils/minecraftFont'
 import {
@@ -153,6 +157,46 @@ export interface EditorState {
 // without subscribing to each individual field. Only populated when isLiveView is true.
 export const liveEditorRef: { current: EditorState | null } = { current: null }
 
+function propsMatchTarget(props: Record<string, any>, target: Record<string, any>): boolean {
+  return Object.entries(props).every(([k, v]) => {
+    const cur = target[k]
+    if (typeof v === 'object' && v !== null) return JSON.stringify(v) === JSON.stringify(cur)
+    return cur === v
+  })
+}
+
+function computeMoveOverrides(d: DragInfo, dx: number, dy: number): Override[] | null {
+  switch (d.kind) {
+    case 'multi-move':
+      return d.anchors.map(a => a.origPoints
+        ? { id: a.id, props: { points: a.origPoints.map(([px,py]) => [px+dx, py+dy] as [number,number]) } }
+        : a.ox2 !== undefined
+          ? { id: a.id, props: { x1: a.ox+dx, y1: a.oy+dy, x2: a.ox2+dx, y2: a.oy2!+dy } }
+          : { id: a.id, props: { x: a.ox+dx, y: a.oy+dy } }
+      )
+    case 'move-line':
+      return [{ id: d.id, props: { x1: d.ox1+dx, y1: d.oy1+dy, x2: d.ox2+dx, y2: d.oy2+dy } }]
+    case 'move':
+      return [{ id: d.id, props: { x: d.ox+dx, y: d.oy+dy } }]
+    case 'move-pts':
+      return [{ id: d.id, props: { points: d.origPoints.map(([px,py]) => [px+dx, py+dy] as [number,number]) } }]
+    case 'move-vertex':
+      return [{ id: d.id, props: { points: d.origPts.map((p, i) => i === d.vertIdx ? [p[0]+dx, p[1]+dy] as [number,number] : p) } }]
+    case 'resize': {
+      let x = d.ox, y = d.oy, w = d.ow, h = d.oh
+      if (d.corner === 'se') { w = Math.max(4, d.ow+dx); h = Math.max(4, d.oh+dy) }
+      if (d.corner === 'sw') { x = d.ox+dx; w = Math.max(4, d.ow-dx); h = Math.max(4, d.oh+dy) }
+      if (d.corner === 'ne') { w = Math.max(4, d.ow+dx); y = d.oy+dy; h = Math.max(4, d.oh-dy) }
+      if (d.corner === 'nw') { x = d.ox+dx; w = Math.max(4, d.ow-dx); y = d.oy+dy; h = Math.max(4, d.oh-dy) }
+      return [{ id: d.id, props: { x, y, w, h } }]
+    }
+    case 'endpoint':
+      return [{ id: d.id, props: d.pt === 1 ? { x1: d.ox+dx, y1: d.oy+dy } : { x2: d.ox+dx, y2: d.oy+dy } }]
+    default:
+      return null
+  }
+}
+
 export function useGlassesEditor(computerId: number): EditorState {
   const liveObjects    = useWorldStore(s => (s.canvasScenes[computerId] ?? EMPTY_SCENE) as GlassesObject[])
   const wsSend         = useWorldStore(s => s.wsSend)
@@ -161,7 +205,7 @@ export function useGlassesEditor(computerId: number): EditorState {
   const setLiveView    = useWorldViewStore(s => s.setLiveView)
 
   // ─── Zustand-backed mutable state ─────────────────────────────────────────
-  const ms = useWorldViewStore(s => s.glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE)
+  const ms = useEditorStateStore(s => s.glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE)
   const {
     editorMode, draftScene, undoStack, redoStack,
     open, fontReady,
@@ -174,7 +218,7 @@ export function useGlassesEditor(computerId: number): EditorState {
   } = ms
 
   const updateEditor = useCallback(
-    (patch: Partial<EditorMutableState>) => useWorldViewStore.getState().updateGlassesEditor(computerId, patch),
+    (patch: Partial<EditorMutableState>) => useEditorStateStore.getState().updateGlassesEditor(computerId, patch),
     [computerId]
   )
 
@@ -195,7 +239,7 @@ export function useGlassesEditor(computerId: number): EditorState {
 
   const setPolyTick: React.Dispatch<React.SetStateAction<number>> = (v) => {
     if (typeof v === 'function') {
-      const cur = (useWorldViewStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE).polyTick
+      const cur = (useEditorStateStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE).polyTick
       updateEditor({ polyTick: v(cur) })
     } else {
       updateEditor({ polyTick: v })
@@ -204,7 +248,7 @@ export function useGlassesEditor(computerId: number): EditorState {
 
   const setDraftScene = (scene: GlassesObject[] | ((prev: GlassesObject[]) => GlassesObject[])) => {
     if (typeof scene === 'function') {
-      const cur = (useWorldViewStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE).draftScene
+      const cur = (useEditorStateStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE).draftScene
       updateEditor({ draftScene: scene(cur) })
     } else {
       updateEditor({ draftScene: scene })
@@ -231,18 +275,18 @@ export function useGlassesEditor(computerId: number): EditorState {
   // ─── Draft history helpers ─────────────────────────────────────────────────
 
   const draftPushHistory = useCallback(() => {
-    const { draftScene: ds, undoStack: us } = useWorldViewStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
+    const { draftScene: ds, undoStack: us } = useEditorStateStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
     updateEditor({ undoStack: [...us.slice(-(HISTORY_CAP - 1)), ds], redoStack: [] })
   }, [computerId, updateEditor])
 
   const undo = useCallback(() => {
-    const { undoStack: us, redoStack: rs, draftScene: ds } = useWorldViewStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
+    const { undoStack: us, redoStack: rs, draftScene: ds } = useEditorStateStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
     if (us.length === 0) return
     updateEditor({ undoStack: us.slice(0, -1), redoStack: [ds, ...rs.slice(0, HISTORY_CAP - 1)], draftScene: us[us.length - 1] })
   }, [computerId, updateEditor])
 
   const redo = useCallback(() => {
-    const { undoStack: us, redoStack: rs, draftScene: ds } = useWorldViewStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
+    const { undoStack: us, redoStack: rs, draftScene: ds } = useEditorStateStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
     if (rs.length === 0) return
     updateEditor({ undoStack: [...us.slice(-(HISTORY_CAP - 1)), ds], redoStack: rs.slice(1), draftScene: rs[0] })
   }, [computerId, updateEditor])
@@ -251,7 +295,7 @@ export function useGlassesEditor(computerId: number): EditorState {
 
   // Eagerly initialize the store entry so CCRemoteController re-renders after mount
   useEffect(() => {
-    useWorldViewStore.getState().updateGlassesEditor(computerId, {})
+    useEditorStateStore.getState().updateGlassesEditor(computerId, {})
   }, [computerId])
 
   useEffect(() => {
@@ -325,36 +369,25 @@ export function useGlassesEditor(computerId: number): EditorState {
 
   // Clear overrides once server confirms (live mode)
   useEffect(() => {
-    const { overrides: ov, editorMode: em } = useWorldViewStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
+    const { overrides: ov, editorMode: em } = useEditorStateStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
     if (ov.length === 0 || em === 'draft') return
     const unconfirmed = ov.filter(o => {
       const obj = liveObjects.find(lo => lo.id === o.id)
       if (!obj) return false
-      return !Object.entries(o.props).every(([k, v]) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const cur = (obj as any)[k]
-        if (typeof v === 'object' && v !== null) return JSON.stringify(v) === JSON.stringify(cur)
-        return cur === v
-      })
+      return !propsMatchTarget(o.props, obj as any)
     })
     updateEditor({ overrides: unconfirmed })
   }, [liveObjects]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Clear childOverride once server confirms (live mode)
   useEffect(() => {
-    const { childOverride: co, editorMode: em } = useWorldViewStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
+    const { childOverride: co, editorMode: em } = useEditorStateStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
     if (!co || em === 'draft') return
     const group = liveObjects.find(o => o.id === co.groupId)
     if (!group || group.type !== 'group') { updateEditor({ childOverride: null }); return }
     const child = (group as GlassesGroup).children.find(c => c.id === co.childId)
     if (!child) { updateEditor({ childOverride: null }); return }
-    const confirmed = Object.entries(co.props).every(([k, v]) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cur = (child as any)[k]
-      if (typeof v === 'object' && v !== null) return JSON.stringify(v) === JSON.stringify(cur)
-      return cur === v
-    })
-    if (confirmed) updateEditor({ childOverride: null })
+    if (propsMatchTarget(co.props, child as any)) updateEditor({ childOverride: null })
   }, [liveObjects]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── WS helpers ────────────────────────────────────────────────────────────
@@ -396,7 +429,7 @@ export function useGlassesEditor(computerId: number): EditorState {
   const activeRemove = (id: string) => {
     if (editorMode === 'live') sendOp('remove', { objectId: id })
     else { draftPushHistory(); setDraftScene(s => s.filter(o => o.id !== id)) }
-    const { selectedIds: curIds, editObj: curEdit } = useWorldViewStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
+    const { selectedIds: curIds, editObj: curEdit } = useEditorStateStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
     updateEditor({ selectedIds: curIds.filter(i => i !== id), ...(curEdit?.id === id ? { editObj: null } : {}) })
   }
 
@@ -576,7 +609,7 @@ export function useGlassesEditor(computerId: number): EditorState {
   const startDrag = (e: React.PointerEvent, info: DragInfo) => {
     e.stopPropagation()
     if ('id' in info && e.shiftKey) {
-      const { selectedIds: curIds } = useWorldViewStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
+      const { selectedIds: curIds } = useEditorStateStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
       updateEditor({ selectedIds: curIds.includes(info.id) ? curIds.filter(i => i !== info.id) : [...curIds, info.id] })
       return
     }
@@ -629,42 +662,10 @@ export function useGlassesEditor(computerId: number): EditorState {
     const d = dragRef.current
     if (!d) return
     const [mx, my] = toSvg(e)
+    const dx = Math.round(mx - d.mx0), dy = Math.round(my - d.my0)
 
-    if (d.kind === 'multi-move') {
-      const dx = Math.round(mx - d.mx0), dy = Math.round(my - d.my0)
-      updateEditor({ overrides: d.anchors.map(a => a.origPoints
-        ? { id: a.id, props: { points: a.origPoints.map(([px,py]) => [px+dx, py+dy] as [number,number]) } }
-        : a.ox2 !== undefined
-          ? { id: a.id, props: { x1: a.ox+dx, y1: a.oy+dy, x2: a.ox2+dx, y2: a.oy2!+dy } }
-          : { id: a.id, props: { x: a.ox+dx, y: a.oy+dy } }
-      )})
-    } else if (d.kind === 'move-line') {
-      const dx = Math.round(mx - d.mx0), dy = Math.round(my - d.my0)
-      updateEditor({ overrides: [{ id: d.id, props: { x1: d.ox1+dx, y1: d.oy1+dy, x2: d.ox2+dx, y2: d.oy2+dy } }] })
-    } else if (d.kind === 'move') {
-      const dx = Math.round(mx - d.mx0), dy = Math.round(my - d.my0)
-      updateEditor({ overrides: [{ id: d.id, props: { x: d.ox+dx, y: d.oy+dy } }] })
-    } else if (d.kind === 'move-pts') {
-      const dx = Math.round(mx - d.mx0), dy = Math.round(my - d.my0)
-      updateEditor({ overrides: [{ id: d.id, props: { points: d.origPoints.map(([px,py]) => [px+dx, py+dy] as [number,number]) } }] })
-    } else if (d.kind === 'move-vertex') {
-      const dx = Math.round(mx - d.mx0), dy = Math.round(my - d.my0)
-      updateEditor({ overrides: [{ id: d.id, props: { points: d.origPts.map((p, i) => i === d.vertIdx ? [p[0]+dx, p[1]+dy] as [number,number] : p) } }] })
-    } else if (d.kind === 'resize') {
-      const dx = Math.round(mx - d.mx0), dy = Math.round(my - d.my0)
-      let x = d.ox, y = d.oy, w = d.ow, h = d.oh
-      if (d.corner === 'se') { w = Math.max(4, d.ow+dx); h = Math.max(4, d.oh+dy) }
-      if (d.corner === 'sw') { x = d.ox+dx; w = Math.max(4, d.ow-dx); h = Math.max(4, d.oh+dy) }
-      if (d.corner === 'ne') { w = Math.max(4, d.ow+dx); y = d.oy+dy; h = Math.max(4, d.oh-dy) }
-      if (d.corner === 'nw') { x = d.ox+dx; w = Math.max(4, d.ow-dx); y = d.oy+dy; h = Math.max(4, d.oh-dy) }
-      updateEditor({ overrides: [{ id: d.id, props: { x, y, w, h } }] })
-    } else if (d.kind === 'endpoint') {
-      const dx = Math.round(mx - d.mx0), dy = Math.round(my - d.my0)
-      updateEditor({ overrides: [{ id: d.id, props: d.pt === 1 ? { x1: d.ox+dx, y1: d.oy+dy } : { x2: d.ox+dx, y2: d.oy+dy } }] })
-    } else if (d.kind === 'move-child') {
-      const dx = Math.round(mx - d.mx0), dy = Math.round(my - d.my0)
+    if (d.kind === 'move-child') {
       const orig = d.origProps
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let newProps: Record<string, any>
       if ('x1' in orig) {
         newProps = { x1: (orig.x1 as number)+dx, y1: (orig.y1 as number)+dy, x2: (orig.x2 as number)+dx, y2: (orig.y2 as number)+dy }
@@ -674,7 +675,11 @@ export function useGlassesEditor(computerId: number): EditorState {
         newProps = { x: (orig.x as number)+dx, y: (orig.y as number)+dy }
       }
       updateEditor({ childOverride: { groupId: d.groupId, childId: d.childId, props: newProps } })
+      return
     }
+
+    const overrides = computeMoveOverrides(d, dx, dy)
+    if (overrides) updateEditor({ overrides })
   }
 
   const handleSvgPointerUp = (e: React.PointerEvent) => {
@@ -725,7 +730,7 @@ export function useGlassesEditor(computerId: number): EditorState {
     dragRef.current = null
 
     if (d) {
-      const { overrides: curOv, childOverride: curCo } = useWorldViewStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
+      const { overrides: curOv, childOverride: curCo } = useEditorStateStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
 
       if (d.kind === 'multi-move') {
         if (curOv.length > 0) {
@@ -761,7 +766,7 @@ export function useGlassesEditor(computerId: number): EditorState {
 
   const handleListDragStart = (e: React.DragEvent, i: number) => { updateEditor({ listDragIdx: i }); e.dataTransfer.effectAllowed = 'move' }
   const handleListDragOver  = (e: React.DragEvent, i: number) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; updateEditor({ listOverIdx: i }) }
-  const handleListDrop      = (e: React.DragEvent, toIdx: number) => { e.preventDefault(); const { listDragIdx: di } = useWorldViewStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE; if (di !== null && di !== toIdx) activeReorder(di, toIdx); updateEditor({ listDragIdx: null, listOverIdx: null }) }
+  const handleListDrop      = (e: React.DragEvent, toIdx: number) => { e.preventDefault(); const { listDragIdx: di } = useEditorStateStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE; if (di !== null && di !== toIdx) activeReorder(di, toIdx); updateEditor({ listDragIdx: null, listOverIdx: null }) }
   const handleListDragEnd   = () => { updateEditor({ listDragIdx: null, listOverIdx: null }) }
 
   // ─── Properties ────────────────────────────────────────────────────────────
@@ -777,7 +782,7 @@ export function useGlassesEditor(computerId: number): EditorState {
       if (editorMode === 'draft') {
         const groupId = selectedIds[0]
         const childId = selectedChildId
-        const curDraft = (useWorldViewStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE).draftScene
+        const curDraft = (useEditorStateStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE).draftScene
         const newScene = curDraft.map(o => {
           if (o.id !== groupId || o.type !== 'group') return o
           const g = o as GlassesGroup

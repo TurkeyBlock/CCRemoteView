@@ -86,9 +86,9 @@ export function renderMinecraftTextToCanvas(
   ctx.clearRect(0, 0, canvas.width, canvas.height)
 
   // Draw white glyphs from the atlas
-  const tmp = document.createElement('canvas')
-  tmp.width = canvas.width; tmp.height = canvas.height
-  const tc = tmp.getContext('2d')
+  const tempCanvas = document.createElement('canvas')
+  tempCanvas.width = canvas.width; tempCanvas.height = canvas.height
+  const tc = tempCanvas.getContext('2d')
   if (!tc) return
   tc.imageSmoothingEnabled = false
 

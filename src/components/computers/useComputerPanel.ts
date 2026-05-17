@@ -1,11 +1,12 @@
 import { useWorldStore } from '@/store/useWorld'
 import { useWorldViewStore } from '@/store/useWorldView'
+import { sceneBridge } from '@/store/sceneBridge'
 
 export function useComputerPanel(computerId: number) {
   const invokeCommand  = useWorldStore(s => s.invokeCommand)
   const sendStopSignal = useWorldStore(s => s.sendStopSignal)
 
-  const focusOnComputer    = useWorldViewStore(s => s.focusOnComputer)
+  const focusOnComputer    = sceneBridge.focusOnComputer
   const followComputer     = useWorldViewStore(s => s.followComputer)
   const isFollowing        = useWorldViewStore(s => s.followedComputer.computerId === computerId)
   const rideAlongComputer  = useWorldViewStore(s => s.rideAlongComputer)

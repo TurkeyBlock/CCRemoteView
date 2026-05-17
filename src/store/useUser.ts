@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { fetchWithTimeout } from '@/utils/fetchWithTimeout'
 
 interface UserState {
   username: string | null
@@ -25,7 +26,7 @@ export const useUserStore = create<UserState>()((set, get) => ({
   _pollHandle: null,
 
   fetchMe: async () => {
-    const res = await fetch('/api/me').catch(() => null)
+    const res = await fetchWithTimeout('/api/me').catch(() => null)
     if (!res || !res.ok) return
     const data = await res.json()
     const s = get()

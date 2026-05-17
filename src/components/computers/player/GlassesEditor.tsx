@@ -1,6 +1,11 @@
 'use client'
 
+// Modal wrapper for the glasses canvas editor, rendered from PlayerPanel.
+// Thin shell: owns the open/closed trigger button and JSON size meter shown in the
+// PlayerPanel section; delegates all editor logic to useGlassesEditor and
+// all layout to GlassesEditorLayout.
 import { createPortal } from 'react-dom'
+import { Modal } from '@/components/modals/Modal'
 import { useGlassesEditor } from './useGlassesEditor'
 import GlassesEditorLayout from './GlassesEditorLayout'
 import GlassesSvgCanvas from './GlassesSvgCanvas'
@@ -8,11 +13,17 @@ import { JSON_CAP } from './glassesEditorTypes'
 
 interface Props { computerId: number }
 
+function getMeterColor(len: number, cap: number): string {
+  if (len > cap * 0.94) return 'var(--red)';
+  if (len > cap * 0.75) return '#f5a623';
+  return 'var(--fg-dim)';
+}
+
 export default function GlassesEditor({ computerId }: Props) {
   const editor = useGlassesEditor(computerId)
   const { liveObjects, liveJsonLen, open, setOpen, isLiveView, setLiveView, importOpen, setImportOpen, importText, setImportText, handleImportConfirm } = editor
 
-  const meterColor = liveJsonLen > JSON_CAP * 0.94 ? 'var(--red)' : liveJsonLen > JSON_CAP * 0.75 ? '#f5a623' : 'var(--fg-dim)'
+  const meterColor = getMeterColor(liveJsonLen, JSON_CAP)
 
   return (
     <>
@@ -33,9 +44,7 @@ export default function GlassesEditor({ computerId }: Props) {
 
       {/* Main modal */}
       {open && !isLiveView && typeof document !== 'undefined' && createPortal(
-        <div
-          style={{ position: 'fixed', inset: 0, zIndex: 9000, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onPointerDown={e => { if (e.target === e.currentTarget) setOpen(false) }}>
+        <Modal layer="editor" dim={0.65} onBackdropPointerDown={() => setOpen(false)}>
           <div style={{ width: 'min(1600px, 98vw)', height: '95vh', background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 4, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <GlassesEditorLayout
               editor={editor}
@@ -47,13 +56,13 @@ export default function GlassesEditor({ computerId }: Props) {
               onClose={() => setOpen(false)}
             />
           </div>
-        </div>,
+        </Modal>,
         document.body
       )}
 
       {/* Import modal */}
       {importOpen && typeof document !== 'undefined' && createPortal(
-        <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Modal layer="confirmTop" dim={0.7}>
           <div style={{ width: 440, background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 4, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ fontSize: 13, fontWeight: 600 }}>Import Scene JSON</div>
             <textarea value={importText} onChange={e => setImportText(e.target.value)}
@@ -64,7 +73,7 @@ export default function GlassesEditor({ computerId }: Props) {
               <button className="btn btn-compact btn-primary" onClick={handleImportConfirm}>Import</button>
             </div>
           </div>
-        </div>,
+        </Modal>,
         document.body
       )}
     </>

@@ -27,7 +27,7 @@ function DebugState({ computerId }: { computerId: number }) {
 }
 
 export default function ComputerPanel({ computerId }: Props) {
-  const wsOn = useWorldStore(s => s.computers[computerId]?.ws_connected)
+  const wsOn = useWorldStore(s => s.computers[computerId]?.wsConnected)
   const type  = useWorldStore(s => s.computers[computerId]?.type)
   const locX  = useWorldStore(s => s.computers[computerId]?.loc?.x)
   const locY  = useWorldStore(s => s.computers[computerId]?.loc?.y)

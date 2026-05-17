@@ -5,8 +5,8 @@ import { useWorldStore } from '@/store/useWorld'
 interface Props { computerId: number }
 
 export default function FuelGauge({ computerId }: Props) {
-  const fuelLevel = useWorldStore(s => s.computers[computerId]?.fuelLevel)
-  const fuelLimit = useWorldStore(s => s.computers[computerId]?.fuelLimit)
+  const fuelLevel = useWorldStore(s => (s.computers[computerId] as any)?.fuelLevel)
+  const fuelLimit = useWorldStore(s => (s.computers[computerId] as any)?.fuelLimit)
   if (fuelLevel === undefined) return null
   const pct = (fuelLimit ?? 0) > 0 ? Math.min(100, (fuelLevel / fuelLimit!) * 100) : 0
   return (

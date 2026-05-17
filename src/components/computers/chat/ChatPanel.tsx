@@ -1,9 +1,9 @@
 'use client'
 
-import { useWorldStore } from '@/store/useWorld'
+import { useWorldStore, useChatStore } from '@/store/useWorld'
 
 export default function ChatPanel() {
-  const chatLog   = useWorldStore(s => s.chatLog)
+  const chatLog   = useChatStore(s => s.chatLog)
   const computers = useWorldStore(s => s.computers)
 
   if (chatLog.length === 0) {

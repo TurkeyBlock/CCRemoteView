@@ -1,5 +1,8 @@
 'use client'
 
+// Panel shown when a neural-interface player computer is selected.
+// Displays player stats, armor, hotbar, full inventory, ender chest, nearby entities,
+// a Lua terminal, action buttons, and the GlassesEditor trigger.
 import { memo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorldStore } from '@/store/useWorld'
@@ -10,22 +13,11 @@ import { Section } from '@/components/ui'
 import GenericInventorySlot from '@/components/inventory/GenericInventorySlot'
 import GlassesEditor from './GlassesEditor'
 import type { ItemStack } from '@/types/world'
+import { normalizeInventory } from '@/utils/inventory'
 
 const ARMOR_SLOTS = ['head', 'chest', 'legs', 'feet'] as const
 const PLAYER_INV_SIZE = 36
 const ENDER_CHEST_SIZE = 27
-
-function normalizeInv(inv: unknown): Record<number, ItemStack> {
-  if (!inv || typeof inv !== 'object') return {}
-  if (Array.isArray(inv)) {
-    const r: Record<number, ItemStack> = {}
-    for (let i = 0; i < inv.length; i++) {
-      if (inv[i] != null) r[i + 1] = inv[i]
-    }
-    return r
-  }
-  return inv as Record<number, ItemStack>
-}
 
 interface Props { computerId: number }
 
@@ -35,10 +27,10 @@ export default memo(function PlayerPanel({ computerId }: Props) {
 
   const { inventory, equipment, enderChest, playerName } = useWorldStore(
     useShallow(s => ({
-      inventory:  s.computers[computerId]?.inventory,
-      equipment:  s.computers[computerId]?.equipment,
-      enderChest: s.computers[computerId]?.enderChest,
-      playerName: s.computers[computerId]?.playerName,
+      inventory:  (s.computers[computerId] as any)?.inventory,
+      equipment:  (s.computers[computerId] as any)?.equipment,
+      enderChest: (s.computers[computerId] as any)?.enderChest,
+      playerName: (s.computers[computerId] as any)?.playerName,
     }))
   )
 
@@ -48,8 +40,8 @@ export default memo(function PlayerPanel({ computerId }: Props) {
 
   const hasScanner = computer.peripherals?.includes('plethora:scanner')
   const eq = equipment as Record<string, ItemStack> | undefined
-  const invNorm    = normalizeInv(inventory)
-  const enderNorm  = normalizeInv(enderChest)
+  const invNorm    = normalizeInventory<ItemStack>(inventory)
+  const enderNorm  = normalizeInventory<ItemStack>(enderChest)
 
   const invItemCount = Object.values(invNorm).reduce((s, it) => s + (it?.count ?? 0), 0)
 

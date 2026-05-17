@@ -1,7 +1,7 @@
 'use client'
 
 import { memo, useRef, useState, useEffect } from 'react'
-import ConfirmDialog from '@/components/ConfirmDialog'
+import ConfirmDialog from '@/components/modals/ConfirmDialog'
 import { useComputerPanel } from '../useComputerPanel'
 import TurtleInventory from './TurtleInventory'
 import FuelGauge from './FuelGauge'
@@ -38,7 +38,7 @@ export default memo(function TurtlePanel({ computerId }: Props) {
 
   return (
     <>
-      {computer?.inv && (
+      {(computer as any)?.inv && (
         <Section
           label="Inventory"
           right={
@@ -59,7 +59,7 @@ export default memo(function TurtlePanel({ computerId }: Props) {
         </Section>
       )}
 
-      <Section label="Fuel" right={computer ? `${computer.fuelLevel ?? 0} / ${computer.fuelLimit ?? 0}` : undefined}>
+      <Section label="Fuel" right={computer ? `${(computer as any).fuelLevel ?? 0} / ${(computer as any).fuelLimit ?? 0}` : undefined}>
         <FuelGauge computerId={computerId} />
       </Section>
 

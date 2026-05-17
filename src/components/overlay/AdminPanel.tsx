@@ -1,20 +1,23 @@
 'use client'
 
-import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react'
+import { useState, useEffect, useRef, forwardRef } from 'react'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useWorldStore } from '@/store/useWorld'
 import { useUserStore } from '@/store/useUser'
 import { closeAllMenus } from '@/components/ui'
-import ConfirmDialog from '@/components/ConfirmDialog'
+import ConfirmDialog from '@/components/modals/ConfirmDialog'
+import { Modal } from '@/components/modals/Modal'
+import { usePanelHandle, type PanelHandle } from './panelHandle'
+import { fetchWithTimeout } from '@/utils/fetchWithTimeout'
 
 interface Props { onOpened?: () => void }
-export interface PanelHandle { setOpen: (v: boolean) => void }
+export type { PanelHandle }
 
 const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened }, ref) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; right?: number }>({ top: 0 })
   const btnRef = useRef<HTMLButtonElement>(null)
-  useImperativeHandle(ref, () => ({ setOpen }), [])
+  usePanelHandle(ref, setOpen)
   const [pending, setPending] = useState<string[]>([])
   const [approved, setApproved] = useState<string[]>([])
   const [pendingIds, setPendingIds] = useState<{ id: string; ip: string; requestedAt: number }[]>([])
@@ -48,11 +51,15 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
 
   async function fetchAll() {
     try {
+      const json = async (url: string) => {
+        try { const r = await fetchWithTimeout(url); return r.ok ? await r.json() : null }
+        catch { return null }
+      }
       const [ips, ids, requests, ops] = await Promise.all([
-        fetch('/api/admin/computerIps').then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch('/api/admin/computerIds').then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch('/api/admin/operatorRequests').then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch('/api/admin/operators').then(r => r.ok ? r.json() : null).catch(() => null),
+        json('/api/admin/computerIps'),
+        json('/api/admin/computerIds'),
+        json('/api/admin/operatorRequests'),
+        json('/api/admin/operators'),
       ])
       if (ips) { setPending(ips.pending); setApproved(ips.approved) }
       if (ids) { setPendingIds(ids.pending); setApprovedIds(ids.approved); setAllowByIp(ids.allowByIp) }
@@ -76,32 +83,32 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
   }
 
   async function post(url: string, body?: object) {
-    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
+    await fetchWithTimeout(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
     await fetchAll()
   }
 
   async function handleSetAllowByIp(enabled: boolean) {
-    await fetch('/api/admin/setAllowByIp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) })
+    await fetchWithTimeout('/api/admin/setAllowByIp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) })
     await fetchAll()
   }
 
   async function handleApproveOperator(sub: string) {
-    await fetch('/api/admin/approveOperator', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sub }) })
+    await fetchWithTimeout('/api/admin/approveOperator', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sub }) })
     await Promise.all([fetchAll(), useUserStore.getState().fetchMe()])
   }
 
   async function handleDenyOperator(sub: string) {
-    await fetch('/api/admin/denyOperatorRequest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sub }) })
+    await fetchWithTimeout('/api/admin/denyOperatorRequest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sub }) })
     await Promise.all([fetchAll(), useUserStore.getState().fetchMe()])
   }
 
   async function handleRevokeOperator(sub: string) {
-    await fetch('/api/admin/revokeOperator', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sub }) })
+    await fetchWithTimeout('/api/admin/revokeOperator', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sub }) })
     await Promise.all([fetchAll(), useUserStore.getState().fetchMe()])
   }
 
   async function deleteComputer(id: string | number) {
-    await fetch('/api/admin/deleteComputer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
+    await fetchWithTimeout('/api/admin/deleteComputer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
     removeComputer(id)
     await fetchAll()
   }
@@ -109,7 +116,7 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
   async function handleClearWorld() {
     setClearingWorld(true)
     await Promise.all([
-      fetch('/api/admin/clearWorld', { method: 'POST' }).then(() => clearBlocks()),
+      fetchWithTimeout('/api/admin/clearWorld', { method: 'POST' }).then(() => clearBlocks()),
       new Promise(r => setTimeout(r, 500)),
     ])
     setClearingWorld(false)
@@ -125,7 +132,7 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
 
       {open && (
         <>
-          <div style={{ position: 'fixed', inset: 0, zIndex: 999 }} onClick={() => setOpen(false)} />
+          <Modal layer="dialog" dim={0} center={false} onBackdropClick={() => setOpen(false)} />
           <div className="dropdown" style={{ top: pos.top, right: pos.right, maxHeight: '80vh', overflowY: 'auto' }}>
 
             <div className="dropdown-section">

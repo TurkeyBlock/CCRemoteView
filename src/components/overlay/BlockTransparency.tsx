@@ -1,32 +1,34 @@
 'use client'
 
-import { useState, forwardRef, useImperativeHandle } from 'react'
-import { useWorldViewStore } from '@/store/useWorldView'
+import { useState, forwardRef } from 'react'
+import { useRenderFiltersStore } from '@/store/useWorldView'
+import { sceneBridge } from '@/store/sceneBridge'
 import { HeaderMenu } from '@/components/ui'
-import ConfirmDialog from '@/components/ConfirmDialog'
+import ConfirmDialog from '@/components/modals/ConfirmDialog'
+import { usePanelHandle, type PanelHandle } from './panelHandle'
 
 interface Props { onOpened?: () => void }
-export interface PanelHandle { setOpen: (v: boolean) => void }
+export type { PanelHandle }
 
 const BlockTransparency = forwardRef<PanelHandle, Props>(function BlockTransparency({ onOpened }, ref) {
-  const [open, setOpen] = useState(false)
-  useImperativeHandle(ref, () => ({ setOpen }), [])
+  const [, setOpen] = useState(false)
+  usePanelHandle(ref, setOpen)
   const [input, setInput] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
   const [pendingOpacity, setPendingOpacity] = useState<Record<string, number>>({})
   const [showOpacityConfirm, setShowOpacityConfirm] = useState(false)
 
-  const transparencyList    = useWorldViewStore(s => s.transparencyList)
-  const addToTransparencyList    = useWorldViewStore(s => s.addToTransparencyList)
-  const removeFromTransparencyList = useWorldViewStore(s => s.removeFromTransparencyList)
-  const blockPickMode       = useWorldViewStore(s => s.blockPickMode)
-  const pendingFilterBlocks = useWorldViewStore(s => s.pendingFilterBlocks)
-  const setBlockPickMode    = useWorldViewStore(s => s.setBlockPickMode)
-  const confirmPendingFilterBlocks  = useWorldViewStore(s => s.confirmPendingFilterBlocks)
-  const cancelPendingFilterBlocks   = useWorldViewStore(s => s.cancelPendingFilterBlocks)
-  const removePendingFilterBlock    = useWorldViewStore(s => s.removePendingFilterBlock)
-  const miningMode          = useWorldViewStore(s => s.miningMode)
-  const miningOpacityMap    = useWorldViewStore(s => s.miningOpacityMap)
+  const transparencyList    = useRenderFiltersStore(s => s.transparencyList)
+  const addToTransparencyList    = useRenderFiltersStore(s => s.addToTransparencyList)
+  const removeFromTransparencyList = useRenderFiltersStore(s => s.removeFromTransparencyList)
+  const blockPickMode       = useRenderFiltersStore(s => s.blockPickMode)
+  const pendingFilterBlocks = useRenderFiltersStore(s => s.pendingFilterBlocks)
+  const setBlockPickMode    = useRenderFiltersStore(s => s.setBlockPickMode)
+  const confirmPendingFilterBlocks  = useRenderFiltersStore(s => s.confirmPendingFilterBlocks)
+  const cancelPendingFilterBlocks   = useRenderFiltersStore(s => s.cancelPendingFilterBlocks)
+  const removePendingFilterBlock    = useRenderFiltersStore(s => s.removePendingFilterBlock)
+  const miningMode          = useRenderFiltersStore(s => s.miningMode)
+  const miningOpacityMap    = useRenderFiltersStore(s => s.miningOpacityMap)
 
   function add() {
     const name = input.trim()
@@ -147,9 +149,9 @@ const BlockTransparency = forwardRef<PanelHandle, Props>(function BlockTranspare
         message={`Update opacity for ${Object.keys(pendingOpacity).length} block${Object.keys(pendingOpacity).length !== 1 ? 's' : ''}? The scene will rebuild.`}
         onConfirm={() => {
           setShowOpacityConfirm(false)
-          useWorldViewStore.setState({ miningOpacityMap: { ...miningOpacityMap, ...pendingOpacity } })
+          useRenderFiltersStore.setState({ miningOpacityMap: { ...miningOpacityMap, ...pendingOpacity } })
           setPendingOpacity({})
-          useWorldViewStore.getState().regenerateSceneFromBlocks()
+          sceneBridge.regenerateSceneFromBlocks()
         }}
         onCancel={() => setShowOpacityConfirm(false)}
         confirmLabel="Apply"

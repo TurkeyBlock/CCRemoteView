@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Modal } from '@/components/modals/Modal'
 import { useWorldViewStore } from '@/store/useWorldView'
 
 const ASPECT_PRESETS: { label: string; value: number | null }[] = [
@@ -46,10 +47,7 @@ export default function RideAlongSettingsModal({ onClose }: Props) {
   }
 
   const modal = (
-    <div
-      style={{ position: 'fixed', inset: 0, zIndex: 200 }}
-      onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}
-    >
+    <Modal layer="panel" dim={0} center={false} onBackdropMouseDown={onClose}>
       <div
         className="canvas-overlay"
         style={{
@@ -105,7 +103,7 @@ export default function RideAlongSettingsModal({ onClose }: Props) {
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 
   return createPortal(modal, document.body)

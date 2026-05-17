@@ -27,16 +27,16 @@ function fmtCountdown(ms: number): string {
   const neg = ms < 0
   const abs = Math.abs(ms)
   const s = Math.ceil(abs / 1000)
-  const str = s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`
-  return neg ? `-${str}` : str
+  const timeString = s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`
+  return neg ? `-${timeString}` : timeString
 }
 
 export default function PollTimers({ computerId }: Props) {
   const computer = useWorldStore(s => s.computers[computerId])
   const [now, setNow] = useState(Date.now)
 
-  const wsRequestAt = computer?.ws_request_at ?? null
-  const wsConnected = !!computer?.ws_connected
+  const wsRequestAt = computer?.wsRequestAt ?? null
+  const wsConnected = !!computer?.wsConnected
 
   useEffect(() => {
     if (!wsRequestAt || wsConnected) return

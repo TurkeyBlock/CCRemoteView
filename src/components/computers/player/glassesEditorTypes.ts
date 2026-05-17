@@ -1,3 +1,5 @@
+// Shared constants, types, and pure helpers for the glasses canvas editor.
+// Imported by all other glasses editor files — no React, no state.
 import type { GlassesObject, GlassesText, GlassesItem, GlassesLines, GlassesPolygon, GlassesGroup } from '@/types/glasses'
 
 export const CANVAS_W = 512

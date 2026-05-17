@@ -1,12 +1,13 @@
 const fs = require('fs');
+const { atomicJsonSave } = require('./atomicJsonSave');
 
 class OperatorManager {
   operators = []; // [{ sub, email }]
   requests = []; // [{ sub, email, requestedAt }]
-  operatorsFile = './src/server/data/operators.json';
-  requestsFile = './src/server/data/operator_requests.json';
 
-  constructor() {
+  constructor({ operatorsFile = './src/server/data/operators.json', requestsFile = './src/server/data/operator_requests.json' } = {}) {
+    this.operatorsFile = operatorsFile;
+    this.requestsFile  = requestsFile;
     this.load();
   }
 
@@ -44,15 +45,14 @@ class OperatorManager {
   getRequests() { return this.requests; }
   getOperators() { return this.operators; }
 
-  saveAtomic(targetPath, data) {
-    fs.mkdirSync('./src/server/data', { recursive: true });
-    const tmp = targetPath + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(data));
-    fs.renameSync(tmp, targetPath);
+  saveOperators() {
+    try { atomicJsonSave(this.operatorsFile, this.operators); }
+    catch (err) { console.error('[operatorManager] Save operators failed:', err); }
   }
-
-  saveOperators() { this.saveAtomic(this.operatorsFile, this.operators); }
-  saveRequests()  { this.saveAtomic(this.requestsFile, this.requests); }
+  saveRequests() {
+    try { atomicJsonSave(this.requestsFile, this.requests); }
+    catch (err) { console.error('[operatorManager] Save requests failed:', err); }
+  }
 
   load() {
     try {
@@ -63,10 +63,14 @@ class OperatorManager {
       } else {
         this.operators = raw;
       }
-    } catch {}
+    } catch (err) {
+      if (err.code !== 'ENOENT') console.error('[operatorManager] Load operators failed:', err);
+    }
     try {
       this.requests = JSON.parse(fs.readFileSync(this.requestsFile, 'utf8'));
-    } catch {}
+    } catch (err) {
+      if (err.code !== 'ENOENT') console.error('[operatorManager] Load requests failed:', err);
+    }
   }
 }
 

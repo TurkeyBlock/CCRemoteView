@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useUserStore } from '@/store/useUser'
+import { fetchWithTimeout } from '@/utils/fetchWithTimeout'
 
 export default function OperatorRequest() {
   const [open, setOpen] = useState(false)
@@ -11,7 +12,7 @@ export default function OperatorRequest() {
 
   async function request() {
     setLoading(true)
-    const res = await fetch('/api/requestOperator', { method: 'POST' }).catch(() => null)
+    const res = await fetchWithTimeout('/api/requestOperator', { method: 'POST' }).catch(() => null)
     if (!res) { setMessage('Could not reach server.'); setLoading(false); return }
     const data = await res.json()
     if (data.result === 'ok') { setMessage('Request submitted. An admin will review it.'); await useUserStore.getState().fetchMe() }

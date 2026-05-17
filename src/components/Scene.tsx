@@ -7,10 +7,14 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { Block } from '@/types/world'
 import { useWorldStore, lookupBlock, worldDataLen } from '@/store/useWorld'
-import { useWorldViewStore, clearMaterialsCache } from '@/store/useWorldView'
+import { useWorldViewStore, useRenderFiltersStore, clearMaterialsCache } from '@/store/useWorldView'
+import { sceneBridge } from '@/store/sceneBridge'
 import { ChunkManager } from '@/utils/rendering/ChunkManager'
+import { computerModelCache } from '@/utils/rendering/computerModelCache'
 import { CHUNK_SIZE } from '@/utils/rendering/WorldChunk'
-import RideAlongSettingsModal from './RideAlongSettingsModal'
+import { parseTransparencyList } from '@/utils/parseTransparencyList'
+import { computerTypeConfig, defaultComputerTypeConfig } from '@/utils/computerTypeConfig'
+import RideAlongSettingsModal from './modals/RideAlongSettingsModal'
 
 class TextureAnimator {
   texture: THREE.Texture
@@ -69,6 +73,7 @@ function SceneSetup() {
   const exclMat = useRef<THREE.SpriteMaterial | null>(null)
   const entityGeom = useRef(new THREE.OctahedronGeometry(0.35))
   const prevViewMatrix = useRef(new THREE.Matrix4())
+  const lights = useRef<THREE.Light[] | null>(null)
   const computerAnimTargets = useRef<Record<string, { pos: THREE.Vector3; rot: number }>>({})
   const rideAlongYaw   = useRef<number | null>(null)
   const rideAlongPitch = useRef<number | null>(null)
@@ -157,24 +162,15 @@ function SceneSetup() {
     useWorldViewStore.setState({ hoveredEntity: null })
 
     const intersects = raycaster.current.intersectObjects(blocksGroup.current.children, false)
-    const wvSnap = useWorldViewStore.getState()
-    const rcHiddenAll = new Set<string>()
-    const rcHiddenSpecific = new Set<string>()
-    for (const h of wvSnap.transparencyList) {
-      const parts = h.split(':')
-      if (parts.length > 2) {
-        const last = parts[parts.length - 1]; const n = parseInt(last, 10)
-        if (!isNaN(n) && String(n) === last) { rcHiddenSpecific.add(`${parts.slice(0, -1).join(':')}:${n}`); continue }
-      }
-      rcHiddenAll.add(h)
-    }
+    const rfSnap = useRenderFiltersStore.getState()
+    const { all: rcHiddenAll, specific: rcHiddenSpecific } = parseTransparencyList(rfSnap.transparencyList)
     for (const hit of intersects) {
       if (!hit.face) continue
       const blockPos = getBlockPosFromHit(hit)
       const locString = `${blockPos.x},${blockPos.y},${blockPos.z}`
       const block = lookupBlock(locString)
       if (!block) continue
-      if (wvSnap.miningMode && (rcHiddenAll.has(block.name) || rcHiddenSpecific.has(`${block.name}:${block.metadata ?? 0}`))) continue
+      if (rfSnap.miningMode && (rcHiddenAll.has(block.name) || rcHiddenSpecific.has(`${block.name}:${block.metadata ?? 0}`))) continue
       useWorldViewStore.setState({
         hoveredBlock: block,
         hoveredBlockPos: blockPos,
@@ -208,7 +204,7 @@ function SceneSetup() {
   // ─── Block management ─────────────────────────────────────────────────────
 
   function addBlock(locString: string, block: Block) {
-    if (!useWorldViewStore.getState().isBlockVisible(locString)) return
+    if (!useRenderFiltersStore.getState().isBlockVisible(locString)) return
     chunkManager.current?.addBlock(locString, block)
     // inventory indicators are driven by computer adjacentInventory, not block data
   }
@@ -276,33 +272,29 @@ function SceneSetup() {
     if (!computerData?.loc) return
     const model = turtleModel.current.clone()
     scene.add(model)
-    const wv = useWorldViewStore.getState()
-    useWorldViewStore.setState({ computerModels: { ...wv.computerModels, [computerId]: model } })
+    computerModelCache.set(computerId, model)
     const { x, y, z } = computerData.loc
     model.position.set(x, y, z)
-    if (computerData.type === 'minecart') {
-      model.rotation.set(0, 0, 0)
-    } else {
-      model.rotation.set(Math.PI / 2, 0, ((computerData.rot + 1) * Math.PI) / 2)
-    }
+    const cfg = (computerData.type ? computerTypeConfig[computerData.type] : null) ?? defaultComputerTypeConfig
+    model.rotation.set(...cfg.rotation(computerData.rot ?? 0))
   }
 
   function updateComputer(computerId: string) {
-    const wv = useWorldViewStore.getState()
-    const model = wv.computerModels[computerId]
+    const model = computerModelCache.get(computerId)
     if (!model) { addComputer(computerId); return }
     const computerData = useWorldStore.getState().computers[computerId]
     if (!computerData?.loc) return
+    const updateCfg = (computerData.type ? computerTypeConfig[computerData.type] : null) ?? defaultComputerTypeConfig
     if (computerData.type === 'minecart') {
       const { x: newX, y: newY, z: newZ } = computerData.loc
-      model.rotation.set(0, 0, 0)
+      model.rotation.set(...updateCfg.rotation(computerData.rot ?? 0))
       model.position.set(newX, newY, newZ)
       model.updateMatrix()
     } else {
       // For turtles/stationary computers, animate position and rotation smoothly.
       const { x, y, z } = computerData.loc
-      const targetRot = ((computerData.rot + 1) * Math.PI) / 2
-      computerAnimTargets.current[computerId] = { pos: new THREE.Vector3(x, y, z), rot: targetRot }
+      const [,, rotZ] = updateCfg.rotation(computerData.rot ?? 0)
+      computerAnimTargets.current[computerId] = { pos: new THREE.Vector3(x, y, z), rot: rotZ }
       invalidate()
     }
 
@@ -326,13 +318,10 @@ function SceneSetup() {
   }
 
   function removeComputerModel(computerId: string) {
-    const wv = useWorldViewStore.getState()
-    const model = wv.computerModels[computerId]
+    const model = computerModelCache.get(computerId)
     if (!model) return
     scene.remove(model)
-    const updated = { ...wv.computerModels }
-    delete updated[computerId]
-    useWorldViewStore.setState({ computerModels: updated })
+    computerModelCache.delete(computerId)
   }
 
   // ─── Animated textures ────────────────────────────────────────────────────
@@ -359,16 +348,18 @@ function SceneSetup() {
     invSprites.current.clear()
     entityMeshes.current = {}
     computerAnimTargets.current = {}
-    useWorldViewStore.setState({ computerModels: {} })
+    computerModelCache.clear()
 
-    // Lighting
-    const dir1 = new THREE.DirectionalLight(0xffffff, 1.5)
-    dir1.position.set(1, 2, 3)
-    scene.add(dir1)
-    const dir2 = new THREE.DirectionalLight(0x888888, 1)
-    dir2.position.set(-1, -2, -3)
-    scene.add(dir2)
-    scene.add(new THREE.AmbientLight(0xffffff, 0.4))
+    // Lighting (created once, re-attached after scene clear)
+    if (!lights.current) {
+      const dir1 = new THREE.DirectionalLight(0xffffff, 1.5)
+      dir1.position.set(1, 2, 3)
+      const dir2 = new THREE.DirectionalLight(0x888888, 1)
+      dir2.position.set(-1, -2, -3)
+      const amb = new THREE.AmbientLight(0xffffff, 0.4)
+      lights.current = [dir1, dir2, amb]
+    }
+    for (const light of lights.current) scene.add(light)
 
     clearMaterialsCache()
     if (chunkManager.current) chunkManager.current.dispose()
@@ -383,18 +374,8 @@ function SceneSetup() {
 
     // Build a fast visibility closure from a single state snapshot so bulkLoad
     // doesn't call getState()/require on every block in the world.
-    const { yMin, yMax, transparencyList, miningMode } = wv
-    const hiddenAllMeta = new Set<string>()
-    const hiddenSpecificMeta = new Set<string>()
-    for (const h of transparencyList) {
-      const parts = h.split(':')
-      if (parts.length > 2) {
-        const last = parts[parts.length - 1]
-        const n = parseInt(last, 10)
-        if (!isNaN(n) && String(n) === last) { hiddenSpecificMeta.add(`${parts.slice(0, -1).join(':')}:${n}`); continue }
-      }
-      hiddenAllMeta.add(h)
-    }
+    const { yMin, yMax, transparencyList, miningMode } = useRenderFiltersStore.getState()
+    const { all: hiddenAllMeta, specific: hiddenSpecificMeta } = parseTransparencyList(transparencyList)
     const isHiddenByFilter = (name: string, meta: number | undefined) =>
       hiddenAllMeta.has(name) || hiddenSpecificMeta.has(`${name}:${meta ?? 0}`)
     const isVisible = (locString: string): boolean => {
@@ -460,13 +441,13 @@ function SceneSetup() {
     const domEl = gl.domElement
 
     const handleClick = (e: MouseEvent) => {
-      if (useWorldViewStore.getState().blockPickMode) {
+      if (useRenderFiltersStore.getState().blockPickMode) {
         raycast(e)
         const wv = useWorldViewStore.getState()
         if (wv.hoveredBlock) {
           const b = wv.hoveredBlock
           const filterKey = b.metadata !== undefined ? `${b.name}:${b.metadata}` : b.name
-          useWorldViewStore.getState().addPendingFilterBlock(filterKey)
+          useRenderFiltersStore.getState().addPendingFilterBlock(filterKey)
         }
         return
       }
@@ -488,8 +469,8 @@ function SceneSetup() {
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && useWorldViewStore.getState().blockPickMode) {
-        useWorldViewStore.getState().cancelPendingFilterBlocks()
+      if (e.key === 'Escape' && useRenderFiltersStore.getState().blockPickMode) {
+        useRenderFiltersStore.getState().cancelPendingFilterBlocks()
       }
     }
 
@@ -515,21 +496,19 @@ function SceneSetup() {
     domEl.addEventListener('dblclick', handleDblClick)
     document.addEventListener('keydown', handleKeyDown)
 
-    // Register all worldView store callbacks so other stores can drive the scene
-    useWorldViewStore.setState({
-      regenerateSceneFromBlocks,
-      render: () => invalidate(),
-      setCameraFocus,
-      focusOnComputer,
-      addBlock,
-      removeBlock,
-      clearAllBlocks,
-      updateComputer,
-      updateEntities,
-      removeComputerModel,
-      addAnimatedTexture,
-      updateChunkVisibility,
-    })
+    // Register all scene callbacks so other stores can drive the scene
+    sceneBridge.regenerateSceneFromBlocks = regenerateSceneFromBlocks
+    sceneBridge.render = () => invalidate()
+    sceneBridge.setCameraFocus = setCameraFocus
+    sceneBridge.focusOnComputer = focusOnComputer
+    sceneBridge.addBlock = addBlock
+    sceneBridge.removeBlock = removeBlock
+    sceneBridge.clearAllBlocks = clearAllBlocks
+    sceneBridge.updateComputer = updateComputer
+    sceneBridge.updateEntities = updateEntities
+    sceneBridge.removeComputerModel = removeComputerModel
+    sceneBridge.addAnimatedTexture = addAnimatedTexture
+    sceneBridge.updateChunkVisibility = updateChunkVisibility
 
     // IDB cache may have resolved before R3F mounted (IDB fires as a macrotask,
     // R3F registers callbacks on its first requestAnimationFrame — which comes
@@ -552,10 +531,8 @@ function SceneSetup() {
 
   // ─── Animation loop ────────────────────────────────────────────────────────
 
-  useFrame((state, delta) => {
+  function tickRideAlong(state: import('@react-three/fiber').RootState, delta: number): void {
     const wv = useWorldViewStore.getState()
-
-    // ── Ride-along: first-person camera locked to player yaw/pitch ──────────
     const rideId = wv.rideAlongComputerId
     if (rideId !== -1) {
       const comp = useWorldStore.getState().computers[rideId]
@@ -566,8 +543,8 @@ function SceneSetup() {
         // Reset all smoothed values when switching computers.
         if (rideAlongId.current !== rideId) {
           rideAlongId.current    = rideId
-          rideAlongYaw.current   = comp.yaw   ?? 0
-          rideAlongPitch.current = comp.pitch ?? 0
+          rideAlongYaw.current   = (comp as any).yaw   ?? 0
+          rideAlongPitch.current = (comp as any).pitch ?? 0
           snap.cx = x; snap.cy = y; snap.cz = z
         }
 
@@ -580,8 +557,8 @@ function SceneSetup() {
         const sx = snap.cx, sy = snap.cy, sz = snap.cz
 
         // Yaw/pitch: same rate, shortest angular path.
-        const targetYaw   = comp.yaw   ?? rideAlongYaw.current!
-        const targetPitch = comp.pitch ?? rideAlongPitch.current!
+        const targetYaw   = (comp as any).yaw   ?? rideAlongYaw.current!
+        const targetPitch = (comp as any).pitch ?? rideAlongPitch.current!
         let yawDiff   = targetYaw   - rideAlongYaw.current!
         let pitchDiff = targetPitch - rideAlongPitch.current!
         if (yawDiff >  180) yawDiff -= 360
@@ -620,8 +597,10 @@ function SceneSetup() {
       const cam = state.camera as THREE.PerspectiveCamera
       if (cam.fov !== 45 || cam.near !== 1) { cam.fov = 45; cam.near = 1; cam.updateProjectionMatrix() }
     }
+  }
 
-    // ── Follow: 3rd-person orbit target tracks computer position ────────────
+  function tickFollow(_state: import('@react-three/fiber').RootState): void {
+    const wv = useWorldViewStore.getState()
     const computerId = wv.followedComputer.computerId
     if (computerId !== -1) {
       const currPos = useWorldStore.getState().computers[computerId]?.loc
@@ -632,20 +611,23 @@ function SceneSetup() {
         useWorldViewStore.setState(s => ({ followedComputer: { ...s.followedComputer, lastPos: currPos } }))
       }
     }
+  }
 
+  function tickAnimatedTextures(state: import('@react-three/fiber').RootState, delta: number): void {
     if (animatedTextures.current.length > 0) {
       for (const anim of animatedTextures.current) {
         anim.update(delta * 1000)
       }
       state.invalidate()
     }
+  }
 
+  function tickModelLerp(state: import('@react-three/fiber').RootState, delta: number): void {
     // Smooth computer movement: lerp each model toward its target pos/rot.
     const targets = computerAnimTargets.current
-    const models = wv.computerModels
     let anyMoving = false
     for (const id of Object.keys(targets)) {
-      const model = models[id]
+      const model = computerModelCache.get(id)
       if (!model) { delete targets[id]; continue }
       const { pos, rot } = targets[id]
 
@@ -671,6 +653,13 @@ function SceneSetup() {
       }
     }
     if (anyMoving) state.invalidate()
+  }
+
+  useFrame((state, delta) => {
+    tickRideAlong(state, delta)
+    tickFollow(state)
+    tickAnimatedTextures(state, delta)
+    tickModelLerp(state, delta)
 
     // Apply pending chunk GPU uploads within a per-frame budget.  Running this
     // inside useFrame (rather than setTimeout) ensures input events and camera
@@ -696,7 +685,7 @@ function SceneSetup() {
 // ─── Public export — renders the R3F Canvas ───────────────────────────────────
 
 export default memo(function Scene() {
-  const blockPickMode   = useWorldViewStore(s => s.blockPickMode)
+  const blockPickMode   = useRenderFiltersStore(s => s.blockPickMode)
   const rideAlongAspect = useWorldViewStore(s => s.rideAlongAspect)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })

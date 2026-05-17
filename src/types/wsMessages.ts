@@ -38,22 +38,21 @@ const SetGlassesScene = z.object({
   scene: z.array(z.record(z.string(), z.unknown())),
 })
 
-const GlassesSceneOp = z.object({
-  type: z.literal('glassesSceneOp'),
-  computerId: z.number().int(),
-  op: z.enum(['add', 'update', 'remove', 'clear', 'reorder', 'group', 'ungroup', 'groupChildUpdate']),
-  object: z.record(z.string(), z.unknown()).optional(),
-  objectId: z.string().optional(),
-  fromIdx: z.number().int().optional(),
-  toIdx: z.number().int().optional(),
-  // group op
-  objectIds: z.array(z.string()).optional(),
-  groupObject: z.record(z.string(), z.unknown()).optional(),
-  // groupChildUpdate op
-  groupId: z.string().optional(),
-  childId: z.string().optional(),
-  delta: z.record(z.string(), z.unknown()).optional(),
-})
+const GlassesObject = z.record(z.string(), z.unknown())
+
+const _GlassesOpBase = { type: z.literal('glassesSceneOp'), computerId: z.number().int() }
+const AddOp              = z.object({ ..._GlassesOpBase, op: z.literal('add'),              object: GlassesObject })
+const UpdateOp           = z.object({ ..._GlassesOpBase, op: z.literal('update'),           objectId: z.string(), object: GlassesObject })
+const RemoveOp           = z.object({ ..._GlassesOpBase, op: z.literal('remove'),           objectId: z.string() })
+const ClearOp            = z.object({ ..._GlassesOpBase, op: z.literal('clear') })
+const ReorderOp          = z.object({ ..._GlassesOpBase, op: z.literal('reorder'),          objectId: z.string(), fromIdx: z.number().int(), toIdx: z.number().int() })
+const GroupOp            = z.object({ ..._GlassesOpBase, op: z.literal('group'),            objectIds: z.array(z.string()), groupObject: GlassesObject })
+const UngroupOp          = z.object({ ..._GlassesOpBase, op: z.literal('ungroup'),          objectId: z.string() })
+const GroupChildUpdateOp = z.object({ ..._GlassesOpBase, op: z.literal('groupChildUpdate'), groupId: z.string(), childId: z.string(), delta: GlassesObject })
+
+const GlassesSceneOp = z.discriminatedUnion('op', [
+  AddOp, UpdateOp, RemoveOp, ClearOp, ReorderOp, GroupOp, UngroupOp, GroupChildUpdateOp,
+])
 
 const SubscribeCanvas = z.object({
   type: z.literal('subscribeCanvas'),

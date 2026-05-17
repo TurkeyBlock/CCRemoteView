@@ -1,22 +1,25 @@
 'use strict';
 
-const { BYPASS_AUTH, SUPPRESS_UPDATE_LOGS } = require('../config');
+const { BYPASS_AUTH, SUPPRESS_UPDATE_LOGS, CMD_QUEUE_TTL_MS } = require('../config');
+const { getClientIp } = require('../utils/clientIp');
 
-function getClientIp(req) {
-  return req.headers['cf-connecting-ip']
-    || (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
-    || req.socket.remoteAddress;
-}
-
+/**
+ * @param {object} wss - WebSocketServer instance for computer connections
+ * @param {object} deps
+ * @param {{ state: object, cmds: object, stopSignal: object, computerWs: object, glassesNeedsSync: Set, wsRequests: object, safeId: Function, transactComputer: Function, transactComputerDelta: Function, applyExtractedState: Function, commitScan: Function, broadcastToClients: Function, isScanRateLimited: Function, recordCommandResult: Function }} deps.worldState
+ * @param {object} deps.computerIpManager
+ * @param {object} deps.computerIdManager
+ * @param {object} deps.log
+ */
 function attachComputerWs(wss, { worldState, computerIpManager, computerIdManager, log }) {
   const {
-    state, cmds, stopSignal, commandResultCache, computerWs,
+    state, cmds, stopSignal, computerWs,
     glassesNeedsSync,
     safeId,
     transactComputer, transactComputerDelta, applyExtractedState, commitScan,
     broadcastToClients,
     isScanRateLimited,
-    CMD_RESULT_CACHE_MAX,
+    recordCommandResult,
   } = worldState;
 
   wss.on('connection', (ws, req) => {
@@ -40,22 +43,26 @@ function attachComputerWs(wss, { worldState, computerIpManager, computerIdManage
       return;
     }
 
-    console.log(`[ws/computer] Computer ${id} connected from ${ip} — queueDepth=${cmds[id]?.length ?? 0}`);
+    log.info(`[ws/computer] Computer ${id} connected from ${ip} — queueDepth=${cmds[id]?.length ?? 0}`);
     if (computerWs[id] && computerWs[id] !== ws) computerWs[id].terminate();
     delete worldState.wsRequests[id];
     computerWs[id] = ws;
 
     if (state.computers[id]) {
-      state.computers[id].ws_connected  = true;
-      state.computers[id].ws_request_at = null;
+      state.computers[id].wsConnected  = true;
+      state.computers[id].wsRequestAt = null;
       transactComputer(id, { ...state.computers[id] });
     }
 
     glassesNeedsSync.add(id);
 
     if (cmds[id]?.length > 0) {
-      log.info(`[ws/computer] id=${id} — flushing ${cmds[id].length} offline-queued cmd(s)`);
-      for (const cmd of cmds[id]) ws.send(JSON.stringify({ type: 'command', command: cmd }));
+      const now = Date.now();
+      const fresh = cmds[id].filter(item => now - item.enqueuedAt <= CMD_QUEUE_TTL_MS);
+      const dropped = cmds[id].length - fresh.length;
+      if (dropped > 0) log.info(`[ws/computer] id=${id} — dropped ${dropped} expired cmd(s)`);
+      log.info(`[ws/computer] id=${id} — flushing ${fresh.length} offline-queued cmd(s)`);
+      for (const item of fresh) ws.send(JSON.stringify({ type: 'command', command: item.cmd }));
       cmds[id] = [];
     }
 
@@ -76,10 +83,8 @@ function attachComputerWs(wss, { worldState, computerIpManager, computerIdManage
         if (!SUPPRESS_UPDATE_LOGS) if (!SUPPRESS_UPDATE_LOGS) log.info(`[ws/computer] id=${id} commandResult cid=${cid}`);
         const result = msg.result;
         if (result !== undefined) {
-          if (!SUPPRESS_UPDATE_LOGS) console.log(`[ws/computer] Computer ${cid} result:`, result);
-          if (!commandResultCache[cid]) commandResultCache[cid] = [];
-          commandResultCache[cid].push(result);
-          if (commandResultCache[cid].length > CMD_RESULT_CACHE_MAX) commandResultCache[cid].shift();
+          if (!SUPPRESS_UPDATE_LOGS) log.info({ result }, `[ws/computer] Computer ${cid} result`);
+          recordCommandResult(cid, result);
           broadcastToClients({ commandResult: { computerId: Number(cid), result } });
         }
 
@@ -124,14 +129,14 @@ function attachComputerWs(wss, { worldState, computerIpManager, computerIdManage
     });
 
     function onDisconnect(label, code) {
-      console.log(`[ws/computer] Computer ${id} ${label} — code: ${code}`);
+      log.info(`[ws/computer] Computer ${id} ${label} — code: ${code}`);
       if (computerWs[id] !== ws) return;
       delete computerWs[id];
       glassesNeedsSync.delete(id);
       if (cmds[id]?.length > 0) worldState.wsRequests[id] = true;
       if (state.computers[id]) {
-        state.computers[id].ws_connected  = false;
-        state.computers[id].ws_request_at = null;
+        state.computers[id].wsConnected  = false;
+        state.computers[id].wsRequestAt = null;
         transactComputer(id, { ...state.computers[id] });
       }
     }

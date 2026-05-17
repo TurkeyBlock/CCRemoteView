@@ -1,5 +1,8 @@
 'use client'
 
+// SVG canvas that renders the glasses scene and handles all pointer events
+// (selection, drag-move, box-select, drawing new objects).
+// Purely presentational — reads EditorState from useGlassesEditor, no own state except font readiness.
 import { useState, useRef, useEffect } from 'react'
 import type { GlassesObject, GlassesRect, GlassesText, GlassesLine, GlassesPolygon, GlassesLines, GlassesItem, GlassesGroup } from '@/types/glasses'
 import { renderMinecraftTextToCanvas, measureMinecraftText } from '@/utils/minecraftFont'

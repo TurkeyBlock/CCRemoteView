@@ -187,17 +187,20 @@ return function(api, opts)
         local active_ws = nil
 
         local function session_loop()
-            local MAX_RETRIES = 10
-            local retries     = 0
-            while retries < MAX_RETRIES do
-                print("Connecting WS... (attempt " .. (retries + 1) .. "/" .. MAX_RETRIES .. ")")
+            local RETRY_BASE_S = 2
+            local RETRY_MAX_S  = 60
+            local attempt      = 0
+            while true do
+                attempt = attempt + 1
+                print("Connecting WS... (attempt " .. attempt .. ")")
                 local ws, err = http.websocket(ws_url)
                 if not ws then
-                    retries = retries + 1
-                    print("WS failed: " .. tostring(err) .. ", retrying in 2s (" .. retries .. "/" .. MAX_RETRIES .. ")")
-                    os.sleep(2)
+                    local wait = math.min(RETRY_BASE_S * (2 ^ (attempt - 1)), RETRY_MAX_S)
+                    wait = wait + math.random() * 2
+                    print("WS failed: " .. tostring(err) .. ", retrying in " .. string.format("%.1f", wait) .. "s")
+                    os.sleep(wait)
                 else
-                    retries   = 0
+                    attempt   = 0
                     active_ws = ws
                     api.set_ws(ws)
                     api.send_status_update()
@@ -220,11 +223,10 @@ return function(api, opts)
                     ws.close()
                     active_ws = nil
 
-                    print("WS dropped, reconnecting in 2s")
-                    os.sleep(2)
+                    print("WS dropped, reconnecting...")
+                    attempt = 0
                 end
             end
-            print("WS failed " .. MAX_RETRIES .. " times, giving up")
         end
 
         local function idle_watcher()
@@ -244,10 +246,19 @@ return function(api, opts)
         if active_ws then active_ws.close() end
     end
 
+    local function http_post_timeout(url, body, headers, timeout_s)
+        local result = nil
+        parallel.waitForAny(
+            function() result = http.post(url, body, headers) end,
+            function() os.sleep(timeout_s) end
+        )
+        return result
+    end
+
     local function poll_fn()
         while true do
-            local res = http.post(api.url .. "getWsRequest", tostring(os.getComputerID()),
-                                  { ["Content-Type"] = "text/plain" })
+            local res = http_post_timeout(api.url .. "getWsRequest", tostring(os.getComputerID()),
+                                          { ["Content-Type"] = "text/plain" }, 15)
             if res then
                 local body = res.readAll()
                 res.close()

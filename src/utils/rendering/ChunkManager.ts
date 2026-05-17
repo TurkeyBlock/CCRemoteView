@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Block } from '@/types/world';
-import { useWorldViewStore } from '@/store/useWorldView';
+import { useWorldViewStore, useRenderFiltersStore, useTexturesStore } from '@/store/useWorldView';
 import { worldPalette, worldData, worldDataLen } from '@/store/useWorld';
 import { WorldChunk, CHUNK_SIZE, locToChunkKey } from './WorldChunk';
 import type { BuildRequest, BuildResult, MaterialMeta, SerializedBlock } from '@/workers/chunkBuilder.worker';
@@ -80,7 +80,7 @@ export class ChunkManager {
     this.workerBusy = [];
     for (let i = 0; i < this.maxConcurrent; i++) {
       const w = new Worker(new URL('../../workers/chunkBuilder.worker.ts', import.meta.url));
-      w.onmessage = (e: MessageEvent<BuildResult>) => this.onWorkerResult(e.data);
+      w.onmessage = (e: MessageEvent<BuildResult | { chunkKey: string; buildId: number; error: string }>) => this.onWorkerResult(e.data);
       this.workers.push(w);
       this.workerBusy.push(false);
     }
@@ -91,7 +91,7 @@ export class ChunkManager {
   /** Register a newly placed / received block. Marks the chunk dirty. */
   addBlock(locString: string, block: Block): void {
     const chunk = this.getOrCreate(locToChunkKey(locString));
-    chunk.blocks.set(locString, block);
+    chunk.setBlock(locString, block);
     this.markDirtyForBlock(locString);
   }
 
@@ -100,7 +100,7 @@ export class ChunkManager {
     const key = locToChunkKey(locString);
     const chunk = this.chunks.get(key);
     if (!chunk) return;
-    chunk.blocks.delete(locString);
+    chunk.deleteBlock(locString);
     this.markDirtyForBlock(locString);
   }
 
@@ -124,7 +124,7 @@ export class ChunkManager {
       const locString = `${worldData[i]},${worldData[i + 1]},${worldData[i + 2]}`;
       if (!isVisible(locString)) continue;
       const chunk = this.getOrCreate(locToChunkKey(locString));
-      chunk.blocks.set(locString, { name: worldPalette[worldData[i + 3]], metadata: worldData[i + 4] });
+      chunk.setBlock(locString, { name: worldPalette[worldData[i + 3]], metadata: worldData[i + 4] });
     }
 
     // Yield once so the browser can paint before the build queue fires.
@@ -350,6 +350,8 @@ export class ChunkManager {
   private sendBuildRequest(chunk: WorldChunk, workerIdx: number): void {
     (chunk as any).__workerIdx = workerIdx;
     const worldView = useWorldViewStore.getState();
+    const renderFilters = useRenderFiltersStore.getState();
+    const textures = useTexturesStore.getState();
 
     // ── Build the block-key → local material index map ────────────────────
     // Each unique block type in this chunk gets a sequential local index.
@@ -358,7 +360,7 @@ export class ChunkManager {
     const localMaterials: THREE.Material[] = [];
     let nextIdx = 0;
 
-    const { miningMode, miningOpacityMap } = worldView;
+    const { miningMode, miningOpacityMap } = renderFilters;
 
     const ensureMat = (name: string, metadata?: number): number => {
       // Pre-1.13 only: 1.13 ("The Flattening") replaced metadata with unique block names per variant.
@@ -380,7 +382,7 @@ export class ChunkManager {
         ...(groups.length > 0 ? { connectionGroups: groups } : {}),
       };
       matMeta[idx] = meta;
-      const mat = worldView.getBlockMaterial(name, metadata ?? 0);
+      const mat = textures.getBlockMaterial(name, metadata ?? 0);
       if (opacity !== undefined) {
         (mat as THREE.MeshPhongMaterial).transparent = true;
         (mat as THREE.MeshPhongMaterial).opacity = opacity;
@@ -396,26 +398,24 @@ export class ChunkManager {
     }
 
     // ── Extract border blocks from adjacent chunks ─────────────────────────
+    // For each neighbour direction, we only need the single-block-thick layer
+    // along the neighbour's face that touches this chunk. WorldChunk maintains
+    // these as `faceLayers[dir]`, so we iterate at most CS² blocks per neighbour
+    // instead of scanning the neighbour's full CS³ block map.
     const borderBlocks: Record<string, SerializedBlock> = {};
-    const offsets = [
-      [1,0,0], [-1,0,0], [0,1,0], [0,-1,0], [0,0,1], [0,0,-1],
+    const neighborOffsets: Array<[number, number, number, keyof WorldChunk['faceLayers']]> = [
+      [ 1, 0, 0, 'nx'], // +X neighbour's -X face touches us
+      [-1, 0, 0, 'px'],
+      [ 0, 1, 0, 'ny'],
+      [ 0,-1, 0, 'py'],
+      [ 0, 0, 1, 'nz'],
+      [ 0, 0,-1, 'pz'],
     ];
-    for (const [odx, ody, odz] of offsets) {
+    for (const [odx, ody, odz, neighborFace] of neighborOffsets) {
       const nKey = `${chunk.cx + odx},${chunk.cy + ody},${chunk.cz + odz}`;
       const neighbor = this.chunks.get(nKey);
       if (!neighbor) continue;
-      // Extract only the single-block-thick layer adjacent to this chunk.
-      for (const [locString, block] of neighbor.blocks) {
-        const [bx, by, bz] = locString.split(',').map(Number);
-        // Is this block on the face of its chunk that borders our chunk?
-        const lx = ((bx % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-        const ly = ((by % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-        const lz = ((bz % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-        const onFace =
-          (odx === 1 && lx === 0) || (odx === -1 && lx === CHUNK_SIZE - 1) ||
-          (ody === 1 && ly === 0) || (ody === -1 && ly === CHUNK_SIZE - 1) ||
-          (odz === 1 && lz === 0) || (odz === -1 && lz === CHUNK_SIZE - 1);
-        if (!onFace) continue;
+      for (const [locString, block] of neighbor.faceLayers[neighborFace]) {
         borderBlocks[locString] = { name: block.name, metadata: block.metadata };
         ensureMat(block.name, block.metadata);
       }
@@ -437,9 +437,9 @@ export class ChunkManager {
       borderBlocks,
       matIndices,
       matMeta,
-      hiddenNames: miningMode ? [] : [...worldView.transparencyList],
-      yMin: worldView.yMin,
-      yMax: worldView.yMax,
+      hiddenNames: miningMode ? [] : [...renderFilters.transparencyList],
+      yMin: renderFilters.yMin,
+      yMax: renderFilters.yMax,
       skipCulling: miningMode,
       simpleOcclusion: worldView.simpleOcclusion,
     };
@@ -447,7 +447,23 @@ export class ChunkManager {
     this.workers[workerIdx].postMessage(request);
   }
 
-  private onWorkerResult(result: BuildResult): void {
+  private onWorkerResult(result: BuildResult | { chunkKey: string; buildId: number; error: string }): void {
+    if ('error' in result) {
+      console.error(`[ChunkManager] Chunk ${result.chunkKey} build failed:`, result.error);
+      const key = result.chunkKey;
+      this.buildingKeys.delete(key);
+      const chunk = this.chunks.get(key);
+      if (chunk) {
+        const workerIdx: number = (chunk as any).__workerIdx ?? 0;
+        this.workerBusy[workerIdx] = false;
+        delete (chunk as any).__workerIdx;
+        chunk.state = 'empty';
+      }
+      this._buildMaterials.delete(result.buildId);
+      this.drainQueue();
+      return;
+    }
+
     const key = result.chunkKey;
     this.buildingKeys.delete(key);
 

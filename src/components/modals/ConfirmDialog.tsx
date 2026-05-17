@@ -1,5 +1,7 @@
 'use client'
 
+import { Modal } from '@/components/modals/Modal'
+
 interface Props {
   open: boolean
   title: string
@@ -16,14 +18,7 @@ export default function ConfirmDialog({
 }: Props) {
   if (!open) return null
   return (
-    <div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 2000,
-        background: 'rgba(0,0,0,0.55)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}
-      onClick={onCancel}
-    >
+    <Modal layer="confirm" onBackdropClick={onCancel}>
       <div
         className="dropdown"
         style={{ minWidth: 300, maxWidth: 400 }}
@@ -44,6 +39,6 @@ export default function ConfirmDialog({
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }

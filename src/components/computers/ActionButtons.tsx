@@ -3,7 +3,7 @@
 import { memo, useState } from 'react'
 import { Section } from '@/components/ui'
 import { useComputerPanel } from './useComputerPanel'
-import ConfirmDialog from '@/components/ConfirmDialog'
+import ConfirmDialog from '@/components/modals/ConfirmDialog'
 
 interface Props {
   computerId: number
