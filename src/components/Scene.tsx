@@ -69,6 +69,10 @@ function SceneSetup() {
   const entityGeom = useRef(new THREE.OctahedronGeometry(0.35))
   const prevViewMatrix = useRef(new THREE.Matrix4())
   const computerAnimTargets = useRef<Record<string, { pos: THREE.Vector3; rot: number }>>({})
+  const rideAlongYaw   = useRef<number | null>(null)
+  const rideAlongPitch = useRef<number | null>(null)
+  const rideAlongId    = useRef<number>(-1)
+  const rideSnap = useRef({ cx: 0, cy: 0, cz: 0 })
 
   const MOVE_SPEED = 10  // blocks per second
   const ROT_SPEED  = Math.PI * 4  // radians per second (~0.125 s per 90°)
@@ -556,22 +560,56 @@ function SceneSetup() {
       const comp = useWorldStore.getState().computers[rideId]
       if (comp?.loc) {
         const { x, y, z } = comp.loc
-        const eyeY = y + 1.62
+        const snap = rideSnap.current
+
+        // Reset all smoothed values when switching computers.
+        if (rideAlongId.current !== rideId) {
+          rideAlongId.current    = rideId
+          rideAlongYaw.current   = comp.yaw   ?? 0
+          rideAlongPitch.current = comp.pitch ?? 0
+          snap.cx = x; snap.cy = y; snap.cz = z
+        }
+
+        // Low-rate exponential lerp: rate 3 covers ~78% of the distance in 0.5 s,
+        // so the camera is always still moving when the next update arrives — no freeze.
+        const posT = Math.min(1, 3 * delta)
+        snap.cx += (x - snap.cx) * posT
+        snap.cy += (y - snap.cy) * posT
+        snap.cz += (z - snap.cz) * posT
+        const sx = snap.cx, sy = snap.cy, sz = snap.cz
+
+        // Yaw/pitch: same rate, shortest angular path.
+        const targetYaw   = comp.yaw   ?? rideAlongYaw.current!
+        const targetPitch = comp.pitch ?? rideAlongPitch.current!
+        let yawDiff   = targetYaw   - rideAlongYaw.current!
+        let pitchDiff = targetPitch - rideAlongPitch.current!
+        if (yawDiff >  180) yawDiff -= 360
+        if (yawDiff < -180) yawDiff += 360
+        const angT = Math.min(1, 3 * delta)
+        rideAlongYaw.current!   += yawDiff   * angT
+        rideAlongPitch.current! += pitchDiff * angT
+
+        // Blocks are placed with their corner at the integer coordinate, so GPS floats
+        // are already in the same space — but the player's body centre sits at +0.5 in
+        // each axis relative to the block corner, which the chunk renderer doesn't add.
+        const camX = sx - 0.5
+        const camZ = sz - 0.5
+        const eyeY = sy - 0.5
         // Minecraft yaw: 0=South(+Z), 90=West(-X), 180=North(-Z), 270=East(+X)
-        // Three.js: same XYZ axes, so dx=-sin(yaw), dz=cos(yaw)
-        const yawRad   = (comp.yaw   ?? 0) * Math.PI / 180
-        const pitchRad = (comp.pitch ?? 0) * Math.PI / 180
+        const yawRad   = rideAlongYaw.current!   * Math.PI / 180
+        const pitchRad = rideAlongPitch.current! * Math.PI / 180
         const lookDist = 20
-        const lx = x - lookDist * Math.sin(yawRad) * Math.cos(pitchRad)
-        const ly = eyeY - lookDist * Math.sin(pitchRad)
-        const lz = z + lookDist * Math.cos(yawRad) * Math.cos(pitchRad)
-        controlsRef.current?.setLookAt(x, eyeY, z, lx, ly, lz, true)
+        const lx = camX - lookDist * Math.sin(yawRad) * Math.cos(pitchRad)
+        const ly = eyeY  - lookDist * Math.sin(pitchRad)
+        const lz = camZ  + lookDist * Math.cos(yawRad) * Math.cos(pitchRad)
+        controlsRef.current?.setLookAt(camX, eyeY, camZ, lx, ly, lz, false)
         const cam = state.camera as THREE.PerspectiveCamera
         if (cam.fov !== 70) { cam.fov = 70; cam.updateProjectionMatrix() }
         if (controlsRef.current) controlsRef.current.enabled = false
         state.invalidate()
       }
     } else {
+      rideAlongId.current = -1
       if (controlsRef.current && !controlsRef.current.enabled) {
         controlsRef.current.enabled = true
       }

@@ -396,6 +396,14 @@ kbd.kbd {
   pointer-events: all;
 }
 
+.live-view-crosshair {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 20px; height: 20px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
 /* ── Dropdown / HeaderMenu ────────────────────────────────── */
 .dropdown {
   position: fixed; z-index: 1000;

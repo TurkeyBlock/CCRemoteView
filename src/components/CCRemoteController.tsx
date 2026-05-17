@@ -731,7 +731,13 @@ export default function CCRemoteController() {
                 <div className="live-view-bars">
                   <div className="live-view-viewport">
                     <Scene />
-                    <GlassesSvgCanvas editor={liveEditorForLayout} bgFill="transparent" />
+                    <div className="live-view-overlay">
+                      <GlassesSvgCanvas editor={liveEditorForLayout} bgFill="transparent" />
+                      <svg className="live-view-crosshair" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                        <line x1="10" y1="3"  x2="10" y2="17" stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
+                        <line x1="3"  y1="10" x2="17" y2="10" stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
+                      </svg>
+                    </div>
                   </div>
                 </div>
               }

@@ -26,6 +26,8 @@ local _nc = peripheral.find("neuralInterface")
 local has_introspection = _nc ~= nil and type(_nc.getMetaOwner) == "function"
 _nc = nil
 
+local function round2(n) return math.floor(n * 100 + 0.5) / 100 end
+
 
 -- ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -109,7 +111,7 @@ end
 function send_status_update()
     local _, _, _, yaw, pitch = get_orientation_via_introspection()
     local x, y, z = get_location_via_gps()
-    if x then x, y, z = math.floor(x), math.floor(y), math.floor(z) end
+    if x then x, y, z = round2(x), round2(y), round2(z) end
     local payload = {
         id    = os.getComputerID(),
         type  = "player",
@@ -774,7 +776,7 @@ function gps_updater()
         local gx, gy, gz, yaw, pitch = get_location()
         local ix, iy, iz
         if gx then
-            ix, iy, iz = math.floor(gx), math.floor(gy), math.floor(gz)
+            ix, iy, iz = round2(gx), round2(gy), round2(gz)
             if gps_ok ~= true then
                 print("GPS fix (" .. ix .. "," .. iy .. "," .. iz .. ")")
                 gps_ok = true
