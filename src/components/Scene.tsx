@@ -270,6 +270,7 @@ function SceneSetup() {
     if (!turtleModel.current) return
     const computerData = useWorldStore.getState().computers[computerId]
     if (!computerData?.loc) return
+    if (computerData.type !== 'turtle' && computerData.type !== 'minecart') return
     const model = turtleModel.current.clone()
     scene.add(model)
     computerModelCache.set(computerId, model)
@@ -280,9 +281,13 @@ function SceneSetup() {
   }
 
   function updateComputer(computerId: string) {
+    const computerData = useWorldStore.getState().computers[computerId]
+    if (computerData?.type !== 'turtle' && computerData?.type !== 'minecart') {
+      removeComputerModel(computerId)
+      return
+    }
     const model = computerModelCache.get(computerId)
     if (!model) { addComputer(computerId); return }
-    const computerData = useWorldStore.getState().computers[computerId]
     if (!computerData?.loc) return
     const updateCfg = (computerData.type ? computerTypeConfig[computerData.type] : null) ?? defaultComputerTypeConfig
     if (computerData.type === 'minecart') {
