@@ -12,6 +12,7 @@ async function jwtDecode(params) {
 
 function parseCookies(req) {
   const cookieHeader = req.headers.cookie || '';
+  if (cookieHeader.length > 4096) return {};
   return Object.fromEntries(
     cookieHeader.split(';').map(c => {
       const [k, ...v] = c.trim().split('=');
@@ -31,28 +32,33 @@ async function getSession(req) {
       salt: COOKIE_NAME,
     });
   } catch (err) {
-    if (err.code !== 'ERR_JWS_SIGNATURE_VERIFICATION_FAILED' && err.name !== 'JWTExpired') {
-      console.error('[auth] getSession unexpected error:', err.message);
-    }
+    const quiet = err.code === 'ERR_JWT_EXPIRED' || err.code === 'ERR_JWE_DECRYPTION_FAILED';
+    if (!quiet) console.error('[auth] getSession unexpected error:', err);
     return null;
   }
 }
 
-let _adminsCache = null;
 function loadAdmins() {
-  if (_adminsCache !== null) return _adminsCache;
   try {
-    _adminsCache = JSON.parse(fs.readFileSync('./src/server/data/admins.json', 'utf8'));
+    return JSON.parse(fs.readFileSync('./src/server/data/admins.json', 'utf8'));
   } catch (err) {
     if (err.code !== 'ENOENT') console.error('[auth] Failed to load admins.json:', err);
-    _adminsCache = [];
+    return [];
   }
-  return _adminsCache;
 }
 
 // Factory — call once with manager instances, get back middleware functions.
 function createAuth({ userManagement, computerIpManager, computerIdManager, operatorManager }) {
-  function isAdmin(sub)    { return loadAdmins().includes(sub); }
+  let _adminCache = null;
+  let _adminCacheTs = 0;
+  function isAdmin(sub) {
+    const now = Date.now();
+    if (!_adminCache || now - _adminCacheTs > 30_000) {
+      _adminCache = loadAdmins();
+      _adminCacheTs = now;
+    }
+    return _adminCache.includes(sub);
+  }
   function isOperator(sub) { return operatorManager.isOperator(sub); }
 
   const devBypass = (req, next) => { req.token = DEV_TOKEN; next(); };

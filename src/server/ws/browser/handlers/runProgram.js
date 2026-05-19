@@ -2,8 +2,9 @@
 
 const path = require('path');
 const fs   = require('fs');
+const { requireOperator } = require('./authGuard');
 
-module.exports = function runProgram(msg, ctx) {
+module.exports = requireOperator(function runProgram(msg, ctx) {
   const { ws, safeId, sendOrQueue, userSub, userManagement } = ctx;
   const id = safeId(msg.id);
   if (!id) return;
@@ -26,4 +27,4 @@ module.exports = function runProgram(msg, ctx) {
     sendOrQueue(id, code, false,
       `[ws] runProgram id=${id} user=${userSub} program=${programName}`);
   });
-};
+});

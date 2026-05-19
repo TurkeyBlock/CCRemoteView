@@ -5,8 +5,7 @@ const IS_PROD = process.env.NODE_ENV !== 'development';
 
 // LOCAL_ONLY: true when running in dev (NODE_ENV !== 'production') or when the
 // packaged binary's local start script sets APP_LOCAL_ONLY=true. Controls
-// network binding — the server always binds to 127.0.0.1 in this mode so it
-// is unreachable from the network at the OS level regardless of auth state.
+// auth enforcement only — network binding is always loopback regardless.
 const LOCAL_ONLY = !IS_PROD || process.env.APP_LOCAL_ONLY === 'true';
 
 // Flip to true to require authentication even while LOCAL_ONLY is active —
@@ -35,9 +34,10 @@ const SUPPRESS_SAVE_LOGS = process.env.SUPPRESS_SAVE_LOGS === 'false'
 // Log every browser command request (setCommand, setStopSignal, etc.)
 const LOG_BROWSER_CMDS = !SUPPRESS_UPDATE_LOGS;
 
-// BIND_HOST is derived from LOCAL_ONLY and is not independently overridable in
-// local mode — the loopback binding is part of the LOCAL_ONLY guarantee.
-const BIND_HOST = LOCAL_ONLY ? '127.0.0.1' : (process.env.BIND_HOST || '0.0.0.0');
+// Always bind to loopback — external traffic must come through a reverse proxy
+// (e.g. Cloudflare Tunnel). This prevents CF-Connecting-IP spoofing from direct
+// connections to the origin port.
+const BIND_HOST = '127.0.0.1';
 
 const PORT        = parseInt(process.env.APP_PORT || '8081', 10);
 const DEV_APP_URL = `http://localhost:${PORT}`;

@@ -100,9 +100,9 @@ function attachComputerWs(wss, { worldState, computerIpManager, computerIdManage
 
       } else if (msg.type === 'statusUpdate') {
         const BLOCKED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-        const data = Object.fromEntries(
-          Object.entries(msg.data || {}).filter(([k]) => !BLOCKED_KEYS.has(k))
-        );
+        const entries = Object.entries(msg.data || {}).filter(([k]) => !BLOCKED_KEYS.has(k));
+        if (entries.length > 100) return;
+        const data = Object.fromEntries(entries);
         data.id = Number(id);
         transactComputerDelta(id, data);
 

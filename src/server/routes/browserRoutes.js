@@ -3,7 +3,10 @@
 const express    = require('express');
 const { SAVE_GZ_PATH, BYPASS_AUTH } = require('../config');
 const { requireValidId } = require('../utils/validateId');
+const { rateLimit } = require('../utils/simpleRateLimit');
 const fs = require('fs');
+
+const adminApiLimiter = rateLimit(5);
 
 /**
  * @param {object} deps
@@ -62,6 +65,14 @@ function createBrowserRoutes({ worldState, auth, log, userManagement, computerIp
   });
 
   // ─── Admin endpoints ──────────────────────────────────────────────────────
+  // Non-admins get 404 so route existence isn't enumerable via 403 vs 401.
+  // Rate limiter applied here covers all admin routes uniformly.
+  router.use('/api/admin', adminApiLimiter, async (req, res, next) => {
+    if (BYPASS_AUTH) return next();
+    const token = await auth.getSession(req);
+    if (!token || !isAdmin(token.sub)) return res.status(404).end();
+    next();
+  });
 
   router.get('/api/admin/computerIps', requireAdmin, (_req, res) => res.json(computerIpManager.getAll()));
 
@@ -143,7 +154,7 @@ function createBrowserRoutes({ worldState, auth, log, userManagement, computerIp
     const { enabled } = req.body;
     if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled (boolean) required' });
     computerIdManager.setAllowByIp(enabled);
-    log.info(`allowByIp set to ${enabled} by ${req.token.sub}`);
+    log.warn(`[SECURITY] allowByIp set to ${enabled} by ${req.token.sub} — computer ID approval ${enabled ? 'DISABLED' : 'enabled'}`);
     res.json({ ok: true });
   });
 

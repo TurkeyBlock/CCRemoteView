@@ -5,9 +5,9 @@ const { requireValidId } = require('../utils/validateId');
 const { filterStateUpdate } = require('../../types/computerMessages');
 const { MAX_BLOCKS_PER_REQUEST, MAX_ENTITIES_PER_REQUEST, MAX_PLAYER_NAME_LENGTH,
         MAX_CHAT_MESSAGE_LENGTH, MAX_COMMAND_RESULT_LENGTH } = require('../config');
-const { rateLimit } = require('../utils/simpleRateLimit');
-
-const computerApiLimiter = rateLimit(20);
+// No rate limiting on computer endpoints: approved ComputerCraft IPs are trusted.
+// IP spoofing is not a practical concern — CF-Connecting-IP is set by Cloudflare
+// and cannot be forged by external clients given the loopback-only bind.
 
 /**
  * @param {object} deps
@@ -37,7 +37,7 @@ function createComputerRoutes({ worldState, auth, log }) {
     res.sendStatus(200);
   });
 
-  router.post('/api/scan', computerApiLimiter, requireApprovedComputer, requireValidId, (req, res) => {
+  router.post('/api/scan', requireApprovedComputer, requireValidId, (req, res) => {
     const { blocks } = req.body;
     const id = req.cid;
     if (!Array.isArray(blocks)) return res.status(400).json({ error: 'blocks must be an array' });
@@ -81,7 +81,7 @@ function createComputerRoutes({ worldState, auth, log }) {
     res.json({ ok: true });
   });
 
-  router.post('/api/statusUpdate', computerApiLimiter, requireApprovedComputer, requireValidId, (req, res) => {
+  router.post('/api/statusUpdate', requireApprovedComputer, requireValidId, (req, res) => {
     const id = req.cid;
     const filtered = filterStateUpdate(req.body);
     filtered.id = Number(id);
@@ -89,7 +89,7 @@ function createComputerRoutes({ worldState, auth, log }) {
     res.sendStatus(200);
   });
 
-  router.post('/api/commandResult', computerApiLimiter, requireApprovedComputer, (req, res) => {
+  router.post('/api/commandResult', requireApprovedComputer, (req, res) => {
     const computerId = safeId(req.body.computerId);
     if (computerId === null) return res.status(400).json({ error: 'invalid computerId' });
     const result = req.body.result;
@@ -100,19 +100,19 @@ function createComputerRoutes({ worldState, auth, log }) {
     res.sendStatus(200);
   });
 
-  router.post('/api/getStopSignal', express.text({ type: '*/*' }), requireApprovedComputer, (req, res) => {
+  router.post('/api/getStopSignal', express.text({ type: '*/*', limit: '1kb' }), requireApprovedComputer, (req, res) => {
     const rawId = typeof req.body === 'string' ? req.body : (req.body?.id ?? req.body?.computerId);
     const id = safeId(rawId);
     if (id === null) {
-      log.warn({ ip: req.ip }, 'getStopSignal: invalid id');
+      log.warn({ ip: sanitizeForLog(req.ip) }, 'getStopSignal: invalid id');
       return res.sendStatus(400);
     }
-    log.info({ id, ip: req.ip }, `Computer ${id} checked for stop signal`);
+    log.info({ id, ip: sanitizeForLog(req.ip) }, `Computer ${id} checked for stop signal`);
     res.send(stopSignal[id] ? true : false);
     delete stopSignal[id];
   });
 
-  router.post('/api/getWsRequest', express.text({ type: '*/*' }), requireApprovedComputer, (req, res) => {
+  router.post('/api/getWsRequest', express.text({ type: '*/*', limit: '1kb' }), requireApprovedComputer, (req, res) => {
     const rawId = typeof req.body === 'string' ? req.body : (req.body?.id ?? req.body?.computerId);
     const id = safeId(rawId);
     if (id === null) return res.status(400).json({ error: 'invalid id' });

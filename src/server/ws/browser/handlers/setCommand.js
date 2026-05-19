@@ -2,8 +2,9 @@
 
 const { MAX_CMD_LENGTH } = require('../../../config');
 const { isConcurrentCommand } = require('../../../commandRouting');
+const { requireOperator } = require('./authGuard');
 
-module.exports = function setCommand(msg, ctx) {
+module.exports = requireOperator(function setCommand(msg, ctx) {
   const { ws, state, safeId, sanitizeForLog, sendOrQueue, userSub, wsIsAdmin, log, userManagement } = ctx;
   const id = safeId(msg.id);
   if (!id || !msg.cmd || typeof msg.cmd !== 'string' || msg.cmd.length > MAX_CMD_LENGTH) return;
@@ -18,4 +19,4 @@ module.exports = function setCommand(msg, ctx) {
     : isConcurrentCommand(state.computers[id]?.type, msg.cmd);
   sendOrQueue(id, msg.cmd, concurrent,
     `[ws] setCommand id=${id} user=${userSub} <${sanitizeForLog(msg.cmd)}>`);
-};
+});

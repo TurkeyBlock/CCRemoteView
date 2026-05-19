@@ -1,8 +1,9 @@
 'use strict';
 
 const { LOG_BROWSER_CMDS } = require('../../../config');
+const { requireOperator } = require('./authGuard');
 
-module.exports = function setStopSignal(msg, ctx) {
+module.exports = requireOperator(function setStopSignal(msg, ctx) {
   const { computerWs, stopSignal, safeId, clearCommandQueue, userSub, log, userManagement } = ctx;
   const id = safeId(msg.id);
   if (!id) return;
@@ -14,4 +15,4 @@ module.exports = function setStopSignal(msg, ctx) {
   } else {
     stopSignal[id] = true;
   }
-};
+});

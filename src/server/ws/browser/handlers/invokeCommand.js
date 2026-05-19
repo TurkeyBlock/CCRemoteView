@@ -1,8 +1,9 @@
 'use strict';
 
 const { commandRouting, validateArgs, buildLuaCommand } = require('../../../commandRouting');
+const { requireOperator } = require('./authGuard');
 
-module.exports = function invokeCommand(msg, ctx) {
+module.exports = requireOperator(function invokeCommand(msg, ctx) {
   const { ws, state, safeId, sanitizeForLog, sendOrQueue, userSub, log, userManagement } = ctx;
   const id = safeId(msg.id);
   if (!id) return;
@@ -26,4 +27,4 @@ module.exports = function invokeCommand(msg, ctx) {
   userManagement.incrementActionCount(userSub);
   sendOrQueue(id, luaCmd, commandDef.concurrent,
     `[ws] invokeCommand id=${id} user=${userSub} command=${commandName}`);
-};
+});

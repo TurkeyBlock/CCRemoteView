@@ -7,6 +7,12 @@ const { getClientIp } = require('./clientIp');
 // Buckets are cleaned up on each request that opens a new window, keeping memory bounded.
 function rateLimit(maxPerSec) {
   const buckets = new Map(); // ip -> { count, windowStart }
+  setInterval(() => {
+    const cutoff = Date.now() - 2_000;
+    for (const [ip, b] of buckets) {
+      if (b.windowStart < cutoff) buckets.delete(ip);
+    }
+  }, 10_000).unref();
   return (req, res, next) => {
     const ip  = getClientIp(req);
     const now = Date.now();

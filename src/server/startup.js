@@ -27,7 +27,7 @@ function mountRoutes(app, { auth, log, managers }) {
   app.use('/lua', (req, res, next) => {
     const safe     = path.normalize(req.path).replace(/^(\.\.[/\\])+/, '');
     const filePath = path.resolve(LUA_DIR, safe.slice(1));
-    if (!filePath.startsWith(LUA_DIR)) return res.sendStatus(403);
+    if (!filePath.startsWith(path.resolve(LUA_DIR) + path.sep)) return res.sendStatus(403);
     fs.readFile(filePath, 'utf8', (err, data) => {
       if (err) return err.code === 'ENOENT' ? res.sendStatus(404) : next(err);
       res.type('text/plain').send(
@@ -44,7 +44,9 @@ function mountRoutes(app, { auth, log, managers }) {
   app.use(createComputerRoutes(deps));
   app.use(createBrowserRoutes(deps));
 
-  app.get('/health', (_req, res) => {
+  app.get('/health', (req, res) => {
+    const remote = req.socket.remoteAddress;
+    if (remote !== '127.0.0.1' && remote !== '::1') return res.sendStatus(403);
     const { state } = worldState;
     res.json({
       status: 'ok',
@@ -74,11 +76,24 @@ function mountWebSockets(server, { auth, log, managers }) {
   attachComputerWs(computerWss, { worldState, computerIpManager, computerIdManager, log });
   attachBrowserWs(wss,          { worldState, auth, log, userManagement });
 
+  const allowedOrigins = new Set(
+    [IS_PROD ? process.env.APP_URL : config.DEV_APP_URL, process.env.NEXTAUTH_URL].filter(Boolean)
+  );
+
   server.on('upgrade', (req, socket, head) => {
     const pathname = req.url.split('?')[0];
     if (pathname === '/ws') {
+      if (!BYPASS_AUTH) {
+        const origin = req.headers.origin;
+        if (origin && !allowedOrigins.has(origin)) {
+          socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+          socket.destroy();
+          return;
+        }
+      }
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
     } else if (pathname.startsWith('/ws/computer')) {
+      // ComputerCraft HTTP clients don't send Origin — skip origin check here.
       computerWss.handleUpgrade(req, socket, head, (ws) => computerWss.emit('connection', ws, req));
     }
   });
@@ -110,9 +125,29 @@ function configureExpress(app) {
   const cors        = require('cors');
   const compression = require('compression');
   const express     = require('express');
+  const helmet      = require('helmet');
   app.set('trust proxy', 'loopback');
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc:  ["'self'"],
+        scriptSrc:   ["'self'", "'unsafe-inline'"],
+        styleSrc:    ["'self'", "'unsafe-inline'"],
+        imgSrc:      ["'self'", 'data:', 'blob:'],
+        connectSrc:  ["'self'", 'ws:', 'wss:'],
+        frameSrc:    ["'none'"],
+        objectSrc:   ["'none'"],
+      },
+    },
+    hsts: { maxAge: 31536000, includeSubDomains: true },
+  }));
   app.use(compression());
-  app.use(cors({ origin: IS_PROD ? process.env.APP_URL : DEV_AUTH_URL }));
+  app.use(cors({
+    origin: IS_PROD ? process.env.APP_URL : DEV_AUTH_URL,
+    credentials: true,
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type'],
+  }));
   app.use(express.json({ limit: '2mb' }));
   app.use((req, res, next) => {
     res.setTimeout(15_000, () => {

@@ -3,8 +3,9 @@
 const { SCENE_CAP_CHARS } = require('./glassesConstants');
 const { sceneOps } = require('./glassesSceneOps');
 const { escapeLuaStringArg } = require('../../../utils/luaEscape');
+const { requireOperator } = require('./authGuard');
 
-module.exports = function glassesSceneOp(msg, ctx) {
+module.exports = requireOperator(function glassesSceneOp(msg, ctx) {
   const { state, computerWs, safeId, setWsRequest, sendOrQueue, canvasSubscriptions, canvasRateLimit, log } = ctx;
   if (canvasRateLimit()) return;
   const id = safeId(msg.computerId);
@@ -48,4 +49,4 @@ module.exports = function glassesSceneOp(msg, ctx) {
   for (const sub of canvasSubscriptions[id] ?? []) {
     if (sub.readyState === 1) sub.send(canvasMsg);
   }
-};
+});
