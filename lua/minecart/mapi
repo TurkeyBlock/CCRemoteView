@@ -5,7 +5,6 @@
 -- !MUST END WITH '/api/'
 -- %%APP_URL%% is replaced by the server before this file is served; not valid Lua as-is.
 url = "%%APP_URL%%/api/"
-local state_url = url .. "state/"
 local headers = { ["Content-Type"] = "application/json" }
 
 local api_common = dofile("/api_common.lua")
