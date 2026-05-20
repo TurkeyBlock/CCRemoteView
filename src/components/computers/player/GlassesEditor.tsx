@@ -1,5 +1,6 @@
 'use client'
 
+import { FS } from '@/utils/fontSize'
 // Modal wrapper for the glasses canvas editor, rendered from PlayerPanel.
 // Thin shell: owns the open/closed trigger button and JSON size meter shown in the
 // PlayerPanel section; delegates all editor logic to useGlassesEditor and
@@ -29,7 +30,7 @@ export default function GlassesEditor({ computerId }: Props) {
     <>
       {/* Compact trigger shown inside the PlayerPanel section */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ fontSize: 11, color: 'var(--fg-mute)' }}>
+        <span style={{ fontSize: FS['11'], color: 'var(--fg-mute)' }}>
           {liveObjects.length === 0
             ? 'No objects in scene.'
             : <>{liveObjects.length} object{liveObjects.length !== 1 ? 's' : ''} · <span style={{ color: meterColor }}>{liveJsonLen.toLocaleString()}/{JSON_CAP.toLocaleString()} chars</span></>}
@@ -64,9 +65,9 @@ export default function GlassesEditor({ computerId }: Props) {
       {importOpen && typeof document !== 'undefined' && createPortal(
         <Modal layer="confirmTop" dim={0.7}>
           <div style={{ width: 440, background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 4, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>Import Scene JSON</div>
+            <div style={{ fontSize: FS['13'], fontWeight: 600 }}>Import Scene JSON</div>
             <textarea value={importText} onChange={e => setImportText(e.target.value)}
-              style={{ width: '100%', height: 200, background: 'var(--surface-3)', border: '1px solid var(--line)', borderRadius: 2, color: 'var(--fg)', padding: '4px 6px', fontSize: 11, fontFamily: 'var(--font-mono)', resize: 'vertical', boxSizing: 'border-box' }}
+              style={{ width: '100%', height: 200, background: 'var(--surface-3)', border: '1px solid var(--line)', borderRadius: 2, color: 'var(--fg)', padding: '4px 6px', fontSize: FS['11'], fontFamily: 'var(--font-mono)', resize: 'vertical', boxSizing: 'border-box' }}
               placeholder="Paste JSON array here…" />
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button className="btn btn-compact" onClick={() => { setImportOpen(false); setImportText('') }}>Cancel</button>

@@ -1,4 +1,5 @@
 import type { Vec } from '@/types/world'
+import { FS } from '@/utils/fontSize'
 
 interface Props {
   loc?: Vec | null
@@ -16,7 +17,7 @@ export default function ComputerLocation({ loc, showUnavailable = false }: Props
     )
   }
   if (showUnavailable) {
-    return <span className="muted" style={{ fontStyle: 'italic', fontSize: 12 }}>GPS unavailable</span>
+    return <span className="muted" style={{ fontStyle: 'italic', fontSize: FS['12'] }}>GPS unavailable</span>
   }
   return null
 }

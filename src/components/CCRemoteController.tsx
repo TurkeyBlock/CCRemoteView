@@ -1,6 +1,7 @@
 'use client'
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { FS } from '@/utils/fontSize'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useWorldStore } from '@/store/useWorld'
 import { useWorldViewStore, useEditorStateStore } from '@/store/useWorldView'
@@ -19,13 +20,14 @@ import AdminPanel from './overlay/AdminPanel'
 import OperatorRequest from './overlay/OperatorRequest'
 import BlockTransparency from './overlay/BlockTransparency'
 import RenderFilters from './overlay/RenderFilters'
-import { Led } from './ui'
+import { Led, HeaderMenu } from './ui'
 import ModalOverlay from './modals/ModalOverlay'
 import { connLedKind, POLL_INTERVAL_MS } from './computers/PollTimers'
 import type { GlassesObject } from '@/types/glasses'
 import { useAppWebSocket } from '@/hooks/useAppWebSocket'
 import { useFloatingPanels } from '@/hooks/useFloatingPanels'
 import { useContextMenu } from '@/hooks/useContextMenu'
+import { useTheme } from '@/hooks/useTheme'
 
 const ComputerLed = memo(function ComputerLed({ computerId }: { computerId: number }) {
   const wsConnected  = useWorldStore(s => s.computers[computerId]?.wsConnected)
@@ -50,6 +52,12 @@ const TYPE_SHORT: Record<string, string> = {
 }
 
 const CHAT_TAB_ID = -2
+
+const TEXT_SIZES = ['sm', 'md', 'lg', 'xl'] as const
+type TextSize = typeof TEXT_SIZES[number]
+
+const TEXT_SIZE_LABELS: Record<TextSize, string> = { sm: 'Small', md: 'Medium', lg: 'Large', xl: 'Extra Large' }
+const TEXT_SIZE_PX: Record<TextSize, number> = { sm: 12, md: 14, lg: 16, xl: 18 }
 
 export default function CCRemoteController() {
   const isLoading = useWorldStore(s => s.isLoading)
@@ -99,6 +107,23 @@ export default function CCRemoteController() {
   const isLoggedIn = useUserStore(s => s.isLoggedIn)
   const isOperator = useUserStore(s => s.isOperator)
   const isAdmin = useUserStore(s => s.isAdmin)
+
+  const { theme, toggle: toggleTheme } = useTheme()
+  const [textSize, setTextSize] = useState<TextSize>('md')
+
+  useEffect(() => {
+    const saved = localStorage.getItem('cc-text-size') as TextSize | null
+    if (saved && (TEXT_SIZES as readonly string[]).includes(saved)) {
+      setTextSize(saved)
+      document.documentElement.setAttribute('data-text-size', saved)
+    }
+  }, [])
+
+  function applyTextSize(size: TextSize) {
+    setTextSize(size)
+    localStorage.setItem('cc-text-size', size)
+    document.documentElement.setAttribute('data-text-size', size)
+  }
 
   const [capBlocked, setCapBlocked] = useState(false)
   const [wsConnected, setWsConnected] = useState(false)
@@ -176,6 +201,7 @@ export default function CCRemoteController() {
   function addTab(id: number) {
     setTabOrder(prev => prev.includes(id) ? prev : [...prev, id])
     setAddOpen(false); setAddSearch('')
+    setChatTabSelected(false)
     useWorldViewStore.setState({ selectedComputerId: id })
   }
 
@@ -217,8 +243,8 @@ export default function CCRemoteController() {
           title={dockCollapsed ? 'Show sidebar' : 'Hide sidebar'}
           style={{
             background: 'none', border: 'none', borderRight: 'var(--border)',
-            color: 'var(--fg-dim)', cursor: 'pointer', padding: '0 8px',
-            fontSize: 13, lineHeight: 1, alignSelf: 'stretch',
+            color: 'var(--fg-mute)', cursor: 'pointer', padding: '0 8px',
+            fontSize: FS['13'], lineHeight: 1, alignSelf: 'stretch',
             display: 'flex', alignItems: 'center',
           }}
         >{dockCollapsed ? '›' : '‹'}</button>
@@ -233,7 +259,7 @@ export default function CCRemoteController() {
             <div className="sys-stat">
               <Led kind="amber" />
               <span className="sys-stat-k">Guest</span>
-              <a href="/api/signin" style={{ color: 'var(--accent)', fontSize: 12, textDecoration: 'none' }}>Sign in</a>
+              <a href="/api/signin" style={{ color: 'var(--accent)', fontSize: FS['12'], textDecoration: 'none' }}>Sign in</a>
             </div>
           )}
           {userLoaded && isOperator && !isAdmin && (
@@ -245,6 +271,29 @@ export default function CCRemoteController() {
         </div>
 
         <div className="topbar-actions">
+          <button
+            className="btn btn-compact"
+            onClick={toggleTheme}
+            title={theme === 'organic' ? 'Switch to dark theme' : 'Switch to light theme'}
+            style={{ minWidth: 32, fontSize: 15 }}
+            suppressHydrationWarning
+          >{theme === 'organic' ? '☾' : '☀'}</button>
+          <HeaderMenu
+            compact
+            label={<><span style={{ fontSize: FS['12'], fontWeight: 600, fontFamily: 'var(--font-mono)' }}>T</span><span style={{ fontSize: FS['10'], color: 'var(--fg-mute)', fontFamily: 'var(--font-mono)', marginLeft: 2 }}>{textSize.toUpperCase()}</span></>}
+          >
+            {TEXT_SIZES.map(s => (
+              <div
+                key={s}
+                className="ctx-item"
+                onClick={() => applyTextSize(s)}
+                style={{ color: s === textSize ? 'var(--accent)' : undefined, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 20 }}
+              >
+                <span>{TEXT_SIZE_LABELS[s]}</span>
+                <span style={{ fontSize: TEXT_SIZE_PX[s], color: 'var(--fg-mute)', fontFamily: 'var(--font-mono)' }}>The quick brown fox</span>
+              </div>
+            ))}
+          </HeaderMenu>
           {userLoaded && isLoggedIn && !isOperator && <OperatorRequest />}
           <RenderFilters ref={renderFiltersRef} onOpened={() => { blockTransparencyRef.current?.setOpen(false); adminPanelRef.current?.setOpen(false) }} />
           <BlockTransparency ref={blockTransparencyRef} onOpened={() => { renderFiltersRef.current?.setOpen(false); adminPanelRef.current?.setOpen(false) }} />
@@ -264,7 +313,7 @@ export default function CCRemoteController() {
                 <Led kind="on" />
                 <span>Connected Computers</span>
               </div>
-              <span style={{ fontSize: 11, color: 'var(--fg-mute)' }}>{computerIds.length} online</span>
+              <span style={{ fontSize: FS['11'], color: 'var(--fg-mute)' }}>{computerIds.length} online</span>
             </div>
             <div style={{ padding: 10, position: 'relative' }}>
               {/* Tab strip */}
@@ -333,7 +382,7 @@ export default function CCRemoteController() {
                         <input
                           autoFocus
                           className="input input-mono"
-                          style={{ fontSize: 12 }}
+                          style={{ fontSize: FS['12'] }}
                           value={addSearch}
                           onChange={e => setAddSearch(e.target.value)}
                           placeholder="Search computers…"
@@ -350,7 +399,7 @@ export default function CCRemoteController() {
                             return filtered.map(id => (
                               <div key={id} className="ctx-item" onClick={() => addTab(id)}>
                                 <ComputerLed computerId={id} />
-                                <span className="mono" style={{ color: 'var(--fg-mute)', fontSize: 11 }}>#{id}</span>
+                                <span className="mono" style={{ color: 'var(--fg-mute)', fontSize: FS['11'] }}>#{id}</span>
                                 <span>{computerName(id)}</span>
                               </div>
                             ))
@@ -393,7 +442,7 @@ export default function CCRemoteController() {
               </div>
             </div>
           ) : (
-            <div className="panel" style={{ padding: 14, color: 'var(--fg-mute)', fontSize: 12 }}>
+            <div className="panel" style={{ padding: 14, color: 'var(--fg-mute)', fontSize: FS['12'] }}>
               Select a tab above to open its control panel.
             </div>
           )}

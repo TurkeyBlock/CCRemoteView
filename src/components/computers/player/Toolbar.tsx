@@ -3,6 +3,7 @@
 // Top toolbar for the glasses canvas editor: draw-tool selector, color/thickness
 // picker, undo/redo, group/ungroup, publish-to-live, import/export, and clear.
 import { DRAW_TOOLS, intToHex, hexToInt, rgbOfRgba, alphaOfRgba, packRgba } from './glassesEditorTypes'
+import { FS } from '@/utils/fontSize'
 import type { EditorState } from './useGlassesEditor'
 
 export function Toolbar({ editor, onClose }: { editor: EditorState; onClose?: () => void }) {
@@ -15,9 +16,9 @@ export function Toolbar({ editor, onClose }: { editor: EditorState; onClose?: ()
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', background: 'var(--surface-3)', borderBottom: '1px solid var(--line)', flexShrink: 0, flexWrap: 'wrap' }}>
-      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>Glasses Canvas Editor</span>
-      <span style={{ fontSize: 11, color: 'var(--fg-dim)' }}>·</span>
-      <span style={{ fontSize: 11, color: 'var(--fg-dim)', fontFamily: 'var(--font-mono)' }}>512×288</span>
+      <span style={{ fontSize: FS['14'], fontWeight: 600, color: 'var(--fg)' }}>Glasses Canvas Editor</span>
+      <span style={{ fontSize: FS['12'], color: 'var(--fg-dim)' }}>·</span>
+      <span style={{ fontSize: FS['12'], color: 'var(--fg-dim)', fontFamily: 'var(--font-mono)' }}>512×288</span>
 
       <span style={{ width: 1, background: 'var(--line)', alignSelf: 'stretch', margin: '0 2px' }} />
       {(['live', 'draft'] as const).map(m => (
@@ -36,14 +37,14 @@ export function Toolbar({ editor, onClose }: { editor: EditorState; onClose?: ()
           <input type="color" value={intToHex(rgbOfRgba(drawRgba))} style={{ width: 26, height: 22, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }}
             onChange={ev => setDrawRgba(packRgba(hexToInt(ev.target.value), alphaOfRgba(drawRgba)))} />
           <input type="number" value={alphaOfRgba(drawRgba)} min={0} max={255} step={1} title="Alpha"
-            style={{ width: 46, background: 'var(--surface-3)', border: '1px solid var(--line)', borderRadius: 2, color: 'var(--fg)', padding: '1px 4px', fontSize: 11 }}
+            style={{ width: 46, background: 'var(--surface-3)', border: '1px solid var(--line)', borderRadius: 2, color: 'var(--fg)', padding: '1px 4px', fontSize: FS['12'] }}
             onChange={ev => { const v = Number(ev.target.value); if (!isNaN(v)) setDrawRgba(packRgba(rgbOfRgba(drawRgba), Math.max(0, Math.min(255, v)))) }} />
         </label>
         <span style={{ width: 1, background: 'rgba(59,130,246,0.5)', alignSelf: 'stretch', margin: '0 1px' }} />
         <label style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }} title="Thickness">
-          <span style={{ fontSize: 11, color: 'var(--fg-mute)' }}>th</span>
+          <span style={{ fontSize: FS['12'], color: 'rgba(190,215,235,0.9)' }}>th</span>
           <input type="number" value={drawThickness} min={1} step={1}
-            style={{ width: 38, background: 'var(--surface-3)', border: '1px solid var(--line)', borderRadius: 2, color: 'var(--fg)', padding: '1px 4px', fontSize: 11 }}
+            style={{ width: 38, background: 'var(--surface-3)', border: '1px solid var(--line)', borderRadius: 2, color: 'var(--fg)', padding: '1px 4px', fontSize: FS['12'] }}
             onChange={ev => { const v = Number(ev.target.value); if (!isNaN(v)) setDrawThickness(Math.max(1, v|0)) }} />
         </label>
         <span style={{ width: 1, background: 'rgba(59,130,246,0.5)', alignSelf: 'stretch', margin: '0 1px' }} />
@@ -81,7 +82,7 @@ export function Toolbar({ editor, onClose }: { editor: EditorState; onClose?: ()
         <button className="btn btn-compact" onClick={handleExport} title="Copy scene JSON to clipboard">Export</button>
         <button className="btn btn-compact" onClick={() => setImportOpen(true)}>Import</button>
         <span style={{ width: 1, background: 'rgba(20,184,166,0.5)', alignSelf: 'stretch', margin: '0 1px' }} />
-        <button className="btn btn-compact btn-danger" onClick={handleClearGlasses}>Clear Glasses</button>
+        <button className="btn btn-compact btn-danger" onClick={handleClearGlasses} style={{ color: '#f4a08a', borderColor: '#f4a08a' }}>Clear Glasses</button>
       </div>
 
       {onClose && <>

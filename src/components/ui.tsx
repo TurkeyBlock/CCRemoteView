@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, forwardRef } from 'react'
+import { FS } from '@/utils/fontSize'
 
 // ── LED indicator ────────────────────────────────────────────
 export type LedKind = 'on' | 'amber' | 'red' | 'info' | 'off'
@@ -126,7 +127,7 @@ export function closeAllMenus() { for (const cb of _menuCloseRegistry) cb() }
 
 export function HeaderMenu({
   label, children, align = 'right', compact,
-}: { label: string; children: React.ReactNode; align?: 'left' | 'right'; compact?: boolean }) {
+}: { label: React.ReactNode; children: React.ReactNode; align?: 'left' | 'right'; compact?: boolean }) {
   const [open, setOpen] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
   const [pos, setPos] = useState<{ top: number; left?: number; right?: number }>({ top: 0 })
@@ -161,7 +162,7 @@ export function HeaderMenu({
         className={`btn${compact ? ' btn-compact' : ''}`}
         onClick={handleToggle}
       >
-        {label} <span style={{ marginLeft: 5, opacity: 0.55, fontSize: 9 }}>▼</span>
+        {label} <span style={{ marginLeft: 5, opacity: 0.55, fontSize: FS['9'] }}>▼</span>
       </button>
       {open && (
         <div className="dropdown" style={{ top: pos.top, left: pos.left, right: pos.right }}>

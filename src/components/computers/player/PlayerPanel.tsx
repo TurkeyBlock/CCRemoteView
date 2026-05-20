@@ -1,5 +1,6 @@
 'use client'
 
+import { FS } from '@/utils/fontSize'
 // Panel shown when a neural-interface player computer is selected.
 // Displays player stats, armor, hotbar, full inventory, ender chest, nearby entities,
 // a Lua terminal, action buttons, and the GlassesEditor trigger.
@@ -69,7 +70,7 @@ export default memo(function PlayerPanel({ computerId }: Props) {
         label="Inventory"
         right={
           <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            {inventory && <span style={{ fontSize: 11, color: 'var(--fg-mute)' }}>{invItemCount} items</span>}
+            {inventory && <span style={{ fontSize: FS['11'], color: 'var(--fg-mute)' }}>{invItemCount} items</span>}
             <button className="btn btn-compact" onClick={() => invokeCommand(computerId, 'getInventory')}>
               Refresh
             </button>
@@ -104,7 +105,7 @@ export default memo(function PlayerPanel({ computerId }: Props) {
           </div>
         )}
         {showEnder && !enderChest && (
-          <div style={{ fontSize: 11, color: 'var(--fg-mute)', padding: '4px 0' }}>Fetching…</div>
+          <div style={{ fontSize: FS['11'], color: 'var(--fg-mute)', padding: '4px 0' }}>Fetching…</div>
         )}
       </Section>
 

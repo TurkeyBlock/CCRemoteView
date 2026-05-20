@@ -1,6 +1,7 @@
 'use client'
 
 import type { EntitySighting } from '@/types/world'
+import { FS } from '@/utils/fontSize'
 import { Section } from '@/components/ui'
 
 interface Props {
@@ -13,9 +14,9 @@ export default function EntityList({ entities }: Props) {
     <Section label={`Entities (${entities.length})`}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 160, overflowY: 'auto' }}>
         {entities.map(e => (
-          <div key={e.id} className="row-between" style={{ fontSize: 12 }}>
+          <div key={e.id} className="row-between" style={{ fontSize: FS['12'] }}>
             <span style={{ color: 'var(--cyan)', whiteSpace: 'nowrap' }}>{e.name}</span>
-            <span className="muted" style={{ fontSize: 11 }}>{e.x.toFixed(1)}, {e.y.toFixed(1)}, {e.z.toFixed(1)}</span>
+            <span className="muted" style={{ fontSize: FS['11'] }}>{e.x.toFixed(1)}, {e.y.toFixed(1)}, {e.z.toFixed(1)}</span>
           </div>
         ))}
       </div>

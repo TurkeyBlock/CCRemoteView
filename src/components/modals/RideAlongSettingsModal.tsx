@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import { FS } from '@/utils/fontSize'
 import { createPortal } from 'react-dom'
 import { Modal } from '@/components/modals/Modal'
 import { useWorldViewStore } from '@/store/useWorldView'
@@ -77,7 +78,7 @@ export default function RideAlongSettingsModal({ onClose }: Props) {
         <div style={{ marginBottom: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
             <span className="overlay-title" style={{ padding: 0 }}>FOV</span>
-            <span className="overlay-value" style={{ fontSize: 12 }}>{fov}°</span>
+            <span className="overlay-value" style={{ fontSize: FS['12'] }}>{fov}°</span>
           </div>
           <input
             type="range" min={20} max={120} step={1} value={fov}

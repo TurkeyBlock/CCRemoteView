@@ -1,6 +1,7 @@
 'use client'
 
 import { useWorldStore, lookupBlock } from '@/store/useWorld'
+import { FS } from '@/utils/fontSize'
 import { useWorldViewStore } from '@/store/useWorldView'
 import type { Inventory } from '@/types/world'
 import { normalizeInventory } from '@/utils/inventory'
@@ -51,7 +52,7 @@ export default function InventoryView({ inventory, inventorySize, computerId, bl
         <button
           className="btn btn-compact"
           onClick={() => useWorldViewStore.setState({ selectedInventoryPos: null })}
-          style={{ padding: '1px 7px', fontSize: 14, lineHeight: 1 }}
+          style={{ padding: '1px 7px', fontSize: FS['14'], lineHeight: 1 }}
         >×</button>
       </div>
       <div className="inv-chest-body">

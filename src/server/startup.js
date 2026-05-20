@@ -131,10 +131,12 @@ function configureExpress(app) {
     contentSecurityPolicy: {
       directives: {
         defaultSrc:  ["'self'"],
-        scriptSrc:   ["'self'", "'unsafe-inline'"],
+        // 'unsafe-eval' is required in dev: React reconstructs call stacks via eval() for
+        // debugging. It is never used in production builds, so we omit it there.
+        scriptSrc:   ["'self'", "'unsafe-inline'", ...(!IS_PROD ? ["'unsafe-eval'"] : [])],
         styleSrc:    ["'self'", "'unsafe-inline'"],
         imgSrc:      ["'self'", 'data:', 'blob:'],
-        connectSrc:  ["'self'", 'ws:', 'wss:'],
+        connectSrc:  ["'self'", 'ws:', 'wss:', 'blob:'],
         frameSrc:    ["'none'"],
         objectSrc:   ["'none'"],
       },

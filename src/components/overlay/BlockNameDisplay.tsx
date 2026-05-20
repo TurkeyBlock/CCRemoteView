@@ -1,6 +1,7 @@
 'use client'
 
 import { memo } from 'react'
+import { FS } from '@/utils/fontSize'
 import { useWorldViewStore } from '@/store/useWorldView'
 
 export default memo(function BlockNameDisplay() {
@@ -21,7 +22,7 @@ export default memo(function BlockNameDisplay() {
         {hoveredEntity ? (
           <>
             <div className="overlay-value">{hoveredEntity.name}</div>
-            <div className="overlay-value muted" style={{ fontSize: 11 }}>{hoveredEntity.id}</div>
+            <div className="overlay-value muted" style={{ fontSize: FS['11'] }}>{hoveredEntity.id}</div>
             {hoveredEntity.worldPos && (
               <div className="overlay-value muted" style={{ marginTop: 2 }}>
                 {hoveredEntity.worldPos.x.toFixed(1)}, {hoveredEntity.worldPos.y.toFixed(1)}, {hoveredEntity.worldPos.z.toFixed(1)}

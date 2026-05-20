@@ -4,6 +4,7 @@
 // Supports click-to-select, multi-select, and drag-to-reorder.
 import type { GlassesGroup } from '@/types/glasses'
 import { JSON_CAP, alphaOfRgba, objLabel } from './glassesEditorTypes'
+import { FS } from '@/utils/fontSize'
 import type { EditorState } from './useGlassesEditor'
 
 export function ObjectList({ editor }: { editor: EditorState }) {
@@ -16,15 +17,15 @@ export function ObjectList({ editor }: { editor: EditorState }) {
 
   return (
     <div style={{ borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
-      <div style={{ background: 'var(--surface-3)', borderBottom: '1px solid var(--line)', padding: '5px 10px', fontSize: 10, color: 'var(--fg-mute)', textTransform: 'uppercase', letterSpacing: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ background: 'var(--surface-3)', borderBottom: '1px solid var(--line)', padding: '5px 10px', fontSize: FS['12'], color: 'var(--fg-mute)', textTransform: 'uppercase', letterSpacing: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span>Objects ({activeScene.length})</span>
-        <span style={{ textTransform: 'none', letterSpacing: 0, fontSize: 9, fontFamily: 'var(--font-mono)', color: jsonLen > JSON_CAP*0.94 ? 'var(--red)' : jsonLen > JSON_CAP*0.75 ? '#f5a623' : 'var(--fg-dim)' }}>
+        <span style={{ textTransform: 'none', letterSpacing: 0, fontSize: FS['11'], fontFamily: 'var(--font-mono)', color: jsonLen > JSON_CAP*0.94 ? 'var(--red)' : jsonLen > JSON_CAP*0.75 ? '#f5a623' : 'var(--fg-dim)' }}>
           {jsonLen.toLocaleString()}/{JSON_CAP.toLocaleString()}
         </span>
       </div>
       <div style={{ maxHeight: 220, overflowY: 'auto', background: 'var(--surface-2)' }}>
         {activeScene.length === 0
-          ? <div style={{ fontSize: 11, color: 'var(--fg-dim)', padding: 10, textAlign: 'center' }}>Use + buttons above to add objects.</div>
+          ? <div style={{ fontSize: FS['12'], color: 'var(--fg-dim)', padding: 10, textAlign: 'center' }}>Use + buttons above to add objects.</div>
           : activeScene.map((obj, i) => {
             const isSelected = selectedIds.includes(obj.id)
             return (
@@ -45,15 +46,15 @@ export function ObjectList({ editor }: { editor: EditorState }) {
                     if (e.shiftKey) setSelectedIds(selectedIds.includes(obj.id) ? selectedIds.filter(id=>id!==obj.id) : [...selectedIds, obj.id])
                     else setSelectedIds([obj.id])
                   }}>
-                  <span style={{ color: 'var(--fg-dim)', fontSize: 10, cursor: 'grab', padding: '0 2px', userSelect: 'none' }}>⠿</span>
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11, color: isSelected && !selectedChildId ? 'var(--accent)' : 'var(--fg)' }}>
+                  <span style={{ color: 'var(--fg-dim)', fontSize: FS['12'], cursor: 'grab', padding: '0 2px', userSelect: 'none' }}>⠿</span>
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: FS['12'], color: isSelected && !selectedChildId ? 'var(--accent)' : 'var(--fg)' }}>
                     {objLabel(obj)}
                   </span>
-                  <button className="btn btn-compact" style={{ padding: '0 4px', fontSize: 10, minHeight: 20 }}
+                  <button className="btn btn-compact" style={{ padding: '0 4px', fontSize: FS['11'], minHeight: 22 }}
                     onClick={ev => { ev.stopPropagation(); activeReorder(i, i-1) }} disabled={i === 0}>↑</button>
-                  <button className="btn btn-compact" style={{ padding: '0 4px', fontSize: 10, minHeight: 20 }}
+                  <button className="btn btn-compact" style={{ padding: '0 4px', fontSize: FS['11'], minHeight: 22 }}
                     onClick={ev => { ev.stopPropagation(); activeReorder(i, i+1) }} disabled={i === activeScene.length-1}>↓</button>
-                  <button className="btn btn-compact" style={{ padding: '0 4px', fontSize: 10, minHeight: 20, color: 'var(--red)' }}
+                  <button className="btn btn-compact" style={{ padding: '0 4px', fontSize: FS['11'], minHeight: 22, color: 'var(--red)' }}
                     onClick={ev => { ev.stopPropagation(); activeRemove(obj.id) }}>×</button>
                 </div>
 
@@ -71,14 +72,14 @@ export function ObjectList({ editor }: { editor: EditorState }) {
                         ev.stopPropagation()
                         editor.selectChild(obj.id, child)
                       }}>
-                      <span style={{ color: 'var(--fg-mute)', fontSize: 9, padding: '0 2px', userSelect: 'none' }}>└</span>
-                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, color: isChildSelected ? 'var(--accent)' : 'var(--fg-dim)' }}>
+                      <span style={{ color: 'var(--fg-mute)', fontSize: FS['11'], padding: '0 2px', userSelect: 'none' }}>└</span>
+                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: FS['12'], color: isChildSelected ? 'var(--accent)' : 'var(--fg-dim)' }}>
                         {objLabel(child)}
                       </span>
                       {childAlpha < 255 && (
-                        <span title={`Custom alpha: ${childAlpha}`} style={{ fontSize: 8, color: '#f5a623', padding: '0 2px', flexShrink: 0, userSelect: 'none' }}>α{childAlpha}</span>
+                        <span title={`Custom alpha: ${childAlpha}`} style={{ fontSize: FS['10'], color: '#f5a623', padding: '0 2px', flexShrink: 0, userSelect: 'none' }}>α{childAlpha}</span>
                       )}
-                      <button className="btn btn-compact" style={{ padding: '0 4px', fontSize: 10, minHeight: 18, color: 'var(--red)' }}
+                      <button className="btn btn-compact" style={{ padding: '0 4px', fontSize: FS['11'], minHeight: 20, color: 'var(--red)' }}
                         onClick={ev => { ev.stopPropagation(); editor.handleRemoveFromGroup(obj.id, child.id) }}>×</button>
                     </div>
                   )

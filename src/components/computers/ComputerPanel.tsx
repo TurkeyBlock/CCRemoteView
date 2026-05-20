@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { FS } from '@/utils/fontSize'
 import { useWorldStore } from '@/store/useWorld'
 import { useWorldViewStore } from '@/store/useWorldView'
 import TurtlePanel from './turtles/TurtlePanel'
@@ -16,9 +17,9 @@ function DebugState({ computerId }: { computerId: number }) {
   const computer = useWorldStore(s => s.computers[computerId])
   return (
     <pre style={{
-      marginTop: 6, padding: 8, fontSize: 10, lineHeight: 1.5,
+      marginTop: 6, padding: 8, fontSize: FS['10'], lineHeight: 1.5,
       background: 'var(--ink)', border: 'var(--border)', borderRadius: 2,
-      color: 'var(--fg)', overflowX: 'auto', overflowY: 'auto',
+      color: '#e8d8b8', overflowX: 'auto', overflowY: 'auto',
       maxHeight: 320, whiteSpace: 'pre-wrap', wordBreak: 'break-all',
     }}>
       {JSON.stringify(computer, null, 2)}
@@ -70,7 +71,7 @@ export default function ComputerPanel({ computerId }: Props) {
         <button
           className="btn btn-compact btn-block"
           onClick={() => setShowDebug(d => !d)}
-          style={{ fontSize: 11 }}
+          style={{ fontSize: FS['11'] }}
         >
           {showDebug ? 'Hide' : 'Show'} raw state
         </button>

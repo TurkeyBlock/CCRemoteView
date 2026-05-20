@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, forwardRef } from 'react'
+import { FS } from '@/utils/fontSize'
 import { useWorldViewStore, useRenderFiltersStore } from '@/store/useWorldView'
 import { sceneBridge } from '@/store/sceneBridge'
 import { useUserStore } from '@/store/useUser'
@@ -77,7 +78,7 @@ const RenderFilters = forwardRef<PanelHandle, Props>(function RenderFilters({ on
     sceneBridge.updateChunkVisibility()
   }
 
-  const numInput: React.CSSProperties = { width: 58, padding: '5px 6px', fontSize: 12 }
+  const numInput: React.CSSProperties = { width: 58, padding: '5px 6px', fontSize: FS['12'] }
 
   return (
     <HeaderMenu label="Render Filters" compact align="right">

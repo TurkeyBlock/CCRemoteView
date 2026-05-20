@@ -5,14 +5,15 @@
 import type React from 'react'
 import type { GlassesText, GlassesGroup } from '@/types/glasses'
 import { intToHex, hexToInt, rgbOfRgba, alphaOfRgba, packRgba, nudgeObj } from './glassesEditorTypes'
+import { FS } from '@/utils/fontSize'
 import type { EditorState } from './useGlassesEditor'
 
 const inputStyle: React.CSSProperties = {
-  width: 56, background: 'var(--surface-3)', border: '1px solid var(--line)',
-  borderRadius: 2, color: 'var(--fg)', padding: '1px 4px', fontSize: 11,
+  width: 60, background: 'var(--surface-3)', border: '1px solid var(--line)',
+  borderRadius: 2, color: 'var(--fg)', padding: '1px 4px', fontSize: FS['12'],
 }
 const labelStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--fg-mute)',
+  display: 'flex', alignItems: 'center', gap: 4, fontSize: FS['12'], color: 'var(--fg-mute)',
 }
 
 function NumInput({ label, value, onChange, min, max }: {
@@ -62,7 +63,7 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-        <div style={{ fontSize: 10, color: 'var(--fg-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>{selectedIds.length} selected</div>
+        <div style={{ fontSize: FS['12'], color: 'var(--fg-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>{selectedIds.length} selected</div>
         {firstWithRgba && (
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <label style={labelStyle}>
@@ -83,7 +84,7 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
   }
 
   if (!editObj) return (
-    <div style={{ fontSize: 11, color: 'var(--fg-dim)', lineHeight: 1.6 }}>
+    <div style={{ fontSize: FS['12'], color: 'var(--fg-dim)', lineHeight: 1.6 }}>
       Select an object to edit its properties.
     </div>
   )
@@ -94,7 +95,7 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
     const childLabel  = parentGroup ? 'child of group' : 'child'
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-        <div style={{ fontSize: 10, color: 'var(--fg-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>
+        <div style={{ fontSize: FS['12'], color: 'var(--fg-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>
           {editObj.type} · <span style={{ color: 'var(--fg-mute)' }}>{childLabel} (relative coords)</span>
         </div>
         {'x' in editObj && 'y' in editObj && (
@@ -116,7 +117,7 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
                 </label>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 11, color: 'var(--fg-dim)', flexShrink: 0 }}>alpha</span>
+                <span style={{ fontSize: FS['12'], color: 'var(--fg-dim)', flexShrink: 0 }}>alpha</span>
                 <input type="range" value={alphaOfRgba(rgba)} min={0} max={255} step={1}
                   style={{ flex: 1, accentColor: 'var(--accent)' }}
                   onChange={ev => updateProp('rgba', packRgba(rgbOfRgba(rgba), Number(ev.target.value)))} />
@@ -128,7 +129,7 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
         })()}
         {'alpha' in editObj && editObj.type === 'item' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 11, color: 'var(--fg-dim)', flexShrink: 0 }}>alpha</span>
+            <span style={{ fontSize: FS['12'], color: 'var(--fg-dim)', flexShrink: 0 }}>alpha</span>
             <input type="range" value={e.alpha ?? 255} min={0} max={255} step={1}
               style={{ flex: 1, accentColor: 'var(--accent)' }}
               onChange={ev => updateProp('alpha', Number(ev.target.value))} />
@@ -137,11 +138,11 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
           </div>
         )}
         <div style={{ display: 'flex', gap: 6 }}>
-          <button className="btn btn-compact" style={{ fontSize: 10 }}
+          <button className="btn btn-compact" style={{ fontSize: FS['12'] }}
             onClick={() => { setSelectedChildId(null); if (parentGroup) setEditObj(parentGroup) }}>
             ← Back
           </button>
-          <button className="btn btn-compact btn-danger" style={{ fontSize: 10 }}
+          <button className="btn btn-compact btn-danger" style={{ fontSize: FS['12'] }}
             onClick={() => { if (parentGroup) handleRemoveFromGroup(parentGroup.id, selectedChildId!) }}>
             Remove from group
           </button>
@@ -154,13 +155,13 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
     const g = editObj as GlassesGroup
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-        <div style={{ fontSize: 10, color: 'var(--fg-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>group · {g.children.length} children</div>
+        <div style={{ fontSize: FS['12'], color: 'var(--fg-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>group · {g.children.length} children</div>
         <div style={{ display: 'flex', gap: 4 }}>
           <NumInput label="x" value={g.x} onChange={up('x')} />
           <NumInput label="y" value={g.y} onChange={up('y')} />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 11, color: 'var(--fg-dim)', flexShrink: 0 }}>alpha</span>
+          <span style={{ fontSize: FS['11'], color: 'var(--fg-dim)', flexShrink: 0 }}>alpha</span>
           <input type="range" value={g.alpha ?? 255} min={0} max={255} step={1}
             style={{ flex: 1, accentColor: 'var(--accent)' }}
             onChange={ev => updateProp('alpha', Number(ev.target.value))} />
@@ -175,10 +176,10 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
     const pts = (editObj as any).points as [number,number][] // eslint-disable-line @typescript-eslint/no-explicit-any
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-        <div style={{ fontSize: 10, color: 'var(--fg-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>{editObj.type} · {pts.length} pts</div>
+        <div style={{ fontSize: FS['12'], color: 'var(--fg-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>{editObj.type} · {pts.length} pts</div>
         <div style={{ maxHeight: 120, overflowY: 'auto', background: 'var(--surface-3)', borderRadius: 2, padding: '2px 4px' }}>
           {pts.map(([x,y],i) => (
-            <div key={i} style={{ display: 'flex', gap: 4, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--fg-dim)', lineHeight: 1.5 }}>
+            <div key={i} style={{ display: 'flex', gap: 4, fontSize: FS['10'], fontFamily: 'var(--font-mono)', color: 'var(--fg-dim)', lineHeight: 1.5 }}>
               <span style={{ color: 'var(--fg-mute)', minWidth: 18, textAlign: 'right' }}>{i}:</span>
               <span>{x}, {y}</span>
             </div>
@@ -200,7 +201,7 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
   if (editObj.type === 'item') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-        <div style={{ fontSize: 10, color: 'var(--fg-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>item</div>
+        <div style={{ fontSize: FS['12'], color: 'var(--fg-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>item</div>
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           <NumInput label="x" value={e.x} onChange={up('x')} />
           <NumInput label="y" value={e.y} onChange={up('y')} />
@@ -222,7 +223,7 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
   // rect, text, line, dot
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-      <div style={{ fontSize: 10, color: 'var(--fg-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>{editObj.type}</div>
+      <div style={{ fontSize: FS['12'], color: 'var(--fg-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>{editObj.type}</div>
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
         {editObj.type !== 'line'
           ? <><NumInput label="x" value={e.x} onChange={up('x')} /><NumInput label="y" value={e.y} onChange={up('y')} /></>
@@ -234,7 +235,7 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
       {editObj.type === 'text' && (
         <>
           <textarea ref={textareaRef}
-            style={{ width: '100%', background: 'var(--surface-3)', border: '1px solid var(--line)', borderRadius: 2, color: 'var(--fg)', padding: '3px 5px', fontSize: 11, resize: 'vertical', minHeight: 44, fontFamily: 'var(--font-mono)' }}
+            style={{ width: '100%', background: 'var(--surface-3)', border: '1px solid var(--line)', borderRadius: 2, color: 'var(--fg)', padding: '3px 5px', fontSize: FS['12'], resize: 'vertical', minHeight: 44, fontFamily: 'var(--font-mono)' }}
             value={(editObj as GlassesText).content}
             onChange={ev => updateProp('content', ev.target.value)} />
           <label style={{ ...labelStyle, gap: 6 }}>

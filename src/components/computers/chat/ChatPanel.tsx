@@ -1,6 +1,7 @@
 'use client'
 
 import { useWorldStore, useChatStore } from '@/store/useWorld'
+import { FS } from '@/utils/fontSize'
 
 export default function ChatPanel() {
   const chatLog   = useChatStore(s => s.chatLog)
@@ -8,7 +9,7 @@ export default function ChatPanel() {
 
   if (chatLog.length === 0) {
     return (
-      <div style={{ padding: 12, fontSize: 12, color: 'var(--fg-mute)' }}>
+      <div style={{ padding: 12, fontSize: FS['12'], color: 'var(--fg-mute)' }}>
         No chat messages yet. Messages from all computers appear here, deduplicated.
       </div>
     )

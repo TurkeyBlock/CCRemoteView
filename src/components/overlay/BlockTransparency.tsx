@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, forwardRef } from 'react'
+import { FS } from '@/utils/fontSize'
 import { useRenderFiltersStore } from '@/store/useWorldView'
 import { sceneBridge } from '@/store/sceneBridge'
 import { HeaderMenu } from '@/components/ui'
@@ -46,7 +47,7 @@ const BlockTransparency = forwardRef<PanelHandle, Props>(function BlockTranspare
           <div className="dropdown-row">
             <input
               className="input input-mono"
-              style={{ fontSize: 12 }}
+              style={{ fontSize: FS['12'] }}
               placeholder="minecraft:stone"
               value={input}
               onChange={e => setInput(e.target.value)}
@@ -65,7 +66,7 @@ const BlockTransparency = forwardRef<PanelHandle, Props>(function BlockTranspare
               <div className="heading">Pending ({pendingCount})</div>
               {pendingFilterBlocks.map(name => (
                 <div key={name} className="dropdown-row" style={{ background: 'var(--surface-3)', padding: '4px 8px', borderRadius: 3 }}>
-                  <span className="mono" style={{ flex: 1, fontSize: 11 }}>{name}</span>
+                  <span className="mono" style={{ flex: 1, fontSize: FS['11'] }}>{name}</span>
                   <button className="floating-close" onClick={() => removePendingFilterBlock(name)} title="Remove">×</button>
                 </div>
               ))}
@@ -84,7 +85,7 @@ const BlockTransparency = forwardRef<PanelHandle, Props>(function BlockTranspare
             <div className="group-tight">
               {transparencyList.map(name => (
                 <div key={name} className="dropdown-row" style={{ background: 'var(--surface-2)', padding: '4px 8px', borderRadius: 3 }}>
-                  <span className="mono" style={{ flex: 1, fontSize: 11 }}>{name}</span>
+                  <span className="mono" style={{ flex: 1, fontSize: FS['11'] }}>{name}</span>
                   {miningMode && (
                     <>
                       <input
@@ -97,12 +98,12 @@ const BlockTransparency = forwardRef<PanelHandle, Props>(function BlockTranspare
                       <input
                         type="number"
                         className="input input-mono"
-                        style={{ width: 42, padding: '3px 5px', fontSize: 11 }}
+                        style={{ width: 42, padding: '3px 5px', fontSize: FS['11'] }}
                         min={0} max={100}
                         value={Math.round((pendingOpacity[name] ?? miningOpacityMap[name] ?? 0.3) * 100)}
                         onChange={e => setPendingOpacity(p => ({ ...p, [name]: Math.max(0, Math.min(100, Number(e.target.value))) / 100 }))}
                       />
-                      <span style={{ fontSize: 11, color: 'var(--fg-mute)', marginLeft: 1 }}>%</span>
+                      <span style={{ fontSize: FS['11'], color: 'var(--fg-mute)', marginLeft: 1 }}>%</span>
                     </>
                   )}
                   <button

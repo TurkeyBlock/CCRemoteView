@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, forwardRef } from 'react'
+import { FS } from '@/utils/fontSize'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useWorldStore } from '@/store/useWorld'
 import { useUserStore } from '@/store/useUser'
@@ -122,12 +123,12 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
     setClearingWorld(false)
   }
 
-  const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 12, color: 'var(--fg-mute)' }
+  const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: FS['12'], color: 'var(--fg-mute)' }
 
   return (
     <div style={{ position: 'relative' }}>
       <button ref={btnRef} className="btn btn-compact" onClick={toggle}>
-        Admin <span style={{ marginLeft: 5, opacity: 0.55, fontSize: 9 }}>▼</span>
+        Admin <span style={{ marginLeft: 5, opacity: 0.55, fontSize: FS['9'] }}>▼</span>
       </button>
 
       {open && (
@@ -168,7 +169,7 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
                 <div key={t.id} style={rowStyle}>
                   <span>
                     <span className="mono">ID {t.id}</span>
-                    <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>from {t.ip}</span>
+                    <span className="muted" style={{ fontSize: FS['11'], marginLeft: 6 }}>from {t.ip}</span>
                   </span>
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button className="btn btn-compact" style={{ color: 'var(--green)', borderColor: 'var(--green)' }} onClick={() => post('/api/admin/approveComputerId', { id: t.id })}>Approve</button>
