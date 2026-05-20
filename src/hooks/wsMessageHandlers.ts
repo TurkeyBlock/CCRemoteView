@@ -1,4 +1,4 @@
-import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
+import type { Dispatch, RefObject, SetStateAction } from 'react'
 import { useWorldStore, useChatStore, replaceWorldBlocks } from '@/store/useWorld'
 import { useWorldViewStore } from '@/store/useWorldView'
 import { sceneBridge } from '@/store/sceneBridge'
@@ -15,10 +15,10 @@ type PendingChunks = {
 }
 
 export interface WsRefs {
-  pendingChunksRef: MutableRefObject<PendingChunks | null>
-  bufferedTransactionsRef: MutableRefObject<Array<Record<string, unknown>>>
-  idbHydratedRef: MutableRefObject<boolean>
-  catchupLoggedRef: MutableRefObject<boolean>
+  pendingChunksRef: RefObject<PendingChunks | null>
+  bufferedTransactionsRef: RefObject<Array<Record<string, unknown>>>
+  idbHydratedRef: RefObject<boolean>
+  catchupLoggedRef: RefObject<boolean>
   setTabOrder: Dispatch<SetStateAction<number[]>>
   persistWorldToCache: () => void
   recordToTypedArray: (blocks: Record<string, { name: string; metadata?: number }>) => {

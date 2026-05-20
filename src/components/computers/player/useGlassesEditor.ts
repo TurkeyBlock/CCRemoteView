@@ -135,7 +135,7 @@ export interface EditorState {
   updateProp: (key: string, val: any) => void
 
   // SVG pointer interaction
-  activeElRef: React.MutableRefObject<SVGSVGElement | null>
+  activeElRef: React.RefObject<SVGSVGElement | null>
   toSvg: (e: { clientX: number; clientY: number }) => [number, number]
   startDrag: (e: React.PointerEvent, info: DragInfo) => void
   handleSvgPointerMove: (e: React.PointerEvent) => void
@@ -143,9 +143,9 @@ export interface EditorState {
 
   // Refs needed by canvas / properties panel
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
-  drawAnchorRef: React.MutableRefObject<[number, number] | null>
-  rawPointsRef: React.MutableRefObject<[number, number][]>
-  polyPointsRef: React.MutableRefObject<[number, number][]>
+  drawAnchorRef: React.RefObject<[number, number] | null>
+  rawPointsRef: React.RefObject<[number, number][]>
+  polyPointsRef: React.RefObject<[number, number][]>
   setPolyTick: React.Dispatch<React.SetStateAction<number>>
 
   // Live view
