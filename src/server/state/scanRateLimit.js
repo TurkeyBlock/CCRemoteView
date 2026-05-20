@@ -19,8 +19,23 @@ function processScanBlocks(id, blocks, origin) {
       if (state.world.blocks[locString]) transaction.blocks[locString] = null;
     } else {
       const entry = { name: block.name };
-      if (SCAN_INCLUDE_METADATA && block.metadata != null) entry.metadata = block.metadata;
-      if (SCAN_INCLUDE_STATE && block.state != null && Object.keys(block.state).length > 0) entry.state = block.state;
+      if (SCAN_INCLUDE_METADATA && typeof block.metadata === 'number' && block.metadata >= 0 && block.metadata <= 15) {
+        entry.metadata = block.metadata;
+      }
+      if (SCAN_INCLUDE_STATE && block.state != null && typeof block.state === 'object' && !Array.isArray(block.state)) {
+        const stateKeys = Object.keys(block.state);
+        if (stateKeys.length > 0 && stateKeys.length <= 16) {
+          const safeState = {};
+          for (const k of stateKeys) {
+            if (typeof k !== 'string' || k.length > 32) continue;
+            const v = block.state[k];
+            if (typeof v === 'string' && v.length <= 64) safeState[k] = v;
+            else if (typeof v === 'boolean') safeState[k] = v;
+            else if (typeof v === 'number' && Number.isFinite(v)) safeState[k] = v;
+          }
+          if (Object.keys(safeState).length > 0) entry.state = safeState;
+        }
+      }
       transaction.blocks[locString] = entry;
     }
   }

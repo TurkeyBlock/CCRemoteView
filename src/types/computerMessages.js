@@ -41,7 +41,7 @@ function filterStateUpdate(body) {
     out.loc = body.loc;
   }
 
-  if (typeof body.rot === 'string') {
+  if (typeof body.rot === 'string' && body.rot.length <= 16) {
     out.rot = body.rot;
   }
 
@@ -61,7 +61,7 @@ function filterStateUpdate(body) {
     out.type = body.type;
   }
 
-  if (Array.isArray(body.inv)) {
+  if (Array.isArray(body.inv) && body.inv.length <= 64) { // turtles have 16 slots
     out.inv = body.inv;
   }
 

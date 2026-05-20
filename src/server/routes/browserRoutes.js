@@ -28,6 +28,15 @@ function createBrowserRoutes({ worldState, auth, log, userManagement, computerIp
   const badIp  = (ip)  => !ip  || typeof ip  !== 'string' || ip.length  > 45;
   const badSub = (sub) => !sub || typeof sub !== 'string' || sub.length > 256;
 
+  function rejectCrossOrigin(req, res, next) {
+    if (BYPASS_AUTH) return next();
+    const origin  = req.headers.origin;
+    const referer = req.headers.referer;
+    const check   = origin ?? (referer ? new URL(referer).origin : null);
+    if (check && check !== config.APP_URL) return res.status(403).json({ error: 'Forbidden' });
+    next();
+  }
+
   const HOME_URL = IS_PROD ? process.env.NEXTAUTH_URL : DEV_AUTH_URL;
   router.get('/api/signin', (_req, res) => res.redirect(SIGNIN_URL));
   router.get('/api/home',   (_req, res) => res.redirect(HOME_URL));
@@ -57,7 +66,7 @@ function createBrowserRoutes({ worldState, auth, log, userManagement, computerIp
     }
   });
 
-  router.post('/api/requestOperator', requireAuth, (req, res) => {
+  router.post('/api/requestOperator', rejectCrossOrigin, requireAuth, (req, res) => {
     const email = req.token.email ?? null;
     if (!email) return res.status(400).json({ error: 'No email in session token.' });
     const result = operatorManager.addRequest(req.token.sub, email);
@@ -67,7 +76,7 @@ function createBrowserRoutes({ worldState, auth, log, userManagement, computerIp
   // ─── Admin endpoints ──────────────────────────────────────────────────────
   // Non-admins get 404 so route existence isn't enumerable via 403 vs 401.
   // Rate limiter applied here covers all admin routes uniformly.
-  router.use('/api/admin', adminApiLimiter, async (req, res, next) => {
+  router.use('/api/admin', rejectCrossOrigin, adminApiLimiter, async (req, res, next) => {
     if (BYPASS_AUTH) return next();
     const token = await auth.getSession(req);
     if (!token || !isAdmin(token.sub)) return res.status(404).end();

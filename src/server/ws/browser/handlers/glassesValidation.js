@@ -33,7 +33,7 @@ function validateGlassesObject(obj, depth = 0) {
     case 'lines':
       return isValidPointsArray(obj.points, LINE_MIN_POINTS, LINE_MAX_POINTS) && n(obj.rgba) && n(obj.thickness);
     case 'item':
-      return n(obj.x) && n(obj.y) && typeof obj.item === 'string'
+      return n(obj.x) && n(obj.y) && typeof obj.item === 'string' && obj.item.length <= 128
           && n(obj.damage) && n(obj.scale) && n(obj.alpha);
     case 'group':
       if (!n(obj.x) || !n(obj.y)) return false;

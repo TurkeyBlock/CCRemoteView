@@ -73,7 +73,8 @@ function createComputerRoutes({ worldState, auth, log }) {
     if (typeof player !== 'string' || player.length > MAX_PLAYER_NAME_LENGTH) return res.status(400).json({ error: 'player name too long' });
     if (typeof message !== 'string' || message.length > MAX_CHAT_MESSAGE_LENGTH) return res.status(400).json({ error: 'message too long' });
     if (!state.computers[id]) return res.status(400).json({ error: 'computer unknown — send a state update first' });
-    const newMsg = addChatMessage(player, message, uuid, Number(id));
+    const safeUuid = typeof uuid === 'string' && /^[0-9a-f-]{8,36}$/i.test(uuid) ? uuid : null;
+    const newMsg = addChatMessage(player, message, safeUuid, Number(id));
     if (newMsg) {
       transactChat(newMsg);
       log.info(`/api/chat id=${id} player=${sanitizeForLog(player)} message=${sanitizeForLog(message)}`);

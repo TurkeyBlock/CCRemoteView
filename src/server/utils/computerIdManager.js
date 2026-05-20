@@ -8,7 +8,7 @@ class ComputerIdManager {
       keyOf: (entry) => entry.id,
       persistPending: false, // pending is not persisted — computers re-request on reconnect
       revokeRemovesPending: false,
-      extraFields: [{ name: 'allowByIp', default: true }],
+      extraFields: [{ name: 'allowByIp', default: false }],
     });
   }
 
