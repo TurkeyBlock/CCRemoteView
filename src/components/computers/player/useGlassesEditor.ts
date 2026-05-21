@@ -7,7 +7,7 @@
 import { useRef, useEffect, useCallback } from 'react'
 import { useWorldStore } from '@/store/useWorld'
 import { useWorldViewStore, useEditorStateStore } from '@/store/useWorldView'
-import type { GlassesObject, GlassesPolygon, GlassesLines, GlassesGroup, GlassesItem } from '@/types/glasses'
+import type { GlassesObject, GlassesPolygon, GlassesLines, GlassesGroup, GlassesGroupChild, GlassesItem } from '@/types/glasses'
 import { loadMinecraftFont } from '@/utils/minecraftFont'
 import {
   DrawMode, BoxSelect, DragInfo, Override, ChildOverride,
@@ -90,8 +90,8 @@ export interface EditorState {
   drawThickness: number
   setDrawThickness: (v: number) => void
   toggleDraw: (mode: DrawMode) => void
-  commitPolygon: (pts: [number, number][]) => void
-  commitItem: (x: number, y: number) => void
+  commitPolygon: (pts: [number, number][], ctrlKey?: boolean) => void
+  commitItem: (x: number, y: number, ctrlKey?: boolean) => void
 
   // Box select
   boxSelect: BoxSelect | null
@@ -143,6 +143,7 @@ export interface EditorState {
 
   // Refs needed by canvas / properties panel
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
+  itemIdRef: React.RefObject<HTMLInputElement | null>
   drawAnchorRef: React.RefObject<[number, number] | null>
   rawPointsRef: React.RefObject<[number, number][]>
   polyPointsRef: React.RefObject<[number, number][]>
@@ -260,6 +261,7 @@ export function useGlassesEditor(computerId: number): EditorState {
   // ─── Refs ──────────────────────────────────────────────────────────────────
   const activeElRef        = useRef<SVGSVGElement | null>(null)
   const textareaRef        = useRef<HTMLTextAreaElement>(null)
+  const itemIdRef          = useRef<HTMLInputElement | null>(null)
   const dragRef            = useRef<DragInfo | null>(null)
   const debounceRef        = useRef<ReturnType<typeof setTimeout> | null>(null)
   const childDebounceRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -312,14 +314,6 @@ export function useGlassesEditor(computerId: number): EditorState {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedIds, selectedChildId])
 
-  // Auto-focus textarea when a new text object is placed
-  useEffect(() => {
-    if (!editObj || editObj.type !== 'text') return
-    if (!activeScene.some(o => o.id === editObj.id)) {
-      requestAnimationFrame(() => textareaRef.current?.focus())
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editObj?.id])
 
   // Subscribe/unsubscribe to live canvas updates
   useEffect(() => {
@@ -348,7 +342,7 @@ export function useGlassesEditor(computerId: number): EditorState {
         e.preventDefault()
         const pts = [...polyPointsRef.current]
         polyPointsRef.current = []; setPolyTick(t => t + 1); setDrawCurrent(null)
-        commitPolygon(pts); return
+        commitPolygon(pts, e.ctrlKey || e.metaKey); return
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && editorMode === 'draft') {
         e.preventDefault(); undo(); return
@@ -483,25 +477,26 @@ export function useGlassesEditor(computerId: number): EditorState {
 
   const handleGroup = () => {
     if (selectedIds.length < 2) return
-    const selected = activeScene.filter(o => selectedIds.includes(o.id))
+    const selected = activeScene.filter(o => selectedIds.includes(o.id) && o.type !== 'group')
+    if (selected.length < 2) return
     const bounds = selected.map(objBounds)
     const minX = Math.min(...bounds.map(b => b[0]))
     const minY = Math.min(...bounds.map(b => b[1]))
 
-    const children: GlassesObject[] = selected.map(obj => {
+    const children: GlassesGroupChild[] = selected.map(obj => {
       if (obj.type === 'line')    return { ...obj, x1: obj.x1-minX, y1: obj.y1-minY, x2: obj.x2-minX, y2: obj.y2-minY }
       if (obj.type === 'polygon' || obj.type === 'lines') return { ...obj, points: obj.points.map(([x,y]) => [x-minX, y-minY] as [number,number]) }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if ('x' in obj && 'y' in obj) return { ...obj, x: (obj as any).x-minX, y: (obj as any).y-minY } as GlassesObject
-      return obj
+      return { ...obj, x: (obj as any).x-minX, y: (obj as any).y-minY } as GlassesGroupChild
     })
 
+    const groupableIds = selected.map(o => o.id)
     const group: GlassesGroup = { id: uid(), type: 'group', x: minX, y: minY, children }
     if (editorMode === 'draft') {
       draftPushHistory()
-      setDraftScene(s => [...s.filter(o => !selectedIds.includes(o.id)), group])
+      setDraftScene(s => [...s.filter(o => !groupableIds.includes(o.id)), group])
     } else {
-      sendOp('group', { objectIds: selectedIds, groupObject: group })
+      sendOp('group', { objectIds: groupableIds, groupObject: group })
     }
     updateEditor({ selectedIds: [group.id] })
   }
@@ -578,17 +573,38 @@ export function useGlassesEditor(computerId: number): EditorState {
 
   // ─── Commit helpers ────────────────────────────────────────────────────────
 
-  const commitPolygon = (pts: [number, number][]) => {
+  const afterPlace = (type: string, ctrlKey: boolean) => {
+    if (!ctrlKey) {
+      setDrawMode(null)
+      if (type === 'text') {
+        requestAnimationFrame(() => {
+          const ta = textareaRef.current
+          if (!ta) return
+          ta.focus()
+          ta.setSelectionRange(ta.value.length, ta.value.length)
+        })
+      } else if (type === 'item') {
+        requestAnimationFrame(() => {
+          const el = itemIdRef.current
+          if (!el) return
+          el.focus()
+          el.select()
+        })
+      }
+    }
+  }
+
+  const commitPolygon = (pts: [number, number][], ctrlKey = false) => {
     if (pts.length < 3) return
     const obj: GlassesPolygon = { id: uid(), type: 'polygon', points: pts, rgba: drawRgba }
     if (!atCap) activeAdd(obj)
-    setDrawMode(null)
+    afterPlace('polygon', ctrlKey)
   }
 
-  const commitItem = (x: number, y: number) => {
+  const commitItem = (x: number, y: number, ctrlKey = false) => {
     const obj: GlassesItem = { id: uid(), type: 'item', x, y, item: 'minecraft:stone', damage: 0, scale: 1, alpha: alphaOfRgba(drawRgba) }
     if (!atCap) activeAdd(obj)
-    setDrawMode(null)
+    afterPlace('item', ctrlKey)
   }
 
   // ─── SVG coordinates ───────────────────────────────────────────────────────
@@ -706,6 +722,7 @@ export function useGlassesEditor(computerId: number): EditorState {
       if (simplified.length < 2) return
       const obj: GlassesLines = { id: uid(), type: 'lines', points: simplified, rgba: drawRgba, thickness: drawThickness }
       if (!atCap) activeAdd(obj)
+      afterPlace('lines', e.ctrlKey)
       return
     }
 
@@ -723,6 +740,7 @@ export function useGlassesEditor(computerId: number): EditorState {
         obj = { id: uid(), type: 'line', x1: Math.round(x1), y1: Math.round(y1), x2: Math.round(x2), y2: Math.round(y2), rgba: drawRgba, thickness: drawThickness }
       }
       if (!atCap) activeAdd(obj)
+      afterPlace(obj.type, e.ctrlKey)
       return
     }
 
@@ -825,7 +843,7 @@ export function useGlassesEditor(computerId: number): EditorState {
     handleGroup, handleUngroup, handleRemoveFromGroup, handleGroupChildUpdate,
     updateProp,
     activeElRef, toSvg, startDrag, handleSvgPointerMove, handleSvgPointerUp,
-    textareaRef, drawAnchorRef, rawPointsRef, polyPointsRef, setPolyTick,
+    textareaRef, itemIdRef, drawAnchorRef, rawPointsRef, polyPointsRef, setPolyTick,
     isLiveView, setLiveView,
   }
 

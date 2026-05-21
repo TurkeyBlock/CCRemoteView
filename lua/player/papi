@@ -299,6 +299,7 @@ local function pleth_a(rgba)     return rgba % 256 end
 -- alpha_factor (optional, 0–1): group transparency factor. Applied only when the child's
 -- own alpha is 255 (full opacity), so custom per-child opacity is preserved.
 local function draw_into(c, obj, parent_id, alpha_factor)
+    if obj.type == "group" then return end  -- groups cannot nest
     alpha_factor = alpha_factor or 1.0
     local col = obj.rgba ~= nil and pleth_col(obj.rgba) or 0
     local raw_a = obj.rgba ~= nil and pleth_a(obj.rgba) or 0

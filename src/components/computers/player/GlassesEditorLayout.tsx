@@ -33,8 +33,15 @@ export default function GlassesEditorLayout({ editor, canvasArea, onClose }: Pro
         </div>
       </div>
 
-      <div style={{ borderTop: '1px solid var(--line)', padding: '6px 10px', background: 'var(--surface-3)', fontSize: FS['11'], color: 'var(--fg-dim)', lineHeight: 1.5, flexShrink: 0 }}>
-        <b style={{ color: 'var(--fg-mute)' }}>Click</b> sel · <b style={{ color: 'var(--fg-mute)' }}>Shift+click</b> add · <b style={{ color: 'var(--fg-mute)' }}>Drag bg</b> box-sel · <b style={{ color: 'var(--fg-mute)' }}>Draft</b> Ctrl+Z/Y/Publish
+      <div style={{ borderTop: '1px solid var(--line)', padding: '6px 10px', background: 'var(--surface-3)', fontSize: FS['11'], color: 'var(--fg-dim)', lineHeight: 1.8, flexShrink: 0 }}>
+        {[
+          ['Click', 'select object'],
+          ['Shift+click', 'add object to selection'],
+          ['Ctrl+click', 'multi-place (hold)'],
+          ['Draft', 'Ctrl+Z / Ctrl+Y / Publish'],
+        ].map(([key, desc]) => (
+          <div key={key}><b style={{ color: 'var(--fg-mute)' }}>{key}</b> — {desc}</div>
+        ))}
       </div>
     </div>
   )

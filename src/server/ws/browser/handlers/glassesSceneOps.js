@@ -84,6 +84,7 @@ const sceneOps = {
     if (!Array.isArray(msg.objectIds) || msg.objectIds.length < 2) return null;
     if (!validateGlassesObject(msg.groupObject)) return null;
     if (!msg.objectIds.every(oid => typeof oid === 'string' && scene.some(o => o.id === oid))) return null;
+    if (msg.objectIds.some(oid => scene.find(o => o.id === oid)?.type === 'group')) return null;
     const idSet = new Set(msg.objectIds);
     const next = [...scene.filter(o => !idSet.has(o.id)), msg.groupObject];
     if (!isSceneWithinCharLimit(next)) return null;

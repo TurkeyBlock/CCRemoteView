@@ -11,7 +11,7 @@ export function Toolbar({ editor, onClose }: { editor: EditorState; onClose?: ()
     editorMode, setEditorMode, drawMode, drawRgba, setDrawRgba, drawThickness, setDrawThickness,
     toggleDraw, atCap, selectedIds, activeScene, handleGroup, handleUngroup,
     undoStack, redoStack, undo, redo, handlePublishToLive,
-    handleExport, setImportOpen, handleClearGlasses,
+    handleExport, setImportOpen, handleClearGlasses, activeClear,
   } = editor
 
   return (
@@ -60,7 +60,7 @@ export function Toolbar({ editor, onClose }: { editor: EditorState; onClose?: ()
 
       {/* Group/Ungroup (purple) — always visible to avoid header layout shifts */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, padding: '3px 6px', borderRadius: 4, border: '1px solid rgba(139,92,246,0.5)', background: '#221b38' }}>
-        <button className="btn btn-compact" onClick={handleGroup} disabled={selectedIds.length < 2}>Group</button>
+        <button className="btn btn-compact" onClick={handleGroup} disabled={selectedIds.filter(id => activeScene.find(o => o.id === id)?.type !== 'group').length < 2}>Group</button>
         <button className="btn btn-compact" onClick={handleUngroup}
           disabled={!(selectedIds.length === 1 && activeScene.find(o => o.id === selectedIds[0])?.type === 'group')}>
           Ungroup
@@ -82,7 +82,10 @@ export function Toolbar({ editor, onClose }: { editor: EditorState; onClose?: ()
         <button className="btn btn-compact" onClick={handleExport} title="Copy scene JSON to clipboard">Export</button>
         <button className="btn btn-compact" onClick={() => setImportOpen(true)}>Import</button>
         <span style={{ width: 1, background: 'rgba(20,184,166,0.5)', alignSelf: 'stretch', margin: '0 1px' }} />
-        <button className="btn btn-compact btn-danger" onClick={handleClearGlasses} style={{ color: '#f4a08a', borderColor: '#f4a08a' }}>Clear Glasses</button>
+        {editorMode === 'live'
+          ? <button className="btn btn-compact btn-danger" onClick={handleClearGlasses} style={{ color: '#f4a08a', borderColor: '#f4a08a' }}>Clear Glasses</button>
+          : <button className="btn btn-compact btn-danger" onClick={activeClear} style={{ color: '#f4a08a', borderColor: '#f4a08a' }}>Clear Draft</button>
+        }
       </div>
 
       {onClose && <>

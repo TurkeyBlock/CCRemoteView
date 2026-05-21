@@ -4,7 +4,7 @@
 // (selection, drag-move, box-select, drawing new objects).
 // Purely presentational — reads EditorState from useGlassesEditor, no own state except font readiness.
 import { useState, useRef, useEffect } from 'react'
-import type { GlassesObject, GlassesRect, GlassesText, GlassesLine, GlassesPolygon, GlassesLines, GlassesItem, GlassesGroup } from '@/types/glasses'
+import type { GlassesObject, GlassesRect, GlassesText, GlassesLine, GlassesPolygon, GlassesLines, GlassesItem, GlassesGroup, GlassesGroupChild } from '@/types/glasses'
 import { renderMinecraftTextToCanvas, measureMinecraftText } from '@/utils/minecraftFont'
 import { CANVAS_W, CANVAS_H, intToHex, rgbOfRgba, alphaOfRgba, objBounds } from './glassesEditorTypes'
 import type { EditorState } from './useGlassesEditor'
@@ -254,7 +254,7 @@ export default function GlassesSvgCanvas({ editor, bgFill = '#111' }: Props) {
       return (
         <g key={g.id}>
           <g transform={`translate(${g.x},${g.y})`} opacity={(g.alpha ?? 255) / 255}>
-            {displayChildren.map((child, i) => {
+            {displayChildren.map((child: GlassesGroupChild, i) => {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const co = alphaOfRgba('rgba' in child ? (child as any).rgba : 255*256) / 255
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -264,6 +264,22 @@ export default function GlassesSvgCanvas({ editor, bgFill = '#111' }: Props) {
               if (child.type === 'line')    return <line key={i} x1={child.x1} y1={child.y1} x2={child.x2} y2={child.y2} stroke={cf} strokeWidth={child.thickness} opacity={co} style={{ pointerEvents: 'none' }} />
               if (child.type === 'polygon') return <polygon key={i} points={child.points.map(([x,y])=>`${x},${y}`).join(' ')} fill={cf} opacity={co} style={{ pointerEvents: 'none' }} />
               if (child.type === 'lines')   return <polyline key={i} points={child.points.map(([x,y])=>`${x},${y}`).join(' ')} fill="none" stroke={cf} strokeWidth={child.thickness} opacity={co} style={{ pointerEvents: 'none' }} />
+              if (child.type === 'item') {
+                const w = Math.max(4, Math.round(16 * child.scale))
+                const namePart = child.item.includes(':') ? child.item.split(':')[1] : child.item
+                return (
+                  <g key={i} style={{ pointerEvents: 'none' }}>
+                    <rect x={child.x} y={child.y} width={w} height={w}
+                      fill="rgba(40,40,60,0.7)" stroke="rgba(180,180,255,0.5)" strokeWidth={0.8} strokeDasharray="3 2"
+                      opacity={child.alpha / 255} />
+                    <text x={child.x + w / 2} y={child.y + w / 2 + 3} fill="white" fontSize={Math.max(4, w / 5)}
+                      textAnchor="middle" opacity={(child.alpha / 255) * 0.85}
+                      style={{ userSelect: 'none' }}>
+                      {namePart.slice(0, 10)}
+                    </text>
+                  </g>
+                )
+              }
               return null
             })}
           </g>
@@ -392,12 +408,12 @@ export default function GlassesSvgCanvas({ editor, bgFill = '#111' }: Props) {
               const pts = polyPointsRef.current
               if (pts.length >= 3) {
                 const [fx, fy] = pts[0]; const dx = pt[0]-fx, dy = pt[1]-fy
-                if (dx*dx+dy*dy <= 64) { polyPointsRef.current = []; setPolyTick(t=>t+1); setDrawCurrent(null); commitPolygon(pts); return }
+                if (dx*dx+dy*dy <= 64) { polyPointsRef.current = []; setPolyTick(t=>t+1); setDrawCurrent(null); commitPolygon(pts, e.ctrlKey); return }
               }
               if (pts.length < 32) { polyPointsRef.current = [...pts, pt]; setPolyTick(t=>t+1) }
               return
             }
-            if (drawMode === 'item') { if (e.detail >= 2) return; commitItem(pt[0], pt[1]); return }
+            if (drawMode === 'item') { if (e.detail >= 2) return; commitItem(pt[0], pt[1], e.ctrlKey); return }
             svgRef.current?.setPointerCapture(e.pointerId)
             drawAnchorRef.current = pt
             if (drawMode === 'lines') rawPointsRef.current = [pt]

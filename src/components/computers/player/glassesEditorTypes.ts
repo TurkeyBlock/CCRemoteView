@@ -114,7 +114,7 @@ export const DEFAULT_EDITOR_MUTABLE: EditorMutableState = {
   listDragIdx: null,
   listOverIdx: null,
   drawRgba: packRgba(0xffffff, 255),
-  drawThickness: 1,
+  drawThickness: 5,
   boxSelect: null,
   importOpen: false,
   importText: '',

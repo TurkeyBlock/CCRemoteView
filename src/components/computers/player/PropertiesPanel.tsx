@@ -33,7 +33,7 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
   const {
     selectedIds, selectedChildId, setSelectedChildId, editObj, setEditObj,
     activeScene, updateProp, handleRemoveFromGroup, handleUngroup,
-    textareaRef, activeUpdate,
+    textareaRef, itemIdRef, activeUpdate,
   } = editor
 
   const up = (key: string) => (v: number) => updateProp(key, v)
@@ -74,11 +74,6 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
             <NumInput label="α" value={alphaOfRgba(repRgba)} onChange={v => applyAlpha(Math.max(0, Math.min(255, v)))} min={0} max={255} />
           </div>
         )}
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {([['←',-1,0],['→',1,0],['↑',0,-1],['↓',0,1]] as [string,number,number][]).map(([lbl,dx,dy]) => (
-            <button key={lbl} className="btn btn-compact" style={{ padding: '0 6px' }} onClick={() => nudge(dx,dy)}>{lbl}</button>
-          ))}
-        </div>
       </div>
     )
   }
@@ -208,7 +203,7 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
         </div>
         <label style={{ ...labelStyle, gap: 6 }}>
           <span style={{ width: 22, textAlign: 'right', flexShrink: 0 }}>id</span>
-          <input type="text" style={{ ...inputStyle, width: 130 }} value={e.item} placeholder="minecraft:stone"
+          <input ref={itemIdRef} type="text" style={{ ...inputStyle, width: 130 }} value={e.item} placeholder="minecraft:stone"
             onChange={ev => updateProp('item', ev.target.value)} />
         </label>
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>

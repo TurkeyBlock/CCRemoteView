@@ -715,6 +715,7 @@ html[data-theme="organic"] .inv-chest-header-name { font-style: normal; font-fam
 html[data-theme="organic"] .inv-chest-header-slots { font-family: var(--font-sans); font-style: normal; }
 
 html[data-theme="organic"] .inv-slot { background: var(--surface); border-color: var(--line-soft); min-height: 44px; }
+html[data-theme="organic"] .inv-grid-wide .inv-slot { min-height: 0; }
 html[data-theme="organic"] .inv-slot:hover { border-color: var(--accent); }
 html[data-theme="organic"] .inv-slot-selected { box-shadow: 0 0 0 1px var(--accent) inset; }
 html[data-theme="organic"] .inv-slot-count {
