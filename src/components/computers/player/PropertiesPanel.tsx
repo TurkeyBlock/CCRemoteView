@@ -21,7 +21,7 @@ function NumInput({ label, value, onChange, min, max }: {
 }) {
   return (
     <label style={labelStyle}>
-      <span style={{ width: 22, textAlign: 'right' }}>{label}</span>
+      {label !== '' && <span style={{ width: 22, textAlign: 'right' }}>{label}</span>}
       <input type="number" style={inputStyle}
         value={value ?? ''} min={min} max={max} step={1}
         onChange={e => { const v = Number(e.target.value); if (!isNaN(v)) onChange(v) }} />
@@ -67,7 +67,7 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
         {firstWithRgba && (
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <label style={labelStyle}>
-              <span>col</span>
+              <span style={{ width: 22, textAlign: 'right' }}>col</span>
               <input type="color" value={intToHex(rgbOfRgba(repRgba))} style={{ width: 36, height: 22, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }}
                 onChange={ev => applyColor(hexToInt(ev.target.value))} />
             </label>
@@ -103,18 +103,18 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
           const rgba = e.rgba as number
           return (
             <>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                 <label style={labelStyle}>
-                  <span>col</span>
+                  <span style={{ width: 22, textAlign: 'right' }}>col</span>
                   <input type="color" value={intToHex(rgbOfRgba(rgba))}
-                    style={{ width: 36, height: 22, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }}
+                    style={{ width: 60, height: 22, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }}
                     onChange={ev => updateProp('rgba', packRgba(hexToInt(ev.target.value), alphaOfRgba(rgba)))} />
                 </label>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: FS['12'], color: 'var(--fg-dim)', flexShrink: 0 }}>alpha</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ width: 22, textAlign: 'right', fontSize: FS['12'], color: 'var(--fg-dim)', flexShrink: 0 }}>α</span>
                 <input type="range" value={alphaOfRgba(rgba)} min={0} max={255} step={1}
-                  style={{ flex: 1, accentColor: 'var(--accent)' }}
+                  style={{ flex: '1 1 0', maxWidth: 80, minWidth: 0, accentColor: 'var(--accent)' }}
                   onChange={ev => updateProp('rgba', packRgba(rgbOfRgba(rgba), Number(ev.target.value)))} />
                 <NumInput label="" value={alphaOfRgba(rgba)}
                   onChange={v => updateProp('rgba', packRgba(rgbOfRgba(rgba), Math.max(0, Math.min(255, v|0))))} min={0} max={255} />
@@ -123,10 +123,10 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
           )
         })()}
         {'alpha' in editObj && editObj.type === 'item' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: FS['12'], color: 'var(--fg-dim)', flexShrink: 0 }}>alpha</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ width: 22, textAlign: 'right', fontSize: FS['12'], color: 'var(--fg-dim)', flexShrink: 0 }}>α</span>
             <input type="range" value={e.alpha ?? 255} min={0} max={255} step={1}
-              style={{ flex: 1, accentColor: 'var(--accent)' }}
+              style={{ flex: '1 1 0', maxWidth: 80, minWidth: 0, accentColor: 'var(--accent)' }}
               onChange={ev => updateProp('alpha', Number(ev.target.value))} />
             <NumInput label="" value={e.alpha ?? 255}
               onChange={v => updateProp('alpha', Math.max(0, Math.min(255, v|0)))} min={0} max={255} />
@@ -155,10 +155,10 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
           <NumInput label="x" value={g.x} onChange={up('x')} />
           <NumInput label="y" value={g.y} onChange={up('y')} />
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: FS['11'], color: 'var(--fg-dim)', flexShrink: 0 }}>alpha</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 22, textAlign: 'right', fontSize: FS['12'], color: 'var(--fg-dim)', flexShrink: 0 }}>α</span>
           <input type="range" value={g.alpha ?? 255} min={0} max={255} step={1}
-            style={{ flex: 1, accentColor: 'var(--accent)' }}
+            style={{ flex: '1 1 0', maxWidth: 80, minWidth: 0, accentColor: 'var(--accent)' }}
             onChange={ev => updateProp('alpha', Number(ev.target.value))} />
           <NumInput label="" value={g.alpha ?? 255} onChange={v => updateProp('alpha', Math.max(0, Math.min(255, v|0)))} min={0} max={255} />
         </div>
@@ -183,7 +183,7 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
         {editObj.type === 'lines' && <NumInput label="th" value={e.thickness} onChange={v => updateProp('thickness', Math.max(1, v|0))} min={1} />}
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <label style={labelStyle}>
-            <span>col</span>
+            <span style={{ width: 22, textAlign: 'right' }}>col</span>
             <input type="color" value={intToHex(rgbOfRgba(e.rgba))} style={{ width: 36, height: 22, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }}
               onChange={ev => updateProp('rgba', packRgba(hexToInt(ev.target.value), alphaOfRgba(e.rgba)))} />
           </label>
@@ -239,10 +239,10 @@ export function PropertiesPanel({ editor }: { editor: EditorState }) {
           </label>
         </>
       )}
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
         <label style={labelStyle}>
-          <span>col</span>
-          <input type="color" value={intToHex(rgbOfRgba(e.rgba))} style={{ width: 36, height: 22, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }}
+          <span style={{ width: 22, textAlign: 'right' }}>col</span>
+          <input type="color" value={intToHex(rgbOfRgba(e.rgba))} style={{ width: 60, height: 22, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }}
             onChange={ev => updateProp('rgba', packRgba(hexToInt(ev.target.value), alphaOfRgba(e.rgba)))} />
         </label>
         <NumInput label="α" value={alphaOfRgba(e.rgba)} onChange={v => updateProp('rgba', packRgba(rgbOfRgba(e.rgba), Math.max(0, Math.min(255, v))))} min={0} max={255} />

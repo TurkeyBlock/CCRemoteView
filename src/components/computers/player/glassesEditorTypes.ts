@@ -34,6 +34,7 @@ export type DragInfo =
   | { kind: 'move-pts';    id: string; mx0: number; my0: number; origPoints: [number, number][] }
   | { kind: 'move-vertex'; id: string; vertIdx: number; mx0: number; my0: number; origPts: [number, number][] }
   | { kind: 'resize';      id: string; corner: 'nw'|'ne'|'sw'|'se'; mx0: number; my0: number; ox: number; oy: number; ow: number; oh: number }
+  | { kind: 'scale-item'; id: string; corner: 'nw'|'ne'|'sw'|'se'; mx0: number; my0: number; ox: number; oy: number; origW: number }
   | { kind: 'endpoint';    id: string; pt: 1|2; mx0: number; my0: number; ox: number; oy: number }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   | { kind: 'move-child';  groupId: string; childId: string; mx0: number; my0: number; origProps: Record<string, any> }

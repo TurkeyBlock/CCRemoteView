@@ -13,11 +13,23 @@ import {
   DrawMode, BoxSelect, DragInfo, Override, ChildOverride,
   EditorMutableState, DEFAULT_EDITOR_MUTABLE,
   JSON_CAP, HISTORY_CAP, alphaOfRgba,
-  objBounds,
+  objBounds, nudgeObj,
 } from './glassesEditorTypes'
 
 const EMPTY_SCENE: GlassesObject[] = []
 const uid = () => Math.random().toString(36).slice(2, 11)
+
+// Module-level clipboard shared across all editor instances (ephemeral, not persisted)
+const clipboardRef: { current: GlassesObject[] } = { current: [] }
+
+function cloneWithNewId(obj: GlassesObject): GlassesObject {
+  const newId = uid()
+  if (obj.type === 'group') {
+    const g = obj as GlassesGroup
+    return { ...g, id: newId, children: g.children.map(c => ({ ...c, id: uid() } as GlassesGroupChild)) } as GlassesGroup
+  }
+  return { ...obj, id: newId }
+}
 
 function rdpSimplify(pts: [number, number][], tol: number): [number, number][] {
   if (pts.length <= 2) return pts
@@ -123,6 +135,9 @@ export interface EditorState {
   activeRemove: (id: string) => void
   activeClear: () => void
   activeReorder: (fromIdx: number, toIdx: number) => void
+  handleCopy: () => void
+  handlePaste: () => void
+  handleDeleteSelected: () => void
   handleClearGlasses: () => void
   handlePublishToLive: () => void
   handleExport: () => void
@@ -140,6 +155,7 @@ export interface EditorState {
   startDrag: (e: React.PointerEvent, info: DragInfo) => void
   handleSvgPointerMove: (e: React.PointerEvent) => void
   handleSvgPointerUp: (e: React.PointerEvent) => void
+  handleSvgPointerCancel: () => void
 
   // Refs needed by canvas / properties panel
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
@@ -190,6 +206,13 @@ function computeMoveOverrides(d: DragInfo, dx: number, dy: number): Override[] |
       if (d.corner === 'ne') { w = Math.max(4, d.ow+dx); y = d.oy+dy; h = Math.max(4, d.oh-dy) }
       if (d.corner === 'nw') { x = d.ox+dx; w = Math.max(4, d.ow-dx); y = d.oy+dy; h = Math.max(4, d.oh-dy) }
       return [{ id: d.id, props: { x, y, w, h } }]
+    }
+    case 'scale-item': {
+      const newW = (d.corner === 'se' || d.corner === 'ne') ? Math.max(4, d.origW + dx) : Math.max(4, d.origW - dx)
+      let x = d.ox, y = d.oy
+      if (d.corner === 'sw' || d.corner === 'nw') x = d.ox + d.origW - newW
+      if (d.corner === 'nw' || d.corner === 'ne') y = d.oy + d.origW - newW
+      return [{ id: d.id, props: { x, y, scale: newW / 16 } }]
     }
     case 'endpoint':
       return [{ id: d.id, props: d.pt === 1 ? { x1: d.ox+dx, y1: d.oy+dy } : { x2: d.ox+dx, y2: d.oy+dy } }]
@@ -274,6 +297,66 @@ export function useGlassesEditor(computerId: number): EditorState {
   const atCap       = activeScene.length >= 512 || jsonLen > JSON_CAP - 100
   const liveJsonLen = JSON.stringify(liveObjects).length
 
+  // ─── Copy / Paste ──────────────────────────────────────────────────────────
+
+  const handleCopy = useCallback(() => {
+    const { selectedIds: curIds, editorMode: em, draftScene: ds } =
+      useEditorStateStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
+    if (curIds.length === 0) return
+    const scene = em === 'live'
+      ? (useWorldStore.getState().canvasScenes[computerId] ?? []) as GlassesObject[]
+      : ds
+    clipboardRef.current = scene.filter(o => curIds.includes(o.id))
+  }, [computerId])
+
+  const handlePaste = useCallback(() => {
+    const toPaste = clipboardRef.current
+    if (toPaste.length === 0) return
+    const { editorMode: em, draftScene: ds, undoStack: us } =
+      useEditorStateStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
+    const scene = em === 'live'
+      ? (useWorldStore.getState().canvasScenes[computerId] ?? []) as GlassesObject[]
+      : ds
+    const PASTE_OFFSET = 8
+    const newObjs: GlassesObject[] = toPaste.map(obj => nudgeObj(cloneWithNewId(obj), PASTE_OFFSET, PASTE_OFFSET))
+    if (JSON.stringify([...scene, ...newObjs]).length > JSON_CAP) return
+    if (em === 'draft') {
+      updateEditor({
+        undoStack: [...us.slice(-(HISTORY_CAP - 1)), ds],
+        redoStack: [],
+        draftScene: [...ds, ...newObjs],
+        selectedIds: newObjs.map(o => o.id),
+        editObj: newObjs.length === 1 ? newObjs[0] : null,
+      })
+    } else {
+      const ws = useWorldStore.getState().wsSend
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      newObjs.forEach(obj => ws?.({ type: 'glassesSceneOp', computerId, op: 'add', object: obj } as any))
+      updateEditor({ selectedIds: newObjs.map(o => o.id), editObj: newObjs.length === 1 ? newObjs[0] : null })
+    }
+  }, [computerId, updateEditor])
+
+  const handleDeleteSelected = useCallback(() => {
+    const { selectedIds: curIds, editorMode: em, draftScene: ds, undoStack: us } =
+      useEditorStateStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
+    if (curIds.length === 0) return
+    if (em === 'draft') {
+      updateEditor({
+        undoStack: [...us.slice(-(HISTORY_CAP - 1)), ds],
+        redoStack: [],
+        draftScene: ds.filter(o => !curIds.includes(o.id)),
+        selectedIds: [],
+        editObj: null,
+        selectedChildId: null,
+      })
+    } else {
+      const ws = useWorldStore.getState().wsSend
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      curIds.forEach(id => ws?.({ type: 'glassesSceneOp', computerId, op: 'remove', objectId: id } as any))
+      updateEditor({ selectedIds: [], editObj: null, selectedChildId: null })
+    }
+  }, [computerId, updateEditor])
+
   // ─── Draft history helpers ─────────────────────────────────────────────────
 
   const draftPushHistory = useCallback(() => {
@@ -338,6 +421,8 @@ export function useGlassesEditor(computerId: number): EditorState {
   useEffect(() => {
     if (!open && !isLiveView) return
     const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement
+      const inInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA'
       if (e.key === 'Enter' && drawMode === 'poly' && polyPointsRef.current.length >= 3) {
         e.preventDefault()
         const pts = [...polyPointsRef.current]
@@ -350,6 +435,15 @@ export function useGlassesEditor(computerId: number): EditorState {
       if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey)) && editorMode === 'draft') {
         e.preventDefault(); redo(); return
       }
+      if (!inInput && (e.ctrlKey || e.metaKey) && e.key === 'c') {
+        e.preventDefault(); handleCopy(); return
+      }
+      if (!inInput && (e.ctrlKey || e.metaKey) && e.key === 'v') {
+        e.preventDefault(); handlePaste(); return
+      }
+      if (!inInput && (e.key === 'Backspace' || e.key === 'Delete')) {
+        e.preventDefault(); handleDeleteSelected(); return
+      }
       if (e.key !== 'Escape') return
       if (drawAnchorRef.current || drawMode || polyPointsRef.current.length > 0) {
         drawAnchorRef.current = null; rawPointsRef.current = []
@@ -359,7 +453,7 @@ export function useGlassesEditor(computerId: number): EditorState {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [open, isLiveView, drawMode, editorMode, undo, redo]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, isLiveView, drawMode, editorMode, undo, redo, handleCopy, handlePaste, handleDeleteSelected]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Clear overrides once server confirms (live mode)
   useEffect(() => {
@@ -477,20 +571,45 @@ export function useGlassesEditor(computerId: number): EditorState {
 
   const handleGroup = () => {
     if (selectedIds.length < 2) return
-    const selected = activeScene.filter(o => selectedIds.includes(o.id) && o.type !== 'group')
-    if (selected.length < 2) return
-    const bounds = selected.map(objBounds)
+    const selectedObjects = activeScene.filter(o => selectedIds.includes(o.id))
+    const selectedGroups = selectedObjects.filter(o => o.type === 'group') as GlassesGroup[]
+    const selectedNonGroups = selectedObjects.filter(o => o.type !== 'group')
+
+    if (selectedGroups.length >= 2) return
+
+    if (selectedGroups.length === 1 && selectedNonGroups.length >= 1) {
+      const g = selectedGroups[0]
+      const newChildIds = selectedNonGroups.map(o => o.id)
+      const newChildren: GlassesGroupChild[] = selectedNonGroups.map(obj => {
+        if (obj.type === 'line')    return { ...obj, x1: obj.x1-g.x, y1: obj.y1-g.y, x2: obj.x2-g.x, y2: obj.y2-g.y }
+        if (obj.type === 'polygon' || obj.type === 'lines') return { ...obj, points: obj.points.map(([x,y]) => [x-g.x, y-g.y] as [number,number]) }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return { ...obj, x: (obj as any).x-g.x, y: (obj as any).y-g.y } as GlassesGroupChild
+      })
+      const updatedGroup: GlassesGroup = { ...g, children: [...g.children, ...newChildren] }
+      if (editorMode === 'draft') {
+        draftPushHistory()
+        setDraftScene(s => s.filter(o => !newChildIds.includes(o.id)).map(o => o.id === g.id ? updatedGroup : o))
+      } else {
+        sendOp('addToGroup', { groupId: g.id, objectIds: newChildIds, updatedGroup })
+      }
+      updateEditor({ selectedIds: [g.id] })
+      return
+    }
+
+    if (selectedNonGroups.length < 2) return
+    const bounds = selectedNonGroups.map(objBounds)
     const minX = Math.min(...bounds.map(b => b[0]))
     const minY = Math.min(...bounds.map(b => b[1]))
 
-    const children: GlassesGroupChild[] = selected.map(obj => {
+    const children: GlassesGroupChild[] = selectedNonGroups.map(obj => {
       if (obj.type === 'line')    return { ...obj, x1: obj.x1-minX, y1: obj.y1-minY, x2: obj.x2-minX, y2: obj.y2-minY }
       if (obj.type === 'polygon' || obj.type === 'lines') return { ...obj, points: obj.points.map(([x,y]) => [x-minX, y-minY] as [number,number]) }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return { ...obj, x: (obj as any).x-minX, y: (obj as any).y-minY } as GlassesGroupChild
     })
 
-    const groupableIds = selected.map(o => o.id)
+    const groupableIds = selectedNonGroups.map(o => o.id)
     const group: GlassesGroup = { id: uid(), type: 'group', x: minX, y: minY, children }
     if (editorMode === 'draft') {
       draftPushHistory()
@@ -550,9 +669,7 @@ export function useGlassesEditor(computerId: number): EditorState {
         setDraftScene(s => [...s.map(o => o.id === groupId ? { ...group, children: newChildren } : o), extracted])
       }
     } else {
-      if (newChildren.length === 0) sendOp('remove', { objectId: groupId })
-      else activeUpdate(groupId, { children: newChildren })
-      sendOp('add', { object: extracted })
+      sendOp('removeFromGroup', { groupId, childId })
     }
 
     updateEditor({ selectedChildId: null, editObj: extracted, selectedIds: [extracted.id] })
@@ -631,13 +748,17 @@ export function useGlassesEditor(computerId: number): EditorState {
     }
     pendingCaptureRef.current = e.pointerId
 
-    if ((info.kind === 'move' || info.kind === 'move-line') && selectedIds.length > 1 && selectedIds.includes(info.id)) {
+    if ((info.kind === 'move' || info.kind === 'move-line' || info.kind === 'move-pts') && selectedIds.length > 1 && selectedIds.includes(info.id)) {
       const [mx0, my0] = toSvg(e)
       const anchors = activeScene.filter(o => selectedIds.includes(o.id)).map(o => {
-        if (o.type === 'line')    return { id: o.id, ox: o.x1, oy: o.y1, ox2: o.x2, oy2: o.y2 }
-        if (o.type === 'polygon' || o.type === 'lines') return { id: o.id, ox: 0, oy: 0, origPoints: o.points }
+        // Resolve any stale override so anchors match the current visual position,
+        // not the raw scene position (which may lag behind in live mode).
+        const ov = overrides.find(v => v.id === o.id)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return { id: o.id, ox: (o as any).x as number, oy: (o as any).y as number }
+        const r: any = ov ? { ...o, ...ov.props } : o
+        if (o.type === 'line')    return { id: o.id, ox: r.x1 as number, oy: r.y1 as number, ox2: r.x2 as number, oy2: r.y2 as number }
+        if (o.type === 'polygon' || o.type === 'lines') return { id: o.id, ox: 0, oy: 0, origPoints: r.points as [number,number][] }
+        return { id: o.id, ox: r.x as number, oy: r.y as number }
       })
       dragRef.current = { kind: 'multi-move', anchors, mx0, my0 }
       return
@@ -653,9 +774,10 @@ export function useGlassesEditor(computerId: number): EditorState {
       pendingCaptureRef.current = null
     }
 
-    if (boxSelect) {
+    const curBoxSelect = (useEditorStateStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE).boxSelect
+    if (curBoxSelect) {
       const [mx, my] = toSvg(e)
-      updateEditor({ boxSelect: boxSelect ? { ...boxSelect, x1: Math.round(mx), y1: Math.round(my) } : null })
+      updateEditor({ boxSelect: { ...curBoxSelect, x1: Math.round(mx), y1: Math.round(my) } })
       return
     }
 
@@ -698,12 +820,21 @@ export function useGlassesEditor(computerId: number): EditorState {
     if (overrides) updateEditor({ overrides })
   }
 
+  const handleSvgPointerCancel = useCallback(() => {
+    pendingCaptureRef.current = null
+    dragRef.current = null
+    drawAnchorRef.current = null
+    rawPointsRef.current = []
+    updateEditor({ boxSelect: null, overrides: [], childOverride: null, drawCurrent: null })
+  }, [updateEditor])
+
   const handleSvgPointerUp = (e: React.PointerEvent) => {
     pendingCaptureRef.current = null
 
-    if (boxSelect) {
-      const bx0 = Math.min(boxSelect.x0, boxSelect.x1), by0 = Math.min(boxSelect.y0, boxSelect.y1)
-      const bx1 = Math.max(boxSelect.x0, boxSelect.x1), by1 = Math.max(boxSelect.y0, boxSelect.y1)
+    const { boxSelect: curBoxSelect } = useEditorStateStore.getState().glassesEditorMutable[computerId] ?? DEFAULT_EDITOR_MUTABLE
+    if (curBoxSelect) {
+      const bx0 = Math.min(curBoxSelect.x0, curBoxSelect.x1), by0 = Math.min(curBoxSelect.y0, curBoxSelect.y1)
+      const bx1 = Math.max(curBoxSelect.x0, curBoxSelect.x1), by1 = Math.max(curBoxSelect.y0, curBoxSelect.y1)
       if (bx1 - bx0 > 4 || by1 - by0 > 4) {
         const ids = activeScene.filter(o => objInBox(o, bx0, by0, bx1, by1)).map(o => o.id)
         updateEditor({ selectedIds: ids })
@@ -839,10 +970,11 @@ export function useGlassesEditor(computerId: number): EditorState {
     handleListDragStart, handleListDragOver, handleListDrop, handleListDragEnd,
     importOpen, setImportOpen, importText, setImportText, handleImportConfirm,
     activeAdd, activeUpdate, activeRemove, activeClear, activeReorder,
+    handleCopy, handlePaste, handleDeleteSelected,
     handleClearGlasses, handlePublishToLive, handleExport,
     handleGroup, handleUngroup, handleRemoveFromGroup, handleGroupChildUpdate,
     updateProp,
-    activeElRef, toSvg, startDrag, handleSvgPointerMove, handleSvgPointerUp,
+    activeElRef, toSvg, startDrag, handleSvgPointerMove, handleSvgPointerUp, handleSvgPointerCancel,
     textareaRef, itemIdRef, drawAnchorRef, rawPointsRef, polyPointsRef, setPolyTick,
     isLiveView, setLiveView,
   }

@@ -90,6 +90,51 @@ const sceneOps = {
     if (!isSceneWithinCharLimit(next)) return null;
     return { next, batch: { rm: msg.objectIds, add: { group: [msg.groupObject] } } };
   },
+  addToGroup(scene, msg) {
+    if (typeof msg.groupId !== 'string') return null;
+    if (!Array.isArray(msg.objectIds) || msg.objectIds.length === 0) return null;
+    if (!msg.updatedGroup || msg.updatedGroup.type !== 'group' || msg.updatedGroup.id !== msg.groupId) return null;
+    const gIdx = scene.findIndex(o => o.id === msg.groupId);
+    if (gIdx === -1 || scene[gIdx].type !== 'group') return null;
+    if (msg.objectIds.includes(msg.groupId)) return null;
+    if (!msg.objectIds.every(oid => { const obj = scene.find(o => o.id === oid); return obj && obj.type !== 'group'; })) return null;
+    if (!validateGlassesObject(msg.updatedGroup)) return null;
+    const idSet = new Set(msg.objectIds);
+    const next = scene.filter(o => !idSet.has(o.id)).map(o => o.id === msg.groupId ? msg.updatedGroup : o);
+    if (!isSceneWithinCharLimit(next)) return null;
+    return { next, batch: { rm: [...msg.objectIds, msg.groupId], add: { group: [msg.updatedGroup] } } };
+  },
+  removeFromGroup(scene, msg) {
+    if (typeof msg.groupId !== 'string' || typeof msg.childId !== 'string') return null;
+    const gIdx = scene.findIndex(o => o.id === msg.groupId);
+    if (gIdx === -1 || scene[gIdx].type !== 'group') return null;
+    const g = scene[gIdx];
+    const child = (g.children || []).find(c => c.id === msg.childId);
+    if (!child) return null;
+
+    let extracted;
+    if (child.type === 'line') {
+      extracted = { ...child, x1: child.x1 + g.x, y1: child.y1 + g.y, x2: child.x2 + g.x, y2: child.y2 + g.y };
+    } else if (child.type === 'polygon' || child.type === 'lines') {
+      extracted = { ...child, points: child.points.map(([x, y]) => [x + g.x, y + g.y]) };
+    } else {
+      extracted = { ...child, x: (child.x ?? 0) + g.x, y: (child.y ?? 0) + g.y };
+    }
+
+    const newChildren = g.children.filter(c => c.id !== msg.childId);
+    const next = [...scene];
+
+    if (newChildren.length === 0) {
+      next.splice(gIdx, 1, extracted);
+      return { next, batch: { rm: [g.id], add: { [extracted.type]: [extracted] } } };
+    }
+
+    const updatedGroup = { ...g, children: newChildren };
+    next[gIdx] = updatedGroup;
+    next.push(extracted);
+    if (!isSceneWithinCharLimit(next)) return null;
+    return { next, batch: { rm: [g.id], add: { group: [updatedGroup], [extracted.type]: [extracted] } } };
+  },
   ungroup(scene, msg) {
     if (typeof msg.objectId !== 'string') return null;
     const idx = scene.findIndex(o => o.id === msg.objectId);

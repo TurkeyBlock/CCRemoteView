@@ -8,6 +8,10 @@ import type { GlassesObject, GlassesRect, GlassesText, GlassesLine, GlassesPolyg
 import { renderMinecraftTextToCanvas, measureMinecraftText } from '@/utils/minecraftFont'
 import { CANVAS_W, CANVAS_H, intToHex, rgbOfRgba, alphaOfRgba, objBounds } from './glassesEditorTypes'
 import type { EditorState } from './useGlassesEditor'
+import { getItemIconInfo, getBlockIconInfo } from '@/store/useTextures'
+import { renderIsometricBlock, getBlockTintColor } from '@/utils/isometricBlockRender'
+import { useWorldStore } from '@/store/useWorld'
+import { useRenderFiltersStore } from '@/store/useRenderFilters'
 
 // ─── MinecraftTextObj ─────────────────────────────────────────────────────────
 
@@ -62,19 +66,29 @@ function MinecraftTextObj({ t, sel, SEL, fontReady, onPointerDown }: TextObjProp
 interface ItemObjProps {
   obj: GlassesItem; sel: boolean; SEL: string
   onPointerDown: (e: React.PointerEvent) => void
+  onCornerDown: (e: React.PointerEvent, corner: 'nw'|'ne'|'sw'|'se') => void
 }
 
-function ItemObj({ obj, sel, SEL, onPointerDown }: ItemObjProps) {
+function ItemObj({ obj, sel, SEL, onPointerDown, onCornerDown }: ItemObjProps) {
   const [imgSrc, setImgSrc] = useState<string | null>(null)
   const namePart = obj.item.includes(':') ? obj.item.split(':')[1] : obj.item
+  const assetURL = useWorldStore(s => s.assetURL)
+  const blockMapsLoaded = useRenderFiltersStore(s => s.blockMapsLoaded)
 
   useEffect(() => {
-    const src = `assets/items/${obj.item.replace(':', '/')}.png`
+    const blockInfo = getBlockIconInfo(assetURL, obj.item, obj.damage)
+    if (blockInfo) {
+      const tint = getBlockTintColor(obj.item, obj.damage)
+      renderIsometricBlock(blockInfo.url, tint, blockInfo.uv).then(url => setImgSrc(url))
+      return
+    }
+    const info = getItemIconInfo(assetURL, obj.item, obj.damage)
+    const src = info ? info.url : `${assetURL}items/${obj.item.replace(':', '/')}.png`
     const img = new Image()
     img.onload = () => setImgSrc(src)
     img.onerror = () => setImgSrc(null)
     img.src = src
-  }, [obj.item])
+  }, [obj.item, obj.damage, assetURL, blockMapsLoaded])
 
   const w       = Math.max(4, Math.round(16 * obj.scale))
   const opacity = obj.alpha / 255
@@ -97,10 +111,60 @@ function ItemObj({ obj, sel, SEL, onPointerDown }: ItemObjProps) {
             </text>
           </>
       }
-      {sel && <rect x={obj.x - 1} y={obj.y - 1} width={w + 2} height={w + 2}
-        fill="none" stroke={SEL} strokeWidth={0.8} style={{ pointerEvents: 'none' }} />}
+      {sel && <>
+        <rect x={obj.x - 1} y={obj.y - 1} width={w + 2} height={w + 2}
+          fill="none" stroke={SEL} strokeWidth={0.8} style={{ pointerEvents: 'none' }} />
+        {(['nw','ne','sw','se'] as const).map(c => {
+          const hx = c.includes('e') ? obj.x + w : obj.x
+          const hy = c.includes('s') ? obj.y + w : obj.y
+          return <rect key={c} x={hx - 3} y={hy - 3} width={6} height={6} fill={SEL}
+            style={{ cursor: `${c}-resize` }}
+            onPointerDown={e => onCornerDown(e, c)} />
+        })}
+      </>}
     </g>
   )
+}
+
+// ─── GroupItemImg ─────────────────────────────────────────────────────────────
+// Stateful image loader for item objects inside groups (no pointer events).
+
+function GroupItemImg({ x, y, item, damage, scale, alpha }: { x: number; y: number; item: string; damage: number; scale: number; alpha: number }) {
+  const [imgSrc, setImgSrc] = useState<string | null>(null)
+  const assetURL = useWorldStore(s => s.assetURL)
+  const blockMapsLoaded = useRenderFiltersStore(s => s.blockMapsLoaded)
+  const w = Math.max(4, Math.round(16 * scale))
+  const opacity = alpha / 255
+  const namePart = item.includes(':') ? item.split(':')[1] : item
+
+  useEffect(() => {
+    const blockInfo = getBlockIconInfo(assetURL, item, damage)
+    if (blockInfo) {
+      const tint = getBlockTintColor(item, damage)
+      renderIsometricBlock(blockInfo.url, tint, blockInfo.uv).then(url => setImgSrc(url))
+      return
+    }
+    const info = getItemIconInfo(assetURL, item, damage)
+    const src = info ? info.url : `${assetURL}items/${item.replace(':', '/')}.png`
+    const img = new Image()
+    img.onload = () => setImgSrc(src)
+    img.onerror = () => setImgSrc(null)
+    img.src = src
+  }, [item, damage, assetURL, blockMapsLoaded])
+
+  return imgSrc
+    ? <image href={imgSrc} x={x} y={y} width={w} height={w} opacity={opacity}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        style={{ imageRendering: 'pixelated' } as any} />
+    : <g>
+        <rect x={x} y={y} width={w} height={w}
+          fill="rgba(40,40,60,0.7)" stroke="rgba(180,180,255,0.5)" strokeWidth={0.8} strokeDasharray="3 2"
+          opacity={opacity} />
+        <text x={x + w / 2} y={y + w / 2 + 3} fill="white" fontSize={Math.max(4, w / 5)}
+          textAnchor="middle" opacity={opacity * 0.85} style={{ userSelect: 'none' }}>
+          {namePart.slice(0, 10)}
+        </text>
+      </g>
 }
 
 // ─── GlassesSvgCanvas ─────────────────────────────────────────────────────────
@@ -117,7 +181,7 @@ export default function GlassesSvgCanvas({ editor, bgFill = '#111' }: Props) {
     boxSelect, overrides, childOverride, fontReady,
     polyPointsRef, drawAnchorRef, rawPointsRef,
     activeElRef, setSelectedIds, setBoxSelect,
-    toSvg, startDrag, handleSvgPointerMove, handleSvgPointerUp,
+    toSvg, startDrag, handleSvgPointerMove, handleSvgPointerUp, handleSvgPointerCancel,
     drawRgba, setDrawCurrent, setPolyTick, commitPolygon, commitItem,
   } = editor
 
@@ -236,7 +300,8 @@ export default function GlassesSvgCanvas({ editor, bgFill = '#111' }: Props) {
       const itm = obj as GlassesItem
       return (
         <ItemObj key={itm.id} obj={itm} sel={sel} SEL={selCol}
-          onPointerDown={e => { const [mx,my] = toSvg(e); startDrag(e, { kind: 'move', id: itm.id, mx0: mx, my0: my, ox: itm.x, oy: itm.y }) }} />
+          onPointerDown={e => { const [mx,my] = toSvg(e); startDrag(e, { kind: 'move', id: itm.id, mx0: mx, my0: my, ox: itm.x, oy: itm.y }) }}
+          onCornerDown={(e, c) => { const [mx,my] = toSvg(e); startDrag(e, { kind: 'scale-item', id: itm.id, corner: c, mx0: mx, my0: my, ox: itm.x, oy: itm.y, origW: Math.max(4, Math.round(16 * itm.scale)) }) }} />
       )
     }
 
@@ -261,22 +326,13 @@ export default function GlassesSvgCanvas({ editor, bgFill = '#111' }: Props) {
               const cf = 'rgba' in child ? intToHex(rgbOfRgba((child as any).rgba)) : '#fff'
               if (child.type === 'rect')    return <rect key={i} x={child.x} y={child.y} width={child.w} height={child.h} fill={cf} opacity={co} style={{ pointerEvents: 'none' }} />
               if (child.type === 'text')    return <text key={i} x={child.x} y={child.y} fill={cf} opacity={co} fontSize={child.size*8} style={{ pointerEvents: 'none', userSelect: 'none' }}>{child.content}</text>
-              if (child.type === 'line')    return <line key={i} x1={child.x1} y1={child.y1} x2={child.x2} y2={child.y2} stroke={cf} strokeWidth={child.thickness} opacity={co} style={{ pointerEvents: 'none' }} />
+              if (child.type === 'line')    return <line key={i} x1={child.x1} y1={child.y1} x2={child.x2} y2={child.y2} stroke={cf} strokeWidth={child.thickness} opacity={co} vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} />
               if (child.type === 'polygon') return <polygon key={i} points={child.points.map(([x,y])=>`${x},${y}`).join(' ')} fill={cf} opacity={co} style={{ pointerEvents: 'none' }} />
-              if (child.type === 'lines')   return <polyline key={i} points={child.points.map(([x,y])=>`${x},${y}`).join(' ')} fill="none" stroke={cf} strokeWidth={child.thickness} opacity={co} style={{ pointerEvents: 'none' }} />
+              if (child.type === 'lines')   return <polyline key={i} points={child.points.map(([x,y])=>`${x},${y}`).join(' ')} fill="none" stroke={cf} strokeWidth={child.thickness} opacity={co} vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} />
               if (child.type === 'item') {
-                const w = Math.max(4, Math.round(16 * child.scale))
-                const namePart = child.item.includes(':') ? child.item.split(':')[1] : child.item
                 return (
                   <g key={i} style={{ pointerEvents: 'none' }}>
-                    <rect x={child.x} y={child.y} width={w} height={w}
-                      fill="rgba(40,40,60,0.7)" stroke="rgba(180,180,255,0.5)" strokeWidth={0.8} strokeDasharray="3 2"
-                      opacity={child.alpha / 255} />
-                    <text x={child.x + w / 2} y={child.y + w / 2 + 3} fill="white" fontSize={Math.max(4, w / 5)}
-                      textAnchor="middle" opacity={(child.alpha / 255) * 0.85}
-                      style={{ userSelect: 'none' }}>
-                      {namePart.slice(0, 10)}
-                    </text>
+                    <GroupItemImg x={child.x} y={child.y} item={child.item} damage={child.damage} scale={child.scale} alpha={child.alpha} />
                   </g>
                 )
               }
@@ -383,6 +439,7 @@ export default function GlassesSvgCanvas({ editor, bgFill = '#111' }: Props) {
       onPointerLeave={() => { activeElRef.current = null }}
       onPointerMove={handleSvgPointerMove}
       onPointerUp={handleSvgPointerUp}
+      onPointerCancel={handleSvgPointerCancel}
       onWheel={e => e.stopPropagation()}
     >
       <rect x={0} y={0} width={CANVAS_W} height={CANVAS_H} fill={bgFill}

@@ -60,7 +60,7 @@ export function Toolbar({ editor, onClose }: { editor: EditorState; onClose?: ()
 
       {/* Group/Ungroup (purple) — always visible to avoid header layout shifts */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, padding: '3px 6px', borderRadius: 4, border: '1px solid rgba(139,92,246,0.5)', background: '#221b38' }}>
-        <button className="btn btn-compact" onClick={handleGroup} disabled={selectedIds.filter(id => activeScene.find(o => o.id === id)?.type !== 'group').length < 2}>Group</button>
+        <button className="btn btn-compact" onClick={handleGroup} disabled={(() => { const gc = selectedIds.filter(id => activeScene.find(o => o.id === id)?.type === 'group').length; const ngc = selectedIds.filter(id => activeScene.find(o => o.id === id)?.type !== 'group').length; return gc >= 2 || (gc === 1 ? ngc < 1 : ngc < 2) })()}>Group</button>
         <button className="btn btn-compact" onClick={handleUngroup}
           disabled={!(selectedIds.length === 1 && activeScene.find(o => o.id === selectedIds[0])?.type === 'group')}>
           Ungroup
