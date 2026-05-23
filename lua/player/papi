@@ -875,6 +875,68 @@ function glassesApplyOps(ops_json)
 end
 
 
+-- ─── 3D canvas exploration ───────────────────────────────────────────────────
+
+-- Module-level handles shared across the three canvas3d* functions below.
+-- _c3d_root:  CanvasServer/ObjectRoot3D returned by canvas3d()
+-- _c3d_group: Group3D returned by root.create() — has addBox/addFrame/addItem/addLine
+-- _c3d_frame: the Frame3D added 5 blocks in +X relative to the player's position
+local _c3d_root  = nil
+local _c3d_group = nil
+local _c3d_frame = nil
+
+-- [concurrent]
+-- Creates a 3D canvas centred on the player, clears any prior content, then adds a
+-- frame 5 blocks in the +X direction (relative to the player). Prints its initial
+-- rotation. canvas3d() returns the root (CanvasServer); root.create() returns the
+-- Group3D on which addBox/addFrame/addItem/addLine are available.
+-- getRotation() returns nil when the frame faces the player (Plethora default).
+function canvas3dCreate()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.canvas3d then return false, "glasses 3D module not equipped" end
+    _c3d_root = neural.canvas3d()
+    _c3d_root.clear()
+    _c3d_group = _c3d_root.create()
+    -- addFrame is an invisible container for 2D elements; addBox creates visible geometry
+    local box = _c3d_group.addBox(5, 0, 0, 1, 1, 1, 0xFF0000)
+    box.setAlpha(200)
+    _c3d_frame = _c3d_group.addFrame({ 5, 0, 0 })
+    _c3d_frame.addText({ 0, 0 }, "X+5", 0xFFFFFFFF)
+    local rx, ry, rz = _c3d_frame.getRotation()
+    if rx == nil then
+        print("frame rotation: nil (facing player)")
+    else
+        print("frame rotation: " .. tostring(rx) .. ", " .. tostring(ry) .. ", " .. tostring(rz))
+    end
+    return true
+end
+
+-- [concurrent]
+-- Prints the current rotation of the frame created by canvas3dCreate.
+-- getRotation() returns nil when the frame is set to face the player.
+function canvas3dGetRotation()
+    if not _c3d_frame then return false, "no frame — call canvas3dCreate first" end
+    local rx, ry, rz = _c3d_frame.getRotation()
+    if rx == nil then
+        print("rotation: nil (facing player)")
+    else
+        print("rotation: " .. tostring(rx) .. ", " .. tostring(ry) .. ", " .. tostring(rz))
+    end
+    return true
+end
+
+-- [concurrent]
+-- Prints the position of the frame via getPosition(). The Plethora docs expose
+-- getPosition() on 3D objects; there is no getLocation() in the documented API.
+function canvas3dGetLocation()
+    if not _c3d_frame then return false, "no frame — call canvas3dCreate first" end
+    local px, py, pz = _c3d_frame.getPosition()
+    print("frame position: " .. tostring(px) .. ", " .. tostring(py) .. ", " .. tostring(pz))
+    return true
+end
+
+
 -- ─── Live update coroutines ───────────────────────────────────────────────────
 -- Passed via opts.session_parallel or opts.extra_parallel in rcPlayer.lua.
 -- Rule: NEVER send anything to the server unless ws_active. Internal polling is fine.

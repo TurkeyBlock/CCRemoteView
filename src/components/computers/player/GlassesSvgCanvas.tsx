@@ -308,9 +308,9 @@ export default function GlassesSvgCanvas({ editor, bgFill = '#111' }: Props) {
     if (obj.type === 'group') {
       const g = obj as GlassesGroup
       const [gx0, gy0, gx1, gy1] = objBounds(g)
-      const displayChildren = g.children.map(c =>
+      const displayChildren: GlassesGroupChild[] = g.children.map(c =>
         childOverride && childOverride.groupId === g.id && childOverride.childId === c.id
-          ? { ...c, ...childOverride.props } as GlassesObject : c
+          ? { ...c, ...childOverride.props } as GlassesGroupChild : c
       )
       const isChildActive = sel && selectedChildId !== null
       const activeChild   = isChildActive ? displayChildren.find(c => c.id === selectedChildId) ?? null : null

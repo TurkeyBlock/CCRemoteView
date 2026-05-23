@@ -86,7 +86,10 @@
       ]},
       "glassesApplyOps":       { "concurrent": true,  "compound": true, "args": [
         { "name": "ops",   "type": "string", "required": true, "maxLength": 8000 }
-      ]}
+      ]},
+      "canvas3dCreate":        { "concurrent": true,  "args": [] },
+      "canvas3dGetRotation":   { "concurrent": true,  "args": [] },
+      "canvas3dGetLocation":   { "concurrent": true,  "args": [] }
     }
   },
   "stationary": {
