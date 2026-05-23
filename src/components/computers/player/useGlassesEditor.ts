@@ -681,7 +681,7 @@ export function useGlassesEditor(computerId: number): EditorState {
       setDraftScene(s => s.map(o => {
         if (o.id !== groupId || o.type !== 'group') return o
         const g = o as GlassesGroup
-        return { ...g, children: g.children.map(c => c.id === childId ? { ...c, ...delta } as GlassesObject : c) }
+        return { ...g, children: g.children.map(c => c.id === childId ? { ...c, ...delta } as GlassesGroupChild : c) }
       }))
     } else {
       sendOp('groupChildUpdate', { groupId, childId, delta })
@@ -935,7 +935,7 @@ export function useGlassesEditor(computerId: number): EditorState {
         const newScene = curDraft.map(o => {
           if (o.id !== groupId || o.type !== 'group') return o
           const g = o as GlassesGroup
-          return { ...g, children: g.children.map(c => c.id === childId ? { ...c, [key]: val } as GlassesObject : c) }
+          return { ...g, children: g.children.map(c => c.id === childId ? { ...c, [key]: val } as GlassesGroupChild : c) }
         })
         updateEditor({ editObj: updated, draftScene: newScene })
       } else {
