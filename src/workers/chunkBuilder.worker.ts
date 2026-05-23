@@ -168,28 +168,28 @@ function pushQuad(
   acc.vertexCount += 4;
 }
 
-/** Append a cross (two perpendicular vertical quads, double-sided). */
+/** Append a cross (two perpendicular vertical quads, double-sided), rotated 45° so edges point toward corners. */
 function pushCross(acc: Accumulator, bx: number, by: number, bz: number) {
-  const H = 0.5;
-  // Plane 1: along X axis (facing ±Z)
-  const p1v = [
-    [-H, -H, 0], [H, -H, 0], [H, H, 0], [-H, H, 0],
-  ] as [number,number,number][];
-  const p1n: [number,number,number] = [0, 0, 1];
+  const yBot = -0.5;
+  const yTop =  0.5;
+  const D = 0.45; // slightly inside block corners to avoid Z-fighting where the two planes intersect
   const uv4: [number,number][] = [[0,0],[1,0],[1,1],[0,1]];
-  const uv4flip: [number,number][] = [[0,1],[1,1],[1,0],[0,0]];
-  // front winding
-  pushQuad(acc, p1v as any, p1n, uv4 as any, bx, by, bz);
-  // back winding (reverse vertices + flip UVs vertically so texture isn't upside-down)
-  pushQuad(acc, [p1v[3], p1v[2], p1v[1], p1v[0]] as any, [-p1n[0], -p1n[1], -p1n[2]], uv4flip as any, bx, by, bz);
 
-  // Plane 2: along Z axis (facing ±X)
-  const p2v = [
-    [0, -H, -H], [0, -H, H], [0, H, H], [0, H, -H],
+  // Single quad per plane — material uses THREE.DoubleSide so no back-face quad needed.
+  // Duplicate back-face quads caused Z-fighting with the DoubleSide back face.
+  const up: [number,number,number] = [0, 1, 0];
+
+  // Plane 1: runs NW→SE (+X,+Z diagonal)
+  const p1v = [
+    [-D, yBot, -D], [D, yBot, D], [D, yTop, D], [-D, yTop, -D],
   ] as [number,number,number][];
-  const p2n: [number,number,number] = [1, 0, 0];
-  pushQuad(acc, p2v as any, p2n, uv4 as any, bx, by, bz);
-  pushQuad(acc, [p2v[3], p2v[2], p2v[1], p2v[0]] as any, [-p2n[0], -p2n[1], -p2n[2]], uv4flip as any, bx, by, bz);
+  pushQuad(acc, p1v as any, up, uv4 as any, bx, by, bz);
+
+  // Plane 2: runs NE→SW (+X,-Z diagonal)
+  const p2v = [
+    [D, yBot, -D], [-D, yBot, D], [-D, yTop, D], [D, yTop, -D],
+  ] as [number,number,number][];
+  pushQuad(acc, p2v as any, up, uv4 as any, bx, by, bz);
 }
 
 /** Append a flat horizontal quad (snow layer, carpet, rail) sitting at the block's base. */
