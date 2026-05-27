@@ -50,6 +50,12 @@ function deserializeState(raw) {
     parsed.computers = parsed.turtle;
     delete parsed.turtle;
   }
+  if (parsed.computers) {
+    for (const c of Object.values(parsed.computers)) {
+      delete c.wsConnected;
+      delete c.wsRequestAt;
+    }
+  }
   if (!Array.isArray(parsed.chatLog)) parsed.chatLog = [];
   return parsed;
 }

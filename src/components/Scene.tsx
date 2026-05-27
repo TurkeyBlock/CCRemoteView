@@ -79,9 +79,15 @@ function SceneSetup() {
   const rideAlongPitch = useRef<number | null>(null)
   const rideAlongId    = useRef<number>(-1)
   const rideSnap = useRef({ cx: 0, cy: 0, cz: 0 })
+  const pressedKeys = useRef(new Set<string>())
+  const tmpPanTarget  = useRef(new THREE.Vector3())
+  const tmpPanCamPos  = useRef(new THREE.Vector3())
+  const tmpPanForward = useRef(new THREE.Vector3())
+  const tmpPanRight   = useRef(new THREE.Vector3())
 
   const MOVE_SPEED = 10  // blocks per second
   const ROT_SPEED  = Math.PI * 4  // radians per second (~0.125 s per 90°)
+  const CAMERA_PAN_SPEED = 20  // blocks per second
 
   // ─── Camera / chunk helpers ────────────────────────────────────────────────
 
@@ -473,10 +479,24 @@ function SceneSetup() {
       }
     }
 
+    const ARROW_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && useRenderFiltersStore.getState().blockPickMode) {
         useRenderFiltersStore.getState().cancelPendingFilterBlocks()
       }
+      if (ARROW_KEYS.has(e.key)) {
+        const tag = (document.activeElement as HTMLElement | null)?.tagName
+        const isTyping = tag === 'INPUT' || tag === 'TEXTAREA' ||
+          (document.activeElement as HTMLElement | null)?.isContentEditable
+        if (!isTyping) {
+          pressedKeys.current.add(e.key)
+          e.preventDefault()
+          invalidate()  // kick off the demand-mode render loop while keys are held
+        }
+      }
+    }
+    const handleKeyUp = (e: KeyboardEvent) => {
+      pressedKeys.current.delete(e.key)
     }
 
     const handleDblClick = (e: MouseEvent) => {
@@ -500,6 +520,7 @@ function SceneSetup() {
     domEl.addEventListener('click', handleClick)
     domEl.addEventListener('dblclick', handleDblClick)
     document.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('keyup', handleKeyUp)
 
     // Register all scene callbacks so other stores can drive the scene
     sceneBridge.regenerateSceneFromBlocks = regenerateSceneFromBlocks
@@ -530,6 +551,7 @@ function SceneSetup() {
       domEl.removeEventListener('click', handleClick)
       domEl.removeEventListener('dblclick', handleDblClick)
       document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('keyup', handleKeyUp)
       chunkManager.current?.dispose()
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -660,11 +682,50 @@ function SceneSetup() {
     if (anyMoving) state.invalidate()
   }
 
+  function tickCameraMove(delta: number): void {
+    const keys = pressedKeys.current
+    if (keys.size === 0) return
+    const controls = controlsRef.current
+    if (!controls) return
+    if (useWorldViewStore.getState().rideAlongComputerId !== -1) return
+
+    controls.getTarget(tmpPanTarget.current)
+    controls.getPosition(tmpPanCamPos.current)
+
+    // Full 3D forward direction (camera→target) so diagonal views move along the look axis.
+    tmpPanForward.current.set(
+      tmpPanTarget.current.x - tmpPanCamPos.current.x,
+      tmpPanTarget.current.y - tmpPanCamPos.current.y,
+      tmpPanTarget.current.z - tmpPanCamPos.current.z,
+    ).normalize()
+    // Strafe right = forward × worldUp. For forward=(fx,fy,fz) × (0,1,0) = (-fz, 0, fx).
+    // The Y component cancels out, so strafe always stays horizontal.
+    tmpPanRight.current.set(-tmpPanForward.current.z, 0, tmpPanForward.current.x)
+
+    const speed = CAMERA_PAN_SPEED * Math.min(delta, 1 / 30)
+    let dx = 0, dy = 0, dz = 0
+    if (keys.has('ArrowUp'))    { dx += tmpPanForward.current.x * speed; dy += tmpPanForward.current.y * speed; dz += tmpPanForward.current.z * speed }
+    if (keys.has('ArrowDown'))  { dx -= tmpPanForward.current.x * speed; dy -= tmpPanForward.current.y * speed; dz -= tmpPanForward.current.z * speed }
+    if (keys.has('ArrowRight')) { dx += tmpPanRight.current.x * speed;   dz += tmpPanRight.current.z * speed }
+    if (keys.has('ArrowLeft'))  { dx -= tmpPanRight.current.x * speed;   dz -= tmpPanRight.current.z * speed }
+
+    if (dx !== 0 || dy !== 0 || dz !== 0) {
+      controls.moveTo(
+        tmpPanTarget.current.x + dx,
+        tmpPanTarget.current.y + dy,
+        tmpPanTarget.current.z + dz,
+        false,
+      )
+      invalidate()
+    }
+  }
+
   useFrame((state, delta) => {
     tickRideAlong(state, delta)
     tickFollow(state)
     tickAnimatedTextures(state, delta)
     tickModelLerp(state, delta)
+    tickCameraMove(delta)
 
     // Apply pending chunk GPU uploads within a per-frame budget.  Running this
     // inside useFrame (rather than setTimeout) ensures input events and camera

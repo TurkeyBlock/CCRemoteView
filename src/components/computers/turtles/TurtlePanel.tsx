@@ -16,6 +16,7 @@ export default memo(function TurtlePanel({ computerId }: Props) {
   const { focusOnComputer, followComputer, sendStopSignal, isFollowing } = useComputerPanel(computerId)
   const computer = useWorldStore(s => s.computers[computerId])
   const invokeCommand = useWorldStore(s => s.invokeCommand)
+
   const commandResult = useWorldStore(s => s.commandResult[computerId])
 
   const [inspectResult, setInspectResult] = useState<unknown>(null)
@@ -65,6 +66,19 @@ export default memo(function TurtlePanel({ computerId }: Props) {
 
       <Section label="Movement">
         <MovementControl computerId={computerId} />
+      </Section>
+
+      <Section label="Scan">
+        <div className="btn-row-2">
+          <button
+            className="btn btn-compact"
+            onClick={() => invokeCommand(computerId, 'scan')}
+          >Block Scan</button>
+          <button
+            className="btn btn-compact"
+            onClick={() => invokeCommand(computerId, 'sense')}
+          >Entity Scan</button>
+        </div>
       </Section>
 
       <Section label="Camera">

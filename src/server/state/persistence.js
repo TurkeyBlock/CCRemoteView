@@ -25,7 +25,8 @@ function serializeState(s) {
     // entities: runtime-only sensor data, not persisted
     // glassesLiveMode: intentionally not persisted — Lua handle table is always empty
     // after a restart, so the browser must re-enable live mode and re-sync manually.
-    const { entities: _e, glassesLiveMode: _lm, ...rest } = c;
+    // wsConnected/wsRequestAt: runtime connection state — always false/null after restart.
+    const { entities: _e, glassesLiveMode: _lm, wsConnected: _wc, wsRequestAt: _wr, ...rest } = c;
     computers[id] = rest;
   }
   return JSON.stringify({ computers, chatLog: s.chatLog || [], world: { palette, blockData, blockDataStride: 5 } });
@@ -75,7 +76,7 @@ function startAutoSave(onSave) {
     }
     const computers = {};
     for (const [id, c] of Object.entries(state.computers)) {
-      const { entities: _e, glassesLiveMode: _lm, ...rest } = c;
+      const { entities: _e, glassesLiveMode: _lm, wsConnected: _wc, wsRequestAt: _wr, ...rest } = c;
       computers[id] = rest;
     }
 

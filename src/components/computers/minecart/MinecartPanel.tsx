@@ -19,8 +19,6 @@ export default memo(function MinecartPanel({ computerId }: Props) {
   if (!computer) return null
 
   const hasKinetic = computer.peripherals?.includes('plethora:kinetic')
-  const hasScanner = computer.peripherals?.includes('plethora:scanner')
-  const hasSensor  = computer.peripherals?.includes('plethora:sensor')
 
   function toggleLoopPropel() {
     if (loopPropelActive) {
@@ -54,7 +52,7 @@ export default memo(function MinecartPanel({ computerId }: Props) {
         </div>
       </Section>
 
-      <ActionButtons computerId={computerId} hasScanner={hasScanner} hasSensor={hasSensor} />
+      <ActionButtons computerId={computerId} hasScanner hasSensor />
       <EntityList entities={computer.entities} />
 
       <Section label="Terminal">

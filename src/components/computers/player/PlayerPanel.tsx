@@ -39,7 +39,6 @@ export default memo(function PlayerPanel({ computerId }: Props) {
 
   if (!computer) return null
 
-  const hasScanner = computer.peripherals?.includes('plethora:scanner')
   const eq = equipment as Record<string, ItemStack> | undefined
   const invNorm    = normalizeInventory<ItemStack>(inventory)
   const enderNorm  = normalizeInventory<ItemStack>(enderChest)
@@ -53,7 +52,7 @@ export default memo(function PlayerPanel({ computerId }: Props) {
 
   return (
     <div className="group">
-      <ActionButtons computerId={computerId} hasScanner={hasScanner} hasRideAlong />
+      <ActionButtons computerId={computerId} hasScanner hasSensor hasRideAlong />
 
       <Section label={playerName ? `Armor · ${playerName}` : 'Armor'}>
         <div className="player-armor-row">
