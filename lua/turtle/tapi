@@ -101,6 +101,16 @@ os.shutdown = os.restart
 
 -- send status to server
 
+local function send_state_delta(delta)
+  if ws_conn then
+    ws_conn.send(textutils.serializeJSON({ type = "state", data = delta }))
+  else
+    local json = textutils.serializeJSON(delta)
+    local res = http.post(state_url, json, headers)
+    if res then res.close() end
+  end
+end
+
 function send_status_update()
   scan_surrounding_blocks()
   scan_inventory()
@@ -140,13 +150,7 @@ function send_status_update()
     last_sent.inv = copy_inv()
   end
 
-  if ws_conn then
-    ws_conn.send(textutils.serializeJSON({ type = "state", data = delta }))
-  else
-    local json = textutils.serializeJSON(delta)
-    local res = http.post(state_url, json, headers)
-    if res then res.close() end
-  end
+  send_state_delta(delta)
 end
 
 function set_ws(ws)
@@ -197,32 +201,22 @@ local function read_side_inventory(side)
   return normalized, size
 end
 
+local SCAN_SIDES = {
+  { key = "front",  inspect = turtle.inspect,     side = "front"  },
+  { key = "top",    inspect = turtle.inspectUp,   side = "top"    },
+  { key = "bottom", inspect = turtle.inspectDown, side = "bottom" },
+}
+
 function scan_surrounding_blocks()
-  local succ, block = turtle.inspect();
-  state.view.front = succ and block or 0
-  if succ and does_side_have_inventory("front") then
-    local inv, sz = read_side_inventory("front")
-    if inv ~= nil then
-      state.view.front.inventory = inv
-      state.view.front.inventorySize = sz
-    end
-  end
-  succ, block = turtle.inspectUp();
-  state.view.top = succ and block or 0
-  if succ and does_side_have_inventory("top") then
-    local inv, sz = read_side_inventory("top")
-    if inv ~= nil then
-      state.view.top.inventory = inv
-      state.view.top.inventorySize = sz
-    end
-  end
-  succ, block = turtle.inspectDown();
-  state.view.bottom = succ and block or 0
-  if succ and does_side_have_inventory("bottom") then
-    local inv, sz = read_side_inventory("bottom")
-    if inv ~= nil then
-      state.view.bottom.inventory = inv
-      state.view.bottom.inventorySize = sz
+  for _, s in ipairs(SCAN_SIDES) do
+    local succ, block = s.inspect()
+    state.view[s.key] = succ and block or 0
+    if succ and does_side_have_inventory(s.side) then
+      local inv, sz = read_side_inventory(s.side)
+      if inv ~= nil then
+        state.view[s.key].inventory     = inv
+        state.view[s.key].inventorySize = sz
+      end
     end
   end
 end
@@ -259,10 +253,11 @@ function scan_inventory()
 end
 
 function scan_turtle_specs()
-  state.loc.x     = getLoc().x
-  state.loc.y     = getLoc().y
-  state.loc.z     = getLoc().z
-  state.rot       = getLoc().h - 1
+  local loc       = getLoc()
+  state.loc.x     = loc.x
+  state.loc.y     = loc.y
+  state.loc.z     = loc.z
+  state.rot       = loc.h - 1  -- location API uses 1–4; server expects 0–3
   state.fuelLevel = turtle.getFuelLevel()
   state.label     = os.getComputerLabel() or ""
 end
@@ -277,7 +272,6 @@ end
 function setLoc(loc_in)
   loc_internal = loc_in
 end
-
 
 local function write_loc_to_disk()
   local f = fs.open("loc.sav", "w")
@@ -299,13 +293,7 @@ local function send_position_update()
     rot       = state.rot,
     view      = state.view,
   }
-  if ws_conn then
-    ws_conn.send(textutils.serializeJSON({ type = "state", data = delta }))
-  else
-    local json = textutils.serializeJSON(delta)
-    local res = http.post(state_url, json, headers)
-    if res then res.close() end
-  end
+  send_state_delta(delta)
 end
 
 function set_location(x, y, z, h)
@@ -322,36 +310,54 @@ function parse_user_location_input()
     table.insert(splitInput, substring)
   end
   for i = 1, 3 do
-  	locAndHeading[i] = tonumber(splitInput[i])
-	if locAndHeading[i] == nil then
-	  error(tostring(splitInput[i]) .. " is not a valid coordinate")
-	end
+    locAndHeading[i] = tonumber(splitInput[i])
+    if locAndHeading[i] == nil then
+      error(tostring(splitInput[i]) .. " is not a valid coordinate")
+    end
   end
-	local h = string.lower(splitInput[4])
+  local h = string.lower(splitInput[4])
   if h == "west" then locAndHeading[4] = 1
-	elseif h == "north" then locAndHeading[4] = 2
+  elseif h == "north" then locAndHeading[4] = 2
   elseif h == "east" then locAndHeading[4] = 3
-	elseif h == "south" then locAndHeading[4] = 4
-	else error(tostring(splitInput[4]) .. " is not a valid heading")
+  elseif h == "south" then locAndHeading[4] = 4
+  else error(tostring(splitInput[4]) .. " is not a valid heading")
   end
   return locAndHeading
 end
 
 -- Derive heading by stepping forward, taking a second GPS fix, then stepping back.
--- Returns a heading (1-4) on success, or nil if the turtle is blocked or GPS fails.
+-- Tries all 4 cardinal directions if blocked.
+-- Returns a heading (1-4) on success, or nil if all directions are blocked or GPS fails.
 local function detect_heading_via_gps(ix, iy, iz)
-  if not native.turtle.forward() then return nil end
-  local nx, ny, nz = gps.locate(3)
-  native.turtle.back()
-  if not nx then return nil end
-  local dx = math.floor(nx) - ix
-  local dz = math.floor(nz) - iz
-  if     dx ==  1 then return 3  -- east
-  elseif dx == -1 then return 1  -- west
-  elseif dz ==  1 then return 4  -- south
-  elseif dz == -1 then return 2  -- north
+  for _ = 0, 3 do
+    if native.turtle.forward() then
+      local nx, ny, nz = gps.locate(3)
+      native.turtle.back()
+      if not nx then return nil end
+      local dx = math.floor(nx) - ix
+      local dz = math.floor(nz) - iz
+      if     dx ==  1 then return 3  -- east
+      elseif dx == -1 then return 1  -- west
+      elseif dz ==  1 then return 4  -- south
+      elseif dz == -1 then return 2  -- north
+      end
+      return nil
+    end
+    native.turtle.turnRight()
   end
   return nil
+end
+
+-- Re-sync location from GPS after a stop interruption. Attempts heading detection via a forward
+-- step; falls back to the current heading if blocked or GPS can't confirm direction.
+-- Skips silently if no modem is present or GPS returns no fix.
+function gps_resync()
+  if not peripheral.find("modem") then return end
+  local x, y, z = gps.locate(2)
+  if not x then return end
+  local ix, iy, iz = math.floor(x), math.floor(y), math.floor(z)
+  local h = detect_heading_via_gps(ix, iy, iz) or loc_internal.h
+  set_location(ix, iy, iz, h)
 end
 
 function load_loc_from_file()
@@ -436,7 +442,7 @@ function up(count, reliable)
   count = count or 1
   local msg_written = false
   for i = 1, count do
-    while not loc_internal:up(native.turtle) do
+    while not nativeUp() do
       if not reliable then
         return false, i - 1
       end
@@ -445,7 +451,7 @@ function up(count, reliable)
         print("cannot move up - pls remove block")
         msg_written = true
       end
-      os.sleep(1);
+      os.sleep(1)
     end
   end
   return true
@@ -695,41 +701,23 @@ turtle.digDown = digDown
 function digRepeat()
   local ok, err = ensurePickaxe()
   if not ok then return false, err end
-  local succ
-  repeat
-    succ = turtle.dig()
-  until not succ
+  repeat until not native.turtle.dig()
   send_status_update()
-  return succ
 end
-
-e = dig
 
 function digUpRepeat()
   local ok, err = ensurePickaxe()
   if not ok then return false, err end
-  local succ
-  repeat
-    succ = turtle.digUp()
-  until not succ
+  repeat until not native.turtle.digUp()
   send_status_update()
-  return succ
 end
-
-eu = digUp
 
 function digDownRepeat()
   local ok, err = ensurePickaxe()
   if not ok then return false, err end
-  local succ
-  repeat
-    succ = turtle.digDown()
-  until not succ
+  repeat until not native.turtle.digDown()
   send_status_update()
-  return succ
 end
-
-ed = digDown
 
 function digSide(side)
   if not side then return false, "side must not be nil" end
@@ -741,7 +729,7 @@ end
 -- sucking
 
 -- Pull a specific item by name from an adjacent inventory into the turtle.
--- Approach credited to "fatboychummy" on Github: https://github.com/cc-tweaked/CC-Tweaked/discussions/1552#discussioncomment-6664168
+-- Credit to "fatboychummy" on Github: https://github.com/cc-tweaked/CC-Tweaked/discussions/1552#discussioncomment-6664168
 -- Moves the target item to slot 1 of the chest (shuffling any blocker to an empty slot),
 -- then calls turtle.suck() to pull it into the turtle.
 -- @param itemName string  full item id, e.g. "minecraft:iron_ingot"

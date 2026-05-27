@@ -6,6 +6,7 @@
  */
 
 import { GEOMETRY } from '../utils/blockMaps'
+import { parseTransparencyList } from '../utils/parseTransparencyList'
 
 // ─── Protocol types ───────────────────────────────────────────────────────────
 
@@ -54,6 +55,10 @@ export interface BuildRequest {
   hiddenNames: string[];
   yMin: number;
   yMax: number;
+  /** When true, skip neighbour face-culling so all 6 faces of every block are emitted (mining mode). */
+  skipCulling: boolean;
+  /** When true, alpha-cutout blocks (e.g. leaves) are treated as occluders, like solid cubes. */
+  simpleOcclusion: boolean;
 }
 
 export interface BuildResult {
@@ -163,28 +168,28 @@ function pushQuad(
   acc.vertexCount += 4;
 }
 
-/** Append a cross (two perpendicular vertical quads, double-sided). */
+/** Append a cross (two perpendicular vertical quads, double-sided), rotated 45° so edges point toward corners. */
 function pushCross(acc: Accumulator, bx: number, by: number, bz: number) {
-  const H = 0.5;
-  // Plane 1: along X axis (facing ±Z)
-  const p1v = [
-    [-H, -H, 0], [H, -H, 0], [H, H, 0], [-H, H, 0],
-  ] as [number,number,number][];
-  const p1n: [number,number,number] = [0, 0, 1];
+  const yBot = -0.5;
+  const yTop =  0.5;
+  const D = 0.45; // slightly inside block corners to avoid Z-fighting where the two planes intersect
   const uv4: [number,number][] = [[0,0],[1,0],[1,1],[0,1]];
-  const uv4flip: [number,number][] = [[0,1],[1,1],[1,0],[0,0]];
-  // front winding
-  pushQuad(acc, p1v as any, p1n, uv4 as any, bx, by, bz);
-  // back winding (reverse vertices + flip UVs vertically so texture isn't upside-down)
-  pushQuad(acc, [p1v[3], p1v[2], p1v[1], p1v[0]] as any, [-p1n[0], -p1n[1], -p1n[2]], uv4flip as any, bx, by, bz);
 
-  // Plane 2: along Z axis (facing ±X)
-  const p2v = [
-    [0, -H, -H], [0, -H, H], [0, H, H], [0, H, -H],
+  // Single quad per plane — material uses THREE.DoubleSide so no back-face quad needed.
+  // Duplicate back-face quads caused Z-fighting with the DoubleSide back face.
+  const up: [number,number,number] = [0, 1, 0];
+
+  // Plane 1: runs NW→SE (+X,+Z diagonal)
+  const p1v = [
+    [-D, yBot, -D], [D, yBot, D], [D, yTop, D], [-D, yTop, -D],
   ] as [number,number,number][];
-  const p2n: [number,number,number] = [1, 0, 0];
-  pushQuad(acc, p2v as any, p2n, uv4 as any, bx, by, bz);
-  pushQuad(acc, [p2v[3], p2v[2], p2v[1], p2v[0]] as any, [-p2n[0], -p2n[1], -p2n[2]], uv4flip as any, bx, by, bz);
+  pushQuad(acc, p1v as any, up, uv4 as any, bx, by, bz);
+
+  // Plane 2: runs NE→SW (+X,-Z diagonal)
+  const p2v = [
+    [D, yBot, -D], [-D, yBot, D], [-D, yTop, D], [D, yTop, -D],
+  ] as [number,number,number][];
+  pushQuad(acc, p2v as any, up, uv4 as any, bx, by, bz);
 }
 
 /** Append a flat horizontal quad (snow layer, carpet, rail) sitting at the block's base. */
@@ -232,18 +237,20 @@ function pushSlab(acc: Accumulator, bx: number, by: number, bz: number, isTop: b
   }
 }
 
+interface BoxSpec {
+  bx: number; by: number; bz: number;
+  x0: number; y0: number; z0: number;
+  x1: number; y1: number; z1: number;
+}
+
 /**
  * Append all 6 faces of an axis-aligned cuboid defined by min/max corners in
  * block-local coords (block centre = origin, full cube spans -0.5..0.5 on each axis).
  * UVs are sized proportionally to each face's dimensions so a fractional-width
  * cuboid takes a matching fractional slice of its texture (no stretching).
  */
-function pushBox(
-  acc: Accumulator,
-  bx: number, by: number, bz: number,
-  x0: number, y0: number, z0: number,
-  x1: number, y1: number, z1: number,
-) {
+function pushBox(acc: Accumulator, box: BoxSpec): void {
+  const { bx, by, bz, x0, y0, z0, x1, y1, z1 } = box;
   const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
   const faces = [
     // +X: U=Z, V=Y
@@ -278,7 +285,7 @@ function pushFence(
 ) {
   // Centre post: 4/16 wide on X/Z, full block height. Always rendered.
   const POST = 2/16;
-  pushBox(acc, bx, by, bz, -POST, -0.5, -POST, POST, 0.5, POST);
+  pushBox(acc, { bx, by, bz, x0: -POST, y0: -0.5, z0: -POST, x1: POST, y1: 0.5, z1: POST });
 
   // Connector rails: 2/16 thick perpendicular to length, 3/16 tall.
   // Block-local Y: top rail at 12..15/16, bottom rail at 6..9/16 (Y origin = block centre).
@@ -287,20 +294,20 @@ function pushFence(
   const bY0 =  6/16 - 0.5, bY1 =  9/16 - 0.5;
 
   if (connN) {
-    pushBox(acc, bx, by, bz, -RAIL_T, tY0, -0.5,  RAIL_T, tY1, -POST);
-    pushBox(acc, bx, by, bz, -RAIL_T, bY0, -0.5,  RAIL_T, bY1, -POST);
+    pushBox(acc, { bx, by, bz, x0: -RAIL_T, y0: tY0, z0: -0.5,  x1: RAIL_T, y1: tY1, z1: -POST });
+    pushBox(acc, { bx, by, bz, x0: -RAIL_T, y0: bY0, z0: -0.5,  x1: RAIL_T, y1: bY1, z1: -POST });
   }
   if (connS) {
-    pushBox(acc, bx, by, bz, -RAIL_T, tY0,  POST,  RAIL_T, tY1,  0.5);
-    pushBox(acc, bx, by, bz, -RAIL_T, bY0,  POST,  RAIL_T, bY1,  0.5);
+    pushBox(acc, { bx, by, bz, x0: -RAIL_T, y0: tY0, z0: POST,  x1: RAIL_T, y1: tY1, z1: 0.5 });
+    pushBox(acc, { bx, by, bz, x0: -RAIL_T, y0: bY0, z0: POST,  x1: RAIL_T, y1: bY1, z1: 0.5 });
   }
   if (connE) {
-    pushBox(acc, bx, by, bz,  POST, tY0, -RAIL_T,  0.5, tY1, RAIL_T);
-    pushBox(acc, bx, by, bz,  POST, bY0, -RAIL_T,  0.5, bY1, RAIL_T);
+    pushBox(acc, { bx, by, bz, x0: POST, y0: tY0, z0: -RAIL_T,  x1: 0.5, y1: tY1, z1: RAIL_T });
+    pushBox(acc, { bx, by, bz, x0: POST, y0: bY0, z0: -RAIL_T,  x1: 0.5, y1: bY1, z1: RAIL_T });
   }
   if (connW) {
-    pushBox(acc, bx, by, bz, -0.5, tY0, -RAIL_T, -POST, tY1, RAIL_T);
-    pushBox(acc, bx, by, bz, -0.5, bY0, -RAIL_T, -POST, bY1, RAIL_T);
+    pushBox(acc, { bx, by, bz, x0: -0.5, y0: tY0, z0: -RAIL_T, x1: -POST, y1: tY1, z1: RAIL_T });
+    pushBox(acc, { bx, by, bz, x0: -0.5, y0: bY0, z0: -RAIL_T, x1: -POST, y1: bY1, z1: RAIL_T });
   }
 }
 
@@ -312,11 +319,11 @@ function pushFence(
 function isConnection(
   matchType: string,
   nb: SerializedBlock | undefined,
-  hiddenSet: Set<string>,
+  isHidden: (name: string, meta: number | undefined) => boolean,
   matIndices: Record<string, number>,
   matMeta: Record<number, MaterialMeta>,
 ): boolean {
-  if (!nb || hiddenSet.has(nb.name)) return false;
+  if (!nb || isHidden(nb.name, nb.metadata)) return false;
   const key = nb.metadata ? `${nb.name}:${nb.metadata}` : nb.name;
   const idx = matIndices[key] ?? matIndices[nb.name];
   if (idx === undefined) return false;
@@ -339,12 +346,12 @@ function pushPane(
 ) {
   const T = 1/16;  // half-thickness — pane is 2/16 thick total
   // Centre column — always rendered.
-  pushBox(acc, bx, by, bz, -T, -0.5, -T, T, 0.5, T);
+  pushBox(acc, { bx, by, bz, x0: -T, y0: -0.5, z0: -T, x1: T, y1: 0.5, z1: T });
 
-  if (connN) pushBox(acc, bx, by, bz, -T, -0.5, -0.5,  T, 0.5, -T);
-  if (connS) pushBox(acc, bx, by, bz, -T, -0.5,  T,    T, 0.5,  0.5);
-  if (connE) pushBox(acc, bx, by, bz,  T, -0.5, -T,    0.5, 0.5, T);
-  if (connW) pushBox(acc, bx, by, bz, -0.5, -0.5, -T, -T, 0.5,  T);
+  if (connN) pushBox(acc, { bx, by, bz, x0: -T, y0: -0.5, z0: -0.5, x1: T,   y1: 0.5, z1: -T  });
+  if (connS) pushBox(acc, { bx, by, bz, x0: -T, y0: -0.5, z0: T,    x1: T,   y1: 0.5, z1: 0.5 });
+  if (connE) pushBox(acc, { bx, by, bz, x0: T,  y0: -0.5, z0: -T,   x1: 0.5, y1: 0.5, z1: T   });
+  if (connW) pushBox(acc, { bx, by, bz, x0: -0.5, y0: -0.5, z0: -T, x1: -T,  y1: 0.5, z1: T   });
 }
 
 /**
@@ -359,13 +366,13 @@ function pushCable(
 ) {
   const T = 2/16;  // half-thickness — cable is 4/16 wide
   // Centre cube — always rendered.
-  pushBox(acc, bx, by, bz, -T, -T, -T, T, T, T);
-  if (Xp) pushBox(acc, bx, by, bz,    T,   -T,   -T,  0.5,    T,    T);
-  if (Xn) pushBox(acc, bx, by, bz, -0.5,   -T,   -T,   -T,    T,    T);
-  if (Yp) pushBox(acc, bx, by, bz,   -T,    T,   -T,    T,  0.5,    T);
-  if (Yn) pushBox(acc, bx, by, bz,   -T, -0.5,   -T,    T,   -T,    T);
-  if (Zp) pushBox(acc, bx, by, bz,   -T,   -T,    T,    T,    T,  0.5);
-  if (Zn) pushBox(acc, bx, by, bz,   -T,   -T, -0.5,    T,    T,   -T);
+  pushBox(acc, { bx, by, bz, x0: -T,   y0: -T,   z0: -T,   x1: T,   y1: T,   z1: T   });
+  if (Xp) pushBox(acc, { bx, by, bz, x0: T,    y0: -T,   z0: -T,   x1: 0.5,  y1: T,   z1: T   });
+  if (Xn) pushBox(acc, { bx, by, bz, x0: -0.5, y0: -T,   z0: -T,   x1: -T,   y1: T,   z1: T   });
+  if (Yp) pushBox(acc, { bx, by, bz, x0: -T,   y0: T,    z0: -T,   x1: T,    y1: 0.5, z1: T   });
+  if (Yn) pushBox(acc, { bx, by, bz, x0: -T,   y0: -0.5, z0: -T,   x1: T,    y1: -T,  z1: T   });
+  if (Zp) pushBox(acc, { bx, by, bz, x0: -T,   y0: -T,   z0: T,    x1: T,    y1: T,   z1: 0.5 });
+  if (Zn) pushBox(acc, { bx, by, bz, x0: -T,   y0: -T,   z0: -0.5, x1: T,    y1: T,   z1: -T  });
 }
 
 /**
@@ -375,12 +382,12 @@ function pushCable(
 function isCableConnection(
   myGroups: readonly string[] | undefined,
   nb: SerializedBlock | undefined,
-  hiddenSet: Set<string>,
+  isHidden: (name: string, meta: number | undefined) => boolean,
   matIndices: Record<string, number>,
   matMeta: Record<number, MaterialMeta>,
 ): boolean {
   if (!myGroups || myGroups.length === 0) return false;
-  if (!nb || hiddenSet.has(nb.name)) return false;
+  if (!nb || isHidden(nb.name, nb.metadata)) return false;
   const key = nb.metadata ? `${nb.name}:${nb.metadata}` : nb.name;
   const idx = matIndices[key] ?? matIndices[nb.name];
   if (idx === undefined) return false;
@@ -392,9 +399,74 @@ function isCableConnection(
 
 // ─── Main builder ─────────────────────────────────────────────────────────────
 
+function neighborOccludesFace(nbGeom: GEOMETRY, faceDy: number): boolean {
+  const nbIsFullCube = nbGeom !== GEOMETRY.CROSS && nbGeom !== GEOMETRY.FLAT
+    && nbGeom !== GEOMETRY.SLAB_BOTTOM && nbGeom !== GEOMETRY.SLAB_TOP
+    && nbGeom !== GEOMETRY.FENCE && nbGeom !== GEOMETRY.PANE && nbGeom !== GEOMETRY.CABLE
+  // GEOMETRY.STAIRS is intentionally absent — stairs render as full cubes until
+  // a proper stair push function exists. Add it here when that lands, or it will
+  // generate coplanar faces that z-fight with the stair cube.
+  const slabOccludes = (nbGeom === GEOMETRY.SLAB_BOTTOM && faceDy === 1)
+                    || (nbGeom === GEOMETRY.SLAB_TOP    && faceDy === -1)
+  const flatOccludes = nbGeom === GEOMETRY.FLAT && faceDy === 1
+  return nbIsFullCube || slabOccludes || flatOccludes
+}
+
+function shouldCullCubeFace(
+  faceDy: number,
+  blockName: string,
+  blockMeta: number | undefined,
+  isLiquid: boolean,
+  isSeamBlock: boolean,
+  nb: SerializedBlock | undefined,
+  isHidden: (name: string, meta: number | undefined) => boolean,
+  matIndices: Record<string, number>,
+  matMeta: Record<number, MaterialMeta>,
+): boolean {
+  if (!nb) return false
+  const isSameType = !isLiquid && nb.name === blockName && (nb.metadata ?? 0) === (blockMeta ?? 0)
+  if (isSeamBlock && isSameType && !isHidden(nb.name, nb.metadata)) return true
+
+  if (isHidden(nb.name, nb.metadata)) return false
+  const nbKey = nb.metadata ? `${nb.name}:${nb.metadata}` : nb.name
+  const nbIdx = matIndices[nbKey] ?? matIndices[nb.name]
+  if (nbIdx === undefined) return false
+  const nbMeta = matMeta[nbIdx]
+  if (!nbMeta) return false
+
+  if (neighborOccludesFace(nbMeta.geomType, faceDy) && !nbMeta.nonOccluding) {
+    if (!isLiquid) return true
+    if (faceDy !== 1) return true
+  }
+  if (isLiquid && nbMeta.liquid && faceDy !== 1) return true
+  return false
+}
+
+function shouldCullCubeFaceMining(
+  faceDy: number,
+  blockName: string,
+  blockMeta: number | undefined,
+  isLiquid: boolean,
+  nb: SerializedBlock | undefined,
+  matIndices: Record<string, number>,
+  matMeta: Record<number, MaterialMeta>,
+): boolean {
+  if (!nb) return false
+  const isSameType = !isLiquid && nb.name === blockName && (nb.metadata ?? 0) === (blockMeta ?? 0)
+  if (isSameType) return true
+  if (isLiquid) {
+    const nbKey = nb.metadata ? `${nb.name}:${nb.metadata}` : nb.name
+    const nbIdx = matIndices[nbKey] ?? matIndices[nb.name]
+    if (nbIdx !== undefined && matMeta[nbIdx]?.liquid && faceDy !== 1) return true
+  }
+  return false
+}
+
 function buildGeometry(req: BuildRequest): BuildResult {
-  const { chunkKey, blocks, borderBlocks, matIndices, matMeta, hiddenNames, yMin, yMax } = req;
-  const hiddenSet = new Set(hiddenNames);
+  const { chunkKey, blocks, borderBlocks, matIndices, matMeta, hiddenNames, yMin, yMax, skipCulling, simpleOcclusion } = req;
+  const { all: hiddenAllMeta, specific: hiddenSpecificMeta } = parseTransparencyList(hiddenNames);
+  const isHidden = (name: string, meta: number | undefined): boolean =>
+    hiddenAllMeta.has(name) || hiddenSpecificMeta.has(`${name}:${meta ?? 0}`);
 
   // Combined lookup: chunk blocks + border blocks for face culling.
   const allBlocks: Record<string, SerializedBlock> = { ...borderBlocks, ...blocks };
@@ -410,7 +482,7 @@ function buildGeometry(req: BuildRequest): BuildResult {
   }
 
   for (const [locString, block] of Object.entries(blocks)) {
-    if (hiddenSet.has(block.name)) continue;
+    if (isHidden(block.name, block.metadata)) continue;
 
     const [x, y, z] = locString.split(',').map(Number);
     if (y < yMin || y > yMax) continue;
@@ -441,73 +513,37 @@ function buildGeometry(req: BuildRequest): BuildResult {
       continue;
     }
     if (geomType === GEOMETRY.FENCE || geomType === GEOMETRY.PANE) {
-      const connN = isConnection(geomType, allBlocks[`${x},${y},${z-1}`], hiddenSet, matIndices, matMeta);
-      const connS = isConnection(geomType, allBlocks[`${x},${y},${z+1}`], hiddenSet, matIndices, matMeta);
-      const connE = isConnection(geomType, allBlocks[`${x+1},${y},${z}`], hiddenSet, matIndices, matMeta);
-      const connW = isConnection(geomType, allBlocks[`${x-1},${y},${z}`], hiddenSet, matIndices, matMeta);
+      const connN = isConnection(geomType, allBlocks[`${x},${y},${z-1}`], isHidden, matIndices, matMeta);
+      const connS = isConnection(geomType, allBlocks[`${x},${y},${z+1}`], isHidden, matIndices, matMeta);
+      const connE = isConnection(geomType, allBlocks[`${x+1},${y},${z}`], isHidden, matIndices, matMeta);
+      const connW = isConnection(geomType, allBlocks[`${x-1},${y},${z}`], isHidden, matIndices, matMeta);
       if (geomType === GEOMETRY.FENCE) pushFence(acc, x, y, z, connN, connS, connE, connW);
       else                             pushPane(acc, x, y, z, connN, connS, connE, connW);
       continue;
     }
     if (geomType === GEOMETRY.CABLE) {
       const myGroups = meta.connectionGroups;
-      const Xp = isCableConnection(myGroups, allBlocks[`${x+1},${y},${z}`], hiddenSet, matIndices, matMeta);
-      const Xn = isCableConnection(myGroups, allBlocks[`${x-1},${y},${z}`], hiddenSet, matIndices, matMeta);
-      const Yp = isCableConnection(myGroups, allBlocks[`${x},${y+1},${z}`], hiddenSet, matIndices, matMeta);
-      const Yn = isCableConnection(myGroups, allBlocks[`${x},${y-1},${z}`], hiddenSet, matIndices, matMeta);
-      const Zp = isCableConnection(myGroups, allBlocks[`${x},${y},${z+1}`], hiddenSet, matIndices, matMeta);
-      const Zn = isCableConnection(myGroups, allBlocks[`${x},${y},${z-1}`], hiddenSet, matIndices, matMeta);
+      const Xp = isCableConnection(myGroups, allBlocks[`${x+1},${y},${z}`], isHidden, matIndices, matMeta);
+      const Xn = isCableConnection(myGroups, allBlocks[`${x-1},${y},${z}`], isHidden, matIndices, matMeta);
+      const Yp = isCableConnection(myGroups, allBlocks[`${x},${y+1},${z}`], isHidden, matIndices, matMeta);
+      const Yn = isCableConnection(myGroups, allBlocks[`${x},${y-1},${z}`], isHidden, matIndices, matMeta);
+      const Zp = isCableConnection(myGroups, allBlocks[`${x},${y},${z+1}`], isHidden, matIndices, matMeta);
+      const Zn = isCableConnection(myGroups, allBlocks[`${x},${y},${z-1}`], isHidden, matIndices, matMeta);
       pushCable(acc, x, y, z, Xp, Xn, Yp, Yn, Zp, Zn);
       continue;
     }
 
     // ── Cube face culling ──────────────────────────────────────────────────
     const isCube6 = geomType === GEOMETRY.CUBE6;
+    const isSeamBlock = meta.transparent || (simpleOcclusion && meta.nonOccluding && !meta.transparent);
     for (let fi = 0; fi < FACES.length; fi++) {
       const face = FACES[fi];
-      const nx = x + face.dx, ny = y + face.dy, nz = z + face.dz;
-      const nLoc = `${nx},${ny},${nz}`;
-      const nb = allBlocks[nLoc];
+      const nb = allBlocks[`${x + face.dx},${y + face.dy},${z + face.dz}`];
 
-      // Alpha-transparent blocks of the same type (same name + metadata) cull their
-      // shared interior faces — e.g. a wall of glass doesn't show internal seams.
-      // Leaves are non-occluding but not transparent, so they keep all faces and
-      // alpha holes in one leaf block reveal the faces of the block behind it.
-      if (meta.transparent && !isLiquid && nb && !hiddenSet.has(nb.name)
-          && nb.name === block.name && (nb.metadata ?? 0) === (block.metadata ?? 0)) continue;
-
-      // Skip if neighbour occludes this face.
-      if (nb && !hiddenSet.has(nb.name)) {
-        const nbKey = nb.metadata ? `${nb.name}:${nb.metadata}` : nb.name;
-        const nbIdx = matIndices[nbKey] ?? matIndices[nb.name];
-        if (nbIdx !== undefined) {
-          const nbMeta = matMeta[nbIdx];
-          if (nbMeta) {
-            const nbGeom = nbMeta.geomType;
-            // GEOMETRY.STAIRS is intentionally absent — stairs render as full cubes until
-            // a proper stair push function exists. Add it here when that lands, or it will
-            // generate coplanar faces that z-fight with the stair cube.
-            const nbIsFullCube = nbGeom !== GEOMETRY.CROSS && nbGeom !== GEOMETRY.FLAT
-              && nbGeom !== GEOMETRY.SLAB_BOTTOM && nbGeom !== GEOMETRY.SLAB_TOP
-              && nbGeom !== GEOMETRY.FENCE && nbGeom !== GEOMETRY.PANE && nbGeom !== GEOMETRY.CABLE;
-            // Slabs occlude only the single face they fully cover:
-            // a bottom slab covers the top face (+Y) of the block below it,
-            // a top slab covers the bottom face (-Y) of the block above it.
-            const slabOccludes = (nbGeom === GEOMETRY.SLAB_BOTTOM && face.dy === 1) ||
-                                 (nbGeom === GEOMETRY.SLAB_TOP    && face.dy === -1);
-
-            if ((nbIsFullCube || slabOccludes) && !nbMeta.nonOccluding) {
-              // Solid full-cube neighbour hides any non-liquid face.
-              if (!isLiquid) continue;
-              // Liquid side faces are hidden by solid neighbours (water into ground).
-              // The top face always renders so the water surface is visible.
-              if (face.dy !== 1) continue;
-            }
-
-            // Liquid-to-liquid: suppress all side faces regardless of nonOccluding flag.
-            if (isLiquid && nbMeta.liquid && face.dy !== 1) continue;
-          }
-        }
+      if (skipCulling) {
+        if (shouldCullCubeFaceMining(face.dy, block.name, block.metadata, isLiquid, nb, matIndices, matMeta)) continue;
+      } else {
+        if (shouldCullCubeFace(face.dy, block.name, block.metadata, isLiquid, isSeamBlock, nb, isHidden, matIndices, matMeta)) continue;
       }
 
       // cube6: texture is a 96x16 strip of 6 distinct face tiles (one per cube face).
@@ -573,28 +609,32 @@ function buildGeometry(req: BuildRequest): BuildResult {
 // ─── Worker message handler ───────────────────────────────────────────────────
 
 self.onmessage = (e: MessageEvent<BuildRequest>) => {
-  const result = buildGeometry(e.data);
+  try {
+    const result = buildGeometry(e.data);
 
-  // Transfer typed arrays back to main thread without copying.
-  const transferables: Transferable[] = [];
-  if (result.opaque) {
-    transferables.push(
-      result.opaque.positions.buffer,
-      result.opaque.normals.buffer,
-      result.opaque.uvs.buffer,
-      result.opaque.indices.buffer,
-      result.opaque.blockCoords.buffer,
-    );
-  }
-  if (result.transparent) {
-    transferables.push(
-      result.transparent.positions.buffer,
-      result.transparent.normals.buffer,
-      result.transparent.uvs.buffer,
-      result.transparent.indices.buffer,
-      result.transparent.blockCoords.buffer,
-    );
-  }
+    // Transfer typed arrays back to main thread without copying.
+    const transferables: Transferable[] = [];
+    if (result.opaque) {
+      transferables.push(
+        result.opaque.positions.buffer,
+        result.opaque.normals.buffer,
+        result.opaque.uvs.buffer,
+        result.opaque.indices.buffer,
+        result.opaque.blockCoords.buffer,
+      );
+    }
+    if (result.transparent) {
+      transferables.push(
+        result.transparent.positions.buffer,
+        result.transparent.normals.buffer,
+        result.transparent.uvs.buffer,
+        result.transparent.indices.buffer,
+        result.transparent.blockCoords.buffer,
+      );
+    }
 
-  (self as any).postMessage(result, transferables);
+    (self as any).postMessage(result, transferables);
+  } catch (err) {
+    (self as any).postMessage({ chunkKey: e.data.chunkKey, buildId: e.data.buildId, error: String(err) });
+  }
 };

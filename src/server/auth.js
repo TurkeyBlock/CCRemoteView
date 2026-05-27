@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const { COOKIE_NAME, BYPASS_AUTH, DEV_TOKEN } = require('./config');
+const { getClientIp } = require('./utils/clientIp');
 
 let _jwtDecode = null;
 async function jwtDecode(params) {
@@ -11,6 +12,7 @@ async function jwtDecode(params) {
 
 function parseCookies(req) {
   const cookieHeader = req.headers.cookie || '';
+  if (cookieHeader.length > 4096) return {};
   return Object.fromEntries(
     cookieHeader.split(';').map(c => {
       const [k, ...v] = c.trim().split('=');
@@ -29,7 +31,9 @@ async function getSession(req) {
       secret: process.env.NEXTAUTH_SECRET,
       salt: COOKIE_NAME,
     });
-  } catch {
+  } catch (err) {
+    const quiet = err.code === 'ERR_JWT_EXPIRED' || err.code === 'ERR_JWE_DECRYPTION_FAILED';
+    if (!quiet) console.error('[auth] getSession unexpected error:', err);
     return null;
   }
 }
@@ -37,49 +41,50 @@ async function getSession(req) {
 function loadAdmins() {
   try {
     return JSON.parse(fs.readFileSync('./src/server/data/admins.json', 'utf8'));
-  } catch {
+  } catch (err) {
+    if (err.code !== 'ENOENT') console.error('[auth] Failed to load admins.json:', err);
     return [];
   }
 }
 
 // Factory — call once with manager instances, get back middleware functions.
 function createAuth({ userManagement, computerIpManager, computerIdManager, operatorManager }) {
-  function isAdmin(sub)    { return loadAdmins().includes(sub); }
+  let _adminCache = null;
+  let _adminCacheTs = 0;
+  function isAdmin(sub) {
+    const now = Date.now();
+    if (!_adminCache || now - _adminCacheTs > 30_000) {
+      _adminCache = loadAdmins();
+      _adminCacheTs = now;
+    }
+    return _adminCache.includes(sub);
+  }
   function isOperator(sub) { return operatorManager.isOperator(sub); }
 
   const devBypass = (req, next) => { req.token = DEV_TOKEN; next(); };
 
-  async function requireAuth(req, res, next) {
-    if (BYPASS_AUTH) return devBypass(req, next);
-    const token = await getSession(req);
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    req.token = token;
-    userManagement.updateLastActive(token.sub, token.username);
-    next();
+  function makeAuthGate(check) {
+    return async (req, res, next) => {
+      try {
+        if (BYPASS_AUTH) return devBypass(req, next);
+        const token = await getSession(req);
+        if (!token) return res.status(401).json({ error: 'Unauthorized' });
+        if (check && !check(token)) return res.status(403).json({ error: 'Forbidden' });
+        req.token = token;
+        userManagement.updateLastActive(token.sub, token.username);
+        next();
+      } catch (err) {
+        next(err);
+      }
+    };
   }
 
-  async function requireOperator(req, res, next) {
-    if (BYPASS_AUTH) return devBypass(req, next);
-    const token = await getSession(req);
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    if (!isOperator(token.sub)) return res.status(403).json({ error: 'Forbidden' });
-    req.token = token;
-    userManagement.updateLastActive(token.sub, token.username);
-    next();
-  }
-
-  async function requireAdmin(req, res, next) {
-    if (BYPASS_AUTH) return devBypass(req, next);
-    const token = await getSession(req);
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-    if (!isAdmin(token.sub)) return res.status(403).json({ error: 'Forbidden' });
-    req.token = token;
-    userManagement.updateLastActive(token.sub, token.username);
-    next();
-  }
+  const requireAuth     = makeAuthGate(null);
+  const requireOperator = makeAuthGate(t => isOperator(t.sub));
+  const requireAdmin    = makeAuthGate(t => isAdmin(t.sub));
 
   function requireApprovedComputer(req, res, next) {
-    const ip = req.ip;
+    const ip = getClientIp(req);
     if (!computerIpManager.isApproved(ip)) {
       if (!computerIpManager.isPending(ip)) computerIpManager.addPending(ip);
       return res.status(403).json({ status: 'pending_ip', message: 'Turtle IP is awaiting admin approval.' });

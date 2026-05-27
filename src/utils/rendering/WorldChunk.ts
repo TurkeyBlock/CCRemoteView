@@ -17,6 +17,16 @@ export function chunkKeyToWorldMin(key: string): THREE.Vector3 {
 
 export type ChunkState = 'empty' | 'building' | 'ready' | 'dirty';
 
+/** Per-face direction layers — one Map per chunk face. */
+export interface FaceLayers {
+  px: Map<string, Block>;
+  nx: Map<string, Block>;
+  py: Map<string, Block>;
+  ny: Map<string, Block>;
+  pz: Map<string, Block>;
+  nz: Map<string, Block>;
+}
+
 /**
  * Holds the render state for one 16×16×16 region of the world.
  *
@@ -38,6 +48,21 @@ export class WorldChunk {
   /** All blocks that fall inside this chunk's world-space volume. */
   blocks = new Map<string, Block>();
 
+  /**
+   * Per-face subsets of `blocks` — the single-block-thick layer along each face
+   * of the chunk. A corner block may appear in up to 3 face maps. Kept in sync
+   * with `blocks` via `setBlock`/`deleteBlock`. Used by ChunkManager to gather
+   * neighbour border blocks without scanning the neighbour's full block map.
+   */
+  readonly faceLayers: FaceLayers = {
+    px: new Map<string, Block>(),
+    nx: new Map<string, Block>(),
+    py: new Map<string, Block>(),
+    ny: new Map<string, Block>(),
+    pz: new Map<string, Block>(),
+    nz: new Map<string, Block>(),
+  };
+
   /** Merged opaque-face geometry — one Mesh, one material group per block type. */
   opaqueMesh: THREE.Mesh | null = null;
 
@@ -58,6 +83,44 @@ export class WorldChunk {
       new THREE.Vector3(min.x - m, -512, min.z - m),
       new THREE.Vector3(max.x + m,  512, max.z + m),
     );
+  }
+
+  /**
+   * Insert or update a block. Maintains `blocks` and `faceLayers` together —
+   * all writes to chunk block storage must go through this (or `deleteBlock`).
+   */
+  setBlock(locString: string, block: Block): void {
+    this.blocks.set(locString, block);
+    // Parse local coords. Use the same modulo-normalisation as locToChunkKey so
+    // negative world coords map to [0, CHUNK_SIZE-1] consistently.
+    const comma1 = locString.indexOf(',');
+    const comma2 = locString.indexOf(',', comma1 + 1);
+    const x = +locString.slice(0, comma1);
+    const y = +locString.slice(comma1 + 1, comma2);
+    const z = +locString.slice(comma2 + 1);
+    const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const ly = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const fl = this.faceLayers;
+    // A corner can land in up to 3 face maps. Always set (covers update path).
+    if (lx === 0)              fl.nx.set(locString, block); else fl.nx.delete(locString);
+    if (lx === CHUNK_SIZE - 1) fl.px.set(locString, block); else fl.px.delete(locString);
+    if (ly === 0)              fl.ny.set(locString, block); else fl.ny.delete(locString);
+    if (ly === CHUNK_SIZE - 1) fl.py.set(locString, block); else fl.py.delete(locString);
+    if (lz === 0)              fl.nz.set(locString, block); else fl.nz.delete(locString);
+    if (lz === CHUNK_SIZE - 1) fl.pz.set(locString, block); else fl.pz.delete(locString);
+  }
+
+  /** Remove a block from `blocks` and from any face layers that contained it. */
+  deleteBlock(locString: string): void {
+    if (!this.blocks.delete(locString)) return;
+    const fl = this.faceLayers;
+    fl.px.delete(locString);
+    fl.nx.delete(locString);
+    fl.py.delete(locString);
+    fl.ny.delete(locString);
+    fl.pz.delete(locString);
+    fl.nz.delete(locString);
   }
 
   /** Remove meshes from the scene and free GPU memory. */

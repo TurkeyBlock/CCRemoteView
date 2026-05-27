@@ -7,32 +7,29 @@ if (process.argv[2] === '--build-textures') {
     .catch(err => { console.error(err); process.exit(1); });
 } else {
 
-const { parse }         = require('url');
-const next              = require('next');
-const express           = require('express');
-const cors              = require('cors');
-const compression       = require('compression');
-const fs                = require('fs');
-const path              = require('path');
-const pino              = require('pino');
-const httpTerminator    = require('http-terminator');
-const { WebSocketServer } = require('ws');
+const path  = require('path');
+const next  = require('next');
+const express = require('express');
+const pino  = require('pino');
 
-const config            = require('./config');
-const worldState        = require('./worldState');
+const config = require('./config');
+const { state } = require('./state/state');
+const { startAutoSave } = require('./state/persistence');
 const { createAuth }    = require('./auth');
-const { createComputerRoutes } = require('./routes/computerRoutes');
-const { createBrowserRoutes  } = require('./routes/browserRoutes');
-const { attachComputerWs }     = require('./ws/computerWs');
-const { attachBrowserWs  }     = require('./ws/browserWs');
-
-const UserManagement    = require('./utils/userManagement.js');
-const ComputerIpManager = require('./utils/computerIpManager.js');
-const ComputerIdManager = require('./utils/computerIdManager.js');
-const OperatorManager   = require('./utils/operatorManager.js');
+const { buildManagers } = require('./managers.js');
 const CommandLineInterface = require('./utils/cmdLineInterface.js');
+const { mountRoutes, mountWebSockets, registerShutdown, setupNextJs, configureExpress, logStartup } = require('./startup.js');
 
-const { IS_PROD, LOCAL_ONLY, BYPASS_AUTH, DEV_AUTH_URL, BIND_HOST, PORT } = config;
+const { IS_PROD, LOCAL_ONLY, PORT, BIND_HOST } = config;
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[fatal] Unhandled rejection:', reason);
+  process.exit(1);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[fatal] Uncaught exception:', err);
+  process.exit(1);
+});
 
 const log = pino({
   level: 'info',
@@ -46,17 +43,15 @@ const log = pino({
 
 // ─── Managers ─────────────────────────────────────────────────────────────────
 
-const userManagement    = new UserManagement();
-const computerIpManager = new ComputerIpManager();
-const computerIdManager = new ComputerIdManager();
-const operatorManager   = new OperatorManager();
-const cmdLineInterface  = new CommandLineInterface();
+const managers = buildManagers();
+const { userManagement } = managers;
+const cmdLineInterface = new CommandLineInterface();
 cmdLineInterface.on('users',          () => console.log(userManagement.getUserDataString()));
-cmdLineInterface.on('deleteComputer', (id) => delete worldState.state.computers[id]);
+cmdLineInterface.on('deleteComputer', (id) => delete state.computers[id]);
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
-const auth = createAuth({ userManagement, computerIpManager, computerIdManager, operatorManager });
+const auth = createAuth(managers);
 
 // ─── Startup validation ───────────────────────────────────────────────────────
 
@@ -75,74 +70,24 @@ if (!LOCAL_ONLY) {
 const PROJECT_ROOT = path.join(__dirname, '..', '..');
 const nextApp = next({ dev: !IS_PROD, hostname: 'localhost', port: PORT, dir: PROJECT_ROOT });
 
-nextApp.prepare().then(() => {
-  const handle = nextApp.getRequestHandler();
-  const app    = express();
+nextApp.prepare()
+  .then(() => {
+    const handle = nextApp.getRequestHandler();
+    const app    = express();
 
-  app.set('trust proxy', 'loopback');
-  app.use(compression());
-  app.use(cors({ origin: IS_PROD ? process.env.APP_URL : DEV_AUTH_URL }));
-  app.use(express.json({ limit: '2mb' }));
+    configureExpress(app);
+    mountRoutes(app, { auth, log, managers });
+    setupNextJs(app, handle);
 
-  // Static assets served directly by Express (accessible to CC computers too).
-  const LUA_DIR = path.join(PROJECT_ROOT, 'lua');
-  app.use('/assets', express.static(path.join(PROJECT_ROOT, 'assets'), { maxAge: '1d' }));
-  app.use('/lua', (req, res, next) => {
-    const safe     = path.normalize(req.path).replace(/^(\.\.[/\\])+/, '');
-    const filePath = path.resolve(LUA_DIR, safe.slice(1));
-    if (!filePath.startsWith(LUA_DIR)) return res.sendStatus(403);
-    fs.readFile(filePath, 'utf8', (err, data) => {
-      if (err) return next();
-      res.type('text/plain').send(data.replaceAll('%%APP_URL%%', process.env.APP_URL));
-    });
+    const server = app.listen(PORT, BIND_HOST, () => logStartup(log));
+
+    startAutoSave(() => userManagement.save());
+    mountWebSockets(server, { auth, log, managers });
+    registerShutdown(server, { userManagement });
+  })
+  .catch(err => {
+    console.error('[startup] Next.js init failed:', err);
+    process.exit(1);
   });
-
-  // ─── Routes ─────────────────────────────────────────────────────────────────
-
-  const deps = { worldState, auth, log, userManagement, computerIpManager, computerIdManager, operatorManager, config };
-  app.use(createComputerRoutes(deps));
-  app.use(createBrowserRoutes(deps));
-
-  // Next.js handles all remaining routes (pages, _next/static, etc.)
-  app.all('*', (req, res) => handle(req, res, parse(req.url, true)));
-
-  // ─── Server ──────────────────────────────────────────────────────────────────
-
-  const server = app.listen(PORT, BIND_HOST, () => {
-    log.info(`Turtle remote controller server listening on ${BIND_HOST}:${PORT}.`);
-    console.log(`[server] Listening on ${BIND_HOST}:${PORT}${BYPASS_AUTH ? ' (local-only mode — no auth enforced)' : ''}`);
-  });
-
-  worldState.startAutoSave(() => userManagement.save());
-
-  // ─── WebSocket servers ───────────────────────────────────────────────────────
-
-  const wss         = new WebSocketServer({ noServer: true, perMessageDeflate: { threshold: 1024 } });
-  const computerWss = new WebSocketServer({ noServer: true });
-
-  attachComputerWs(computerWss, { worldState, computerIpManager, computerIdManager, log });
-  attachBrowserWs(wss,          { worldState, auth, log, userManagement });
-
-  // Route upgrade requests: /ws → browser WS, /ws/computer → computer WS.
-  // All other upgrades (/_next/webpack-hmr etc.) are left for Next.js.
-  server.on('upgrade', (req, socket, head) => {
-    const pathname = req.url.split('?')[0];
-    if (pathname === '/ws') {
-      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
-    } else if (pathname.startsWith('/ws/computer')) {
-      computerWss.handleUpgrade(req, socket, head, (ws) => computerWss.emit('connection', ws, req));
-    }
-  });
-
-  // ─── Shutdown ────────────────────────────────────────────────────────────────
-
-  const terminator = httpTerminator.createHttpTerminator({ gracefulTerminationTimeout: 200, server });
-  process.on('SIGINT', async () => {
-    await terminator.terminate();
-    worldState.saveStateToDisk();
-    userManagement.save();
-    process.exit(0);
-  });
-});
 
 }

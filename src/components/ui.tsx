@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, forwardRef } from 'react'
+import { FS } from '@/utils/fontSize'
 
 // ── LED indicator ────────────────────────────────────────────
 export type LedKind = 'on' | 'amber' | 'red' | 'info' | 'off'
@@ -118,12 +119,24 @@ export function Checkbox({
 }
 
 // ── Fixed-position dropdown menu (avoids overflow clipping) ──
+
+// Module-level registry: each mounted HeaderMenu registers a close callback.
+// Opening any menu closes all others first.
+const _menuCloseRegistry = new Set<() => void>()
+export function closeAllMenus() { for (const cb of _menuCloseRegistry) cb() }
+
 export function HeaderMenu({
   label, children, align = 'right', compact,
-}: { label: string; children: React.ReactNode; align?: 'left' | 'right'; compact?: boolean }) {
+}: { label: React.ReactNode; children: React.ReactNode; align?: 'left' | 'right'; compact?: boolean }) {
   const [open, setOpen] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
   const [pos, setPos] = useState<{ top: number; left?: number; right?: number }>({ top: 0 })
+
+  useEffect(() => {
+    const close = () => setOpen(false)
+    _menuCloseRegistry.add(close)
+    return () => { _menuCloseRegistry.delete(close) }
+  }, [])
 
   useEffect(() => {
     if (!open || !btnRef.current) return
@@ -135,22 +148,26 @@ export function HeaderMenu({
     })
   }, [open, align])
 
+  function handleToggle() {
+    const nextOpen = !open
+    // Close all menus (including self) then re-open self if it was closed.
+    for (const cb of _menuCloseRegistry) cb()
+    if (nextOpen) setOpen(true)
+  }
+
   return (
     <div style={{ position: 'relative' }}>
       <button
         ref={btnRef}
         className={`btn${compact ? ' btn-compact' : ''}`}
-        onClick={() => setOpen(o => !o)}
+        onClick={handleToggle}
       >
-        {label} <span style={{ marginLeft: 5, opacity: 0.55, fontSize: 9 }}>▼</span>
+        {label} <span style={{ marginLeft: 5, opacity: 0.55, fontSize: FS['9'] }}>▼</span>
       </button>
       {open && (
-        <>
-          <div style={{ position: 'fixed', inset: 0, zIndex: 999 }} onClick={() => setOpen(false)} />
-          <div className="dropdown" style={{ top: pos.top, left: pos.left, right: pos.right }}>
-            {children}
-          </div>
-        </>
+        <div className="dropdown" style={{ top: pos.top, left: pos.left, right: pos.right }}>
+          {children}
+        </div>
       )}
     </div>
   )

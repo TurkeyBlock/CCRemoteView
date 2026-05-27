@@ -1,42 +1,66 @@
 'use client'
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import * as THREE from 'three'
+import { FS } from '@/utils/fontSize'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
-import { useWorldStore, replaceWorldBlocks, worldBlocks } from '@/store/useWorld'
-import { saveWorldToCache, loadWorldFromCache } from '@/store/worldCache'
-import { useWorldViewStore } from '@/store/useWorldView'
+import { useWorldStore } from '@/store/useWorld'
+import { useWorldViewStore, useEditorStateStore } from '@/store/useWorldView'
+import { sceneBridge } from '@/store/sceneBridge'
 import { useUserStore } from '@/store/useUser'
 import ComputerPanel from './computers/ComputerPanel'
+import ChatPanel from './computers/chat/ChatPanel'
 import InventoryView from './inventory/Inventory'
 import BlockNameDisplay from './overlay/BlockNameDisplay'
 import Scene from './Scene'
+import GlassesEditorLayout from './computers/player/GlassesEditorLayout'
+import GlassesSvgCanvas from './computers/player/GlassesSvgCanvas'
+import { liveEditorRef } from './computers/player/useGlassesEditor'
 import KeyboardBindings from './computers/turtles/KeyboardBindings'
 import AdminPanel from './overlay/AdminPanel'
 import OperatorRequest from './overlay/OperatorRequest'
 import BlockTransparency from './overlay/BlockTransparency'
 import RenderFilters from './overlay/RenderFilters'
-import { Led } from './ui'
-import { connLedKind } from './computers/PollTimers'
-import { ServerMessage } from '@/types/wsMessages'
-import type { Block } from '@/types/world'
+import { Led, HeaderMenu } from './ui'
+import ModalOverlay from './modals/ModalOverlay'
+import { connLedKind, POLL_INTERVAL_MS } from './computers/PollTimers'
+import type { GlassesObject } from '@/types/glasses'
+import { useAppWebSocket } from '@/hooks/useAppWebSocket'
+import { useFloatingPanels } from '@/hooks/useFloatingPanels'
+import { useContextMenu } from '@/hooks/useContextMenu'
+import { useTheme } from '@/hooks/useTheme'
 
 const ComputerLed = memo(function ComputerLed({ computerId }: { computerId: number }) {
-  const kind = useWorldStore(s => connLedKind(!!s.computers[computerId]?.ws_connected, s.computers[computerId]?.ws_request_at))
-  return <Led kind={kind} />
+  const wsConnected  = useWorldStore(s => s.computers[computerId]?.wsConnected)
+  const wsRequestAt = useWorldStore(s => s.computers[computerId]?.wsRequestAt)
+  const [now, setNow] = useState(Date.now)
+
+  useEffect(() => {
+    if (!wsRequestAt) return
+    const remaining = POLL_INTERVAL_MS - (Date.now() - wsRequestAt)
+    if (remaining <= 0) { setNow(Date.now()); return }
+    const id = setTimeout(() => setNow(Date.now()), remaining + 100)
+    return () => clearTimeout(id)
+  }, [wsRequestAt])
+
+  return <Led kind={connLedKind(!!wsConnected, wsRequestAt, now)} />
 })
 
-interface FloatingPanel { id: number; x: number; y: number }
+const EMPTY_GLASSES: GlassesObject[] = []
 
 const TYPE_SHORT: Record<string, string> = {
   minecart: 'MC', turtle: 'T', player: 'Ply', stationary: 'Sta',
 }
 
+const CHAT_TAB_ID = -2
+
+const TEXT_SIZES = ['sm', 'md', 'lg', 'xl'] as const
+type TextSize = typeof TEXT_SIZES[number]
+
+const TEXT_SIZE_LABELS: Record<TextSize, string> = { sm: 'Small', md: 'Medium', lg: 'Large', xl: 'Extra Large' }
+const TEXT_SIZE_PX: Record<TextSize, number> = { sm: 12, md: 14, lg: 16, xl: 18 }
+
 export default function CCRemoteController() {
   const isLoading = useWorldStore(s => s.isLoading)
-  // Re-render only when fields the tab strip or inventory panel actually use change.
-  // Volatile fields (loc, inv, rot, entities, chatLog, fuelLevel, selectedSlot)
-  // are handled by child components with their own narrow subscriptions.
   const computers = useStoreWithEqualityFn(useWorldStore, s => s.computers, (prev, next) => {
     const prevIds = Object.keys(prev)
     const nextIds = Object.keys(next)
@@ -44,16 +68,31 @@ export default function CCRemoteController() {
     for (const id of nextIds) {
       if (!prev[id]) return false
       const p = prev[id], n = next[id]
-      if (p.ws_connected !== n.ws_connected ||
-          p.ws_request_at !== n.ws_request_at ||
-          p.type !== n.type ||
+      if (p.type !== n.type ||
           p.label !== n.label ||
           (p as any).adjacentInventory !== (n as any).adjacentInventory) return false
     }
     return true
   })
   const selectedInventoryPos = useWorldViewStore(s => s.selectedInventoryPos)
-  // Derive inventory live from world state so it updates after suck/drop and auto-closes when removed
+  const liveViewComputerId   = useWorldViewStore(s => s.liveViewComputerId)
+  const isLiveView           = liveViewComputerId !== -1
+  const liveEditorMutable    = useEditorStateStore(s => liveViewComputerId !== -1 ? s.glassesEditorMutable[liveViewComputerId] : undefined)
+  const liveViewLiveObjects  = useWorldStore(s => (liveViewComputerId !== -1 ? s.canvasScenes[liveViewComputerId] ?? EMPTY_GLASSES : EMPTY_GLASSES) as GlassesObject[])
+
+  const liveEditorForLayout = useMemo(() => {
+    if (!liveEditorRef.current || !liveEditorMutable) return null
+    const activeScene = liveEditorMutable.editorMode === 'live'
+      ? liveViewLiveObjects
+      : liveEditorMutable.draftScene
+    return {
+      ...liveEditorRef.current,
+      ...liveEditorMutable,
+      liveObjects: liveViewLiveObjects,
+      activeScene,
+    }
+  }, [liveEditorMutable, liveViewLiveObjects])
+
   const derivedInventory = useMemo(() => {
     if (!selectedInventoryPos) return null
     const locStr = `${selectedInventoryPos.x},${selectedInventoryPos.y},${selectedInventoryPos.z}`
@@ -63,37 +102,53 @@ export default function CCRemoteController() {
     }
     return null
   }, [selectedInventoryPos, computers])
+
   const userLoaded = useUserStore(s => s.loaded)
+  const isLoggedIn = useUserStore(s => s.isLoggedIn)
   const isOperator = useUserStore(s => s.isOperator)
   const isAdmin = useUserStore(s => s.isAdmin)
 
-  const [isGuest, setIsGuest] = useState(false)
-  const [guestRefreshDisabled, setGuestRefreshDisabled] = useState(false)
+  const { theme, toggle: toggleTheme } = useTheme()
+  const [textSize, setTextSize] = useState<TextSize>('md')
+
+  useEffect(() => {
+    const saved = localStorage.getItem('cc-text-size') as TextSize | null
+    if (saved && (TEXT_SIZES as readonly string[]).includes(saved)) {
+      setTextSize(saved)
+      document.documentElement.setAttribute('data-text-size', saved)
+    }
+  }, [])
+
+  function applyTextSize(size: TextSize) {
+    setTextSize(size)
+    localStorage.setItem('cc-text-size', size)
+    document.documentElement.setAttribute('data-text-size', size)
+  }
+
+  const [capBlocked, setCapBlocked] = useState(false)
   const [wsConnected, setWsConnected] = useState(false)
   const [dockCollapsed, setDockCollapsed] = useState(false)
+  const [chatTabSelected, setChatTabSelected] = useState(false)
   const [tabOrder, setTabOrder] = useState<number[]>([])
-  const [floatingPanels, setFloatingPanels] = useState<FloatingPanel[]>([])
-  const [panelZIndexes, setPanelZIndexes] = useState<Record<number, number>>({})
-  const topZRef = useRef(200)
+
+  const { connectWebSocket } = useAppWebSocket({ setCapBlocked, setWsConnected, setTabOrder })
+
+  const {
+    floatingPanels, setFloatingPanels, panelZIndexes,
+    detachTab, dockPanel, bringToFront, startPanelDrag, startPanelResize,
+  } = useFloatingPanels({ selectedComputerId: useWorldViewStore.getState().selectedComputerId, CHAT_TAB_ID, setChatTabSelected })
+
+  const { contextMenu, setContextMenu, contextMenuRef } = useContextMenu()
+
   const draggedIdxRef = useRef<number | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [addSearch, setAddSearch] = useState('')
   const addRef = useRef<HTMLDivElement>(null)
   const addBtnRef = useRef<HTMLButtonElement>(null)
   const [addPos, setAddPos] = useState({ top: 0, left: 0 })
-  const [contextMenu, setContextMenu] = useState<{ id: number; x: number; y: number } | null>(null)
-  const contextMenuRef = useRef<HTMLDivElement>(null)
-
-  const wsRef = useRef<WebSocket | null>(null)
-  const wsBackoffRef = useRef(1000)
-  const wsReconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const wsInitialStateLoadedRef = useRef(false)
-  const idbHydratedRef = useRef(false)
-  const cacheTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const guestRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const renderFiltersRef = useRef<{ setOpen: (v: boolean) => void } | null>(null)
+  const renderFiltersRef     = useRef<{ setOpen: (v: boolean) => void } | null>(null)
   const blockTransparencyRef = useRef<{ setOpen: (v: boolean) => void } | null>(null)
-  const adminPanelRef = useRef<{ setOpen: (v: boolean) => void } | null>(null)
+  const adminPanelRef        = useRef<{ setOpen: (v: boolean) => void } | null>(null)
 
   const selectedComputerId = useWorldViewStore(s => s.selectedComputerId)
   const prevSelectedIdRef = useRef(selectedComputerId)
@@ -101,10 +156,9 @@ export default function CCRemoteController() {
     if (selectedComputerId === prevSelectedIdRef.current) return
     prevSelectedIdRef.current = selectedComputerId
     if (selectedComputerId === -1) return
-    useWorldViewStore.getState().focusOnComputer(selectedComputerId)
+    sceneBridge.focusOnComputer(selectedComputerId)
   }, [selectedComputerId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-close chest inventory panel when the turtle moves away and data is gone
   useEffect(() => {
     if (selectedInventoryPos && !derivedInventory) {
       useWorldViewStore.setState({ selectedInventoryPos: null })
@@ -116,7 +170,7 @@ export default function CCRemoteController() {
   useEffect(() => {
     const currSet = new Set(computerIds)
     setTabOrder(prev => prev.filter(id => currSet.has(id)))
-    setFloatingPanels(prev => prev.filter(p => computerIds.includes(p.id)))
+    setFloatingPanels(prev => prev.filter(p => p.id === CHAT_TAB_ID || computerIds.includes(p.id)))
   }, [JSON.stringify(computerIds)]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -129,17 +183,6 @@ export default function CCRemoteController() {
     window.addEventListener('mousedown', handleClick)
     return () => window.removeEventListener('mousedown', handleClick)
   }, [addOpen])
-
-  useEffect(() => {
-    if (!contextMenu) return
-    function handleClick(e: MouseEvent) {
-      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) setContextMenu(null)
-    }
-    function handleKey(e: KeyboardEvent) { if (e.key === 'Escape') setContextMenu(null) }
-    window.addEventListener('mousedown', handleClick)
-    window.addEventListener('keydown', handleKey)
-    return () => { window.removeEventListener('mousedown', handleClick); window.removeEventListener('keydown', handleKey) }
-  }, [contextMenu])
 
   function onTabDragStart(idx: number) { draggedIdxRef.current = idx }
   function onTabDragOver(e: React.DragEvent, idx: number) {
@@ -155,28 +198,10 @@ export default function CCRemoteController() {
   }
   function onTabDragEnd() { draggedIdxRef.current = null }
 
-  function detachTab(id: number) {
-    setFloatingPanels(prev => {
-      if (prev.some(p => p.id === id)) return prev
-      const offset = prev.length * 24
-      return [...prev, { id, x: 380 + offset, y: 60 + offset }]
-    })
-    topZRef.current += 1
-    setPanelZIndexes(prev => ({ ...prev, [id]: topZRef.current }))
-    if (selectedComputerId === id) useWorldViewStore.setState({ selectedComputerId: -1 })
-  }
-
-  function dockPanel(id: number) { setFloatingPanels(prev => prev.filter(p => p.id !== id)) }
-
-  function bringToFront(id: number) {
-    topZRef.current += 1
-    setPanelZIndexes(prev => ({ ...prev, [id]: topZRef.current }))
-    useWorldViewStore.setState({ selectedComputerId: id })
-  }
-
   function addTab(id: number) {
     setTabOrder(prev => prev.includes(id) ? prev : [...prev, id])
     setAddOpen(false); setAddSearch('')
+    setChatTabSelected(false)
     useWorldViewStore.setState({ selectedComputerId: id })
   }
 
@@ -186,183 +211,9 @@ export default function CCRemoteController() {
     if (selectedComputerId === id) useWorldViewStore.setState({ selectedComputerId: -1 })
   }
 
-  function startPanelDrag(e: React.MouseEvent, panelId: number) {
-    e.preventDefault()
-    const startX = e.clientX; const startY = e.clientY
-    const panel = floatingPanels.find(p => p.id === panelId)
-    if (!panel) return
-    const initX = panel.x; const initY = panel.y
-    function onMove(ev: MouseEvent) {
-      setFloatingPanels(prev => prev.map(p =>
-        p.id === panelId ? { ...p, x: initX + ev.clientX - startX, y: initY + ev.clientY - startY } : p
-      ))
-    }
-    function onUp() { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-    window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
-  }
-
-  function startGuestCooldown(seconds: number) {
-    setGuestRefreshDisabled(true)
-    if (guestRefreshTimerRef.current) clearTimeout(guestRefreshTimerRef.current)
-    guestRefreshTimerRef.current = setTimeout(() => { setGuestRefreshDisabled(false); guestRefreshTimerRef.current = null }, seconds * 1000)
-  }
-
-  async function loadGuestState() {
-    const w = useWorldStore.getState()
-    const res = await fetch('/api/state').catch(() => null)
-    if (!res) return
-    if (res.status === 429) {
-      const data = await res.json().catch(() => ({}))
-      startGuestCooldown(data.retryAfter ?? 30); return
-    }
-    const data = await res.json().catch(() => null)
-    if (!data) return
-    w.setComputerStatus(data.computers)
-    replaceWorldBlocks(data.world.blocks)
-    const freshComputers = useWorldStore.getState().computers
-    const selId = useWorldViewStore.getState().selectedComputerId
-    const hasCoords = (c: { loc?: { x?: unknown; y?: unknown; z?: unknown } | null } | undefined) =>
-      c?.loc != null && c.loc.x != null && c.loc.y != null && c.loc.z != null
-    if (!hasCoords(freshComputers[selId])) {
-      const entry = Object.entries(freshComputers).find(([, c]) => hasCoords(c))
-      if (entry) {
-        const autoId = Number(entry[0])
-        useWorldViewStore.setState({ selectedComputerId: autoId })
-        setTabOrder(prev => prev.includes(autoId) ? prev : [...prev, autoId])
-      }
-    }
-    const view = useWorldViewStore.getState()
-    view.regenerateSceneFromBlocks(); view.render()
-    useWorldStore.setState({ isLoading: false })
-    startGuestCooldown(30)
-  }
-
-  function connectWebSocket() {
-    const w = useWorldStore.getState()
-    const base = w.URL
-      ? w.URL.replace(/^http/, 'ws')
-      : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
-    const lastTx = w.lastTransactionId
-    const wsUrl = lastTx >= 0 ? `${base}?lastTx=${lastTx}` : base
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
-
-    ws.onopen = () => {
-      wsBackoffRef.current = 1000
-      setWsConnected(true)
-      useWorldStore.setState({ wsSend: (msg: object) => ws.send(JSON.stringify(msg)) })
-      if (!wsInitialStateLoadedRef.current) {
-        wsInitialStateLoadedRef.current = true
-        if (!idbHydratedRef.current) loadGuestState()
-      }
-    }
-
-    ws.onmessage = (event) => {
-      let raw: unknown
-      try { raw = JSON.parse(event.data) } catch { return }
-
-      const parsed = ServerMessage.safeParse(raw)
-      if (!parsed.success) return
-      const data = parsed.data
-
-      const w = useWorldStore.getState()
-      const view = useWorldViewStore.getState()
-
-      if ('type' in data) {
-        // ServerError
-        useWorldStore.setState(s => ({ commandResult: { ...s.commandResult, [data.computerId]: data.message } }))
-      } else if ('commandResult' in data) {
-        // ServerCommandResult
-        const { computerId, result } = data.commandResult
-        useWorldStore.setState(s => ({ commandResult: { ...s.commandResult, [computerId]: result.ret } }))
-      } else if ('state' in data) {
-        // ServerState — initial full load
-        if (data.state.lastTransactionId !== w.lastTransactionId) {
-          w.setComputerStatus(data.state.computers)
-          replaceWorldBlocks(data.state.world.blocks as Record<string, Block>)
-          useWorldStore.setState({ lastTransactionId: data.state.lastTransactionId })
-          const freshComputers = useWorldStore.getState().computers
-          const hasCoords = (c: { loc?: { x?: unknown; y?: unknown; z?: unknown } | null } | undefined) =>
-            c?.loc != null && c.loc.x != null && c.loc.y != null && c.loc.z != null
-          if (!hasCoords(freshComputers[view.selectedComputerId])) {
-            const entry = Object.entries(freshComputers).find(([, c]) => hasCoords(c))
-            if (entry) {
-              const autoId = Number(entry[0])
-              useWorldViewStore.setState({ selectedComputerId: autoId })
-              setTabOrder(prev => prev.includes(autoId) ? prev : [...prev, autoId])
-            }
-          }
-          view.regenerateSceneFromBlocks()
-        }
-      } else {
-        // ServerTransactions
-        w.applyTransactions(data.transactions)
-      }
-
-      view.render()
-      if (w.isLoading) useWorldStore.setState({ isLoading: false })
-    }
-
-    ws.onclose = (event) => {
-      setWsConnected(false)
-      useWorldStore.setState({ wsSend: null })
-      if (event.code === 4401) {
-        setIsGuest(true); useUserStore.getState().stopPolling(); loadGuestState(); return
-      }
-      const delay = wsBackoffRef.current
-      wsBackoffRef.current = Math.min(wsBackoffRef.current * 2, 10000)
-      wsReconnectRef.current = setTimeout(connectWebSocket, delay)
-    }
-
-    ws.onerror = () => ws.close()
-  }
-
-  function persistWorldToCache() {
-    const w = useWorldStore.getState()
-    if (w.lastTransactionId < 0) return
-    saveWorldToCache(w.lastTransactionId, w.computers as Record<string, unknown>, worldBlocks).catch(() => {})
-  }
-
-  useEffect(() => {
-    useUserStore.getState().startPolling()
-
-    let mounted = true
-    loadWorldFromCache().then(cached => {
-      if (!mounted) return
-      if (cached) {
-        const w = useWorldStore.getState()
-        w.setComputerStatus(cached.computers as Record<string, any>)
-        replaceWorldBlocks(cached.blocks)
-        useWorldStore.setState({ lastTransactionId: cached.lastTransactionId, isLoading: false })
-        idbHydratedRef.current = true
-        const view = useWorldViewStore.getState()
-        view.regenerateSceneFromBlocks()
-        view.render()
-      }
-    }).catch(() => {}).finally(() => {
-      if (mounted) connectWebSocket()
-    })
-
-    cacheTimerRef.current = setInterval(
-      () => requestIdleCallback(persistWorldToCache, { timeout: 5000 }),
-      60_000
-    )
-    function onHide() { if (document.visibilityState === 'hidden') persistWorldToCache() }
-    document.addEventListener('visibilitychange', onHide)
-
-    return () => {
-      mounted = false
-      useUserStore.getState().stopPolling()
-      if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close() }
-      if (wsReconnectRef.current) clearTimeout(wsReconnectRef.current)
-      if (guestRefreshTimerRef.current) clearTimeout(guestRefreshTimerRef.current)
-      if (cacheTimerRef.current) clearInterval(cacheTimerRef.current)
-      document.removeEventListener('visibilitychange', onHide)
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
   const floatingIds = new Set(floatingPanels.map(p => p.id))
   const dockedSelectedId = floatingIds.has(selectedComputerId) ? -1 : selectedComputerId
+
   function computerName(id: number) {
     const c = computers[id]
     return c?.label ? c.label : `#${id}`
@@ -392,8 +243,8 @@ export default function CCRemoteController() {
           title={dockCollapsed ? 'Show sidebar' : 'Hide sidebar'}
           style={{
             background: 'none', border: 'none', borderRight: 'var(--border)',
-            color: 'var(--fg-dim)', cursor: 'pointer', padding: '0 8px',
-            fontSize: 13, lineHeight: 1, alignSelf: 'stretch',
+            color: 'var(--fg-mute)', cursor: 'pointer', padding: '0 8px',
+            fontSize: FS['13'], lineHeight: 1, alignSelf: 'stretch',
             display: 'flex', alignItems: 'center',
           }}
         >{dockCollapsed ? '›' : '‹'}</button>
@@ -404,11 +255,11 @@ export default function CCRemoteController() {
             <span className="sys-stat-k">WebSocket</span>
             <span className="sys-stat-v">{wsConnected ? 'connected' : 'reconnecting…'}</span>
           </div>
-          {isGuest && (
+          {userLoaded && !isLoggedIn && (
             <div className="sys-stat">
               <Led kind="amber" />
               <span className="sys-stat-k">Guest</span>
-              <a href="/api/signin" style={{ color: 'var(--accent)', fontSize: 12, textDecoration: 'none' }}>Sign in</a>
+              <a href="/api/signin" style={{ color: 'var(--accent)', fontSize: FS['12'], textDecoration: 'none' }}>Sign in</a>
             </div>
           )}
           {userLoaded && isOperator && !isAdmin && (
@@ -420,16 +271,30 @@ export default function CCRemoteController() {
         </div>
 
         <div className="topbar-actions">
-          {isGuest && (
-            <button
-              className={`btn btn-compact${guestRefreshDisabled ? ' btn-toggled' : ''}`}
-              disabled={guestRefreshDisabled}
-              onClick={() => !guestRefreshDisabled && loadGuestState()}
-            >
-              {guestRefreshDisabled ? 'Refreshed ✓' : 'Refresh'}
-            </button>
-          )}
-          {userLoaded && !isOperator && !isGuest && <OperatorRequest />}
+          <button
+            className="btn btn-compact"
+            onClick={toggleTheme}
+            title={theme === 'organic' ? 'Switch to dark theme' : 'Switch to light theme'}
+            style={{ minWidth: 32, fontSize: 15 }}
+            suppressHydrationWarning
+          >{theme === 'organic' ? '☾' : '☀'}</button>
+          <HeaderMenu
+            compact
+            label={<><span style={{ fontSize: FS['12'], fontWeight: 600, fontFamily: 'var(--font-mono)' }}>T</span><span style={{ fontSize: FS['10'], color: 'var(--fg-mute)', fontFamily: 'var(--font-mono)', marginLeft: 2 }}>{textSize.toUpperCase()}</span></>}
+          >
+            {TEXT_SIZES.map(s => (
+              <div
+                key={s}
+                className="ctx-item"
+                onClick={() => applyTextSize(s)}
+                style={{ color: s === textSize ? 'var(--accent)' : undefined, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 20 }}
+              >
+                <span>{TEXT_SIZE_LABELS[s]}</span>
+                <span style={{ fontSize: TEXT_SIZE_PX[s], color: 'var(--fg-mute)', fontFamily: 'var(--font-mono)' }}>The quick brown fox</span>
+              </div>
+            ))}
+          </HeaderMenu>
+          {userLoaded && isLoggedIn && !isOperator && <OperatorRequest />}
           <RenderFilters ref={renderFiltersRef} onOpened={() => { blockTransparencyRef.current?.setOpen(false); adminPanelRef.current?.setOpen(false) }} />
           <BlockTransparency ref={blockTransparencyRef} onOpened={() => { renderFiltersRef.current?.setOpen(false); adminPanelRef.current?.setOpen(false) }} />
           {isAdmin && <AdminPanel ref={adminPanelRef} onOpened={() => { renderFiltersRef.current?.setOpen(false); blockTransparencyRef.current?.setOpen(false) }} />}
@@ -448,11 +313,26 @@ export default function CCRemoteController() {
                 <Led kind="on" />
                 <span>Connected Computers</span>
               </div>
-              <span style={{ fontSize: 11, color: 'var(--fg-mute)' }}>{computerIds.length} online</span>
+              <span style={{ fontSize: FS['11'], color: 'var(--fg-mute)' }}>{computerIds.length} online</span>
             </div>
             <div style={{ padding: 10, position: 'relative' }}>
               {/* Tab strip */}
               <div className="tab-strip">
+                {/* Chat log tab — always present */}
+                <div
+                  className={`tab ${chatTabSelected && !floatingIds.has(CHAT_TAB_ID) ? 'tab-active' : ''} ${floatingIds.has(CHAT_TAB_ID) ? 'tab-floating' : ''}`}
+                  onClick={() => {
+                    if (floatingIds.has(CHAT_TAB_ID)) { bringToFront(CHAT_TAB_ID) }
+                    else { setChatTabSelected(c => !c); useWorldViewStore.setState({ selectedComputerId: -1 }) }
+                  }}
+                  onContextMenu={e => { e.preventDefault(); setContextMenu({ id: CHAT_TAB_ID, x: e.clientX, y: e.clientY }) }}
+                  title="Global chat log · right-click for options"
+                >
+                  <span className="tab-type">Ch</span>
+                  <span className="tab-label">Chat</span>
+                  {floatingIds.has(CHAT_TAB_ID) && <span className="tab-float-mark">↗</span>}
+                </div>
+
                 {tabOrder.map((id, idx) => {
                   const c = computers[id]
                   const isFloating = floatingIds.has(id)
@@ -466,6 +346,7 @@ export default function CCRemoteController() {
                       onDragEnd={onTabDragEnd}
                       className={`tab ${isSelected ? 'tab-active' : ''} ${isFloating ? 'tab-floating' : ''}`}
                       onClick={() => {
+                        setChatTabSelected(false)
                         if (isFloating) { bringToFront(id) }
                         else { useWorldViewStore.setState({ selectedComputerId: isSelected ? -1 : id }) }
                       }}
@@ -501,7 +382,7 @@ export default function CCRemoteController() {
                         <input
                           autoFocus
                           className="input input-mono"
-                          style={{ fontSize: 12 }}
+                          style={{ fontSize: FS['12'] }}
                           value={addSearch}
                           onChange={e => setAddSearch(e.target.value)}
                           placeholder="Search computers…"
@@ -518,7 +399,7 @@ export default function CCRemoteController() {
                             return filtered.map(id => (
                               <div key={id} className="ctx-item" onClick={() => addTab(id)}>
                                 <ComputerLed computerId={id} />
-                                <span className="mono" style={{ color: 'var(--fg-mute)', fontSize: 11 }}>#{id}</span>
+                                <span className="mono" style={{ color: 'var(--fg-mute)', fontSize: FS['11'] }}>#{id}</span>
                                 <span>{computerName(id)}</span>
                               </div>
                             ))
@@ -537,7 +418,18 @@ export default function CCRemoteController() {
           </div>
 
           {/* Active computer panel */}
-          {dockedSelectedId !== -1 ? (
+          {chatTabSelected ? (
+            <div className="panel">
+              <div className="panel-header">
+                <div className="panel-header-title">
+                  <span>Chat Log</span>
+                </div>
+              </div>
+              <div className="panel-body">
+                <ChatPanel />
+              </div>
+            </div>
+          ) : dockedSelectedId !== -1 ? (
             <div className="panel">
               <div className="panel-header">
                 <div className="panel-header-title">
@@ -550,7 +442,7 @@ export default function CCRemoteController() {
               </div>
             </div>
           ) : (
-            <div className="panel" style={{ padding: 14, color: 'var(--fg-mute)', fontSize: 12 }}>
+            <div className="panel" style={{ padding: 14, color: 'var(--fg-mute)', fontSize: FS['12'] }}>
               Select a tab above to open its control panel.
             </div>
           )}
@@ -558,19 +450,42 @@ export default function CCRemoteController() {
 
         {/* World canvas */}
         <div className="panel canvas">
-          <Scene />
+          {isLiveView && liveEditorForLayout ? (
+            <GlassesEditorLayout
+              editor={liveEditorForLayout}
+              canvasArea={
+                <div className="live-view-bars">
+                  <div className="live-view-viewport">
+                    <Scene />
+                    <div className="live-view-overlay">
+                      <GlassesSvgCanvas editor={liveEditorForLayout} bgFill="transparent" />
+                      <svg className="live-view-crosshair" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                        <line x1="10" y1="3"  x2="10" y2="17" stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
+                        <line x1="3"  y1="10" x2="17" y2="10" stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              }
+            />
+          ) : (
+            <div className={isLiveView ? 'live-view-bars' : 'live-view-fill'}>
+              <div className={isLiveView ? 'live-view-viewport' : 'live-view-fill'}>
+                <Scene />
+              </div>
+            </div>
+          )}
 
-          {/* Canvas overlays */}
-          <div className="canvas-overlay" style={{ top: 12, left: 12 }}>
+          {!isLiveView && <div className="canvas-overlay" style={{ top: 12, left: 12 }}>
             <div className="overlay-title">Focus</div>
             <div className="overlay-body">
               <div className="overlay-value">
                 {dockedSelectedId !== -1 ? computerTitle(dockedSelectedId) : '—'}
               </div>
             </div>
-          </div>
+          </div>}
 
-          <BlockNameDisplay />
+          {!isLiveView && <BlockNameDisplay />}
 
           {derivedInventory && selectedInventoryPos && (
             <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 5 }}>
@@ -583,25 +498,45 @@ export default function CCRemoteController() {
             </div>
           )}
 
-          {isLoading && (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', zIndex: 20 }}>
-              <div className="canvas-overlay" style={{ minWidth: 'unset', padding: '14px 24px' }}>
-                <div className="overlay-value">Loading world…</div>
-              </div>
-            </div>
-          )}
+          {capBlocked
+            ? <ModalOverlay
+                message="Viewer limit reached"
+                subMessage="Too many concurrent viewers. Try again when a slot opens."
+                action={{ label: 'Try again', onClick: () => { setCapBlocked(false); connectWebSocket() } }}
+              />
+            : isLoading && <ModalOverlay message="Loading world…" />
+          }
         </div>
       </div>
 
       {/* ── Floating panels ───────────────────────────────── */}
       {floatingPanels.map(panel => {
+        if (panel.id === CHAT_TAB_ID) {
+          return (
+            <div
+              key="chat"
+              className="floating-panel"
+              style={{ left: panel.x, top: panel.y, zIndex: panelZIndexes[CHAT_TAB_ID] ?? 200, ...(panel.height ? { height: panel.height } : { maxHeight: '90vh' }) }}
+              onMouseDown={() => bringToFront(CHAT_TAB_ID)}
+            >
+              <div className="floating-titlebar" onMouseDown={e => startPanelDrag(e, CHAT_TAB_ID)}>
+                <span className="floating-title">Chat Log</span>
+                <button className="floating-close" onMouseDown={e => e.stopPropagation()} onClick={() => dockPanel(CHAT_TAB_ID)} title="Dock">×</button>
+              </div>
+              <div className="floating-body">
+                <ChatPanel />
+              </div>
+              <div className="floating-resize-handle" onMouseDown={e => startPanelResize(e, CHAT_TAB_ID)} />
+            </div>
+          )
+        }
         const c = computers[panel.id]
         if (!c) return null
         return (
           <div
             key={panel.id}
             className="floating-panel"
-            style={{ left: panel.x, top: panel.y, zIndex: panelZIndexes[panel.id] ?? 200 }}
+            style={{ left: panel.x, top: panel.y, zIndex: panelZIndexes[panel.id] ?? 200, ...(panel.height ? { height: panel.height } : { maxHeight: '90vh' }) }}
             onMouseDown={() => bringToFront(panel.id)}
           >
             <div className="floating-titlebar" onMouseDown={e => startPanelDrag(e, panel.id)}>
@@ -614,6 +549,7 @@ export default function CCRemoteController() {
             <div className="floating-body">
               <ComputerPanel computerId={panel.id} />
             </div>
+            <div className="floating-resize-handle" onMouseDown={e => startPanelResize(e, panel.id)} />
           </div>
         )
       })}
@@ -630,9 +566,11 @@ export default function CCRemoteController() {
               ↗ Detach to float
             </div>
           )}
-          <div className="ctx-item ctx-item-danger" onClick={() => { closeTab(contextMenu.id); setContextMenu(null) }}>
-            × Close tab
-          </div>
+          {contextMenu.id !== CHAT_TAB_ID && (
+            <div className="ctx-item ctx-item-danger" onClick={() => { closeTab(contextMenu.id); setContextMenu(null) }}>
+              × Close tab
+            </div>
+          )}
         </div>
       )}
 

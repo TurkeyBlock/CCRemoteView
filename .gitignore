@@ -20,6 +20,7 @@ assets/blocks/*/*
 assets/items/*/*
 assets/block-name-map.json
 assets/item-name-map.json
+assets/font/
 
 # saved state
 src/server/data/*
@@ -34,3 +35,6 @@ packagedZip
 .env
 .env.*
 !.env.local.example
+
+# code reviews & active work
+audits/*

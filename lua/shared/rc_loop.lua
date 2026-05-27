@@ -1,7 +1,7 @@
 -- rc_loop: shared WebSocket command loop for all computer types.
 -- Usage:
 --   local make_rc = require("rc_loop")
---   local rc = make_rc(api, ws_url, {
+--   local rc = make_rc(api, {
 --     on_msg         = function(msg) ... end,
 --     extra_parallel = { fn1, fn2 },
 --   })
@@ -27,8 +27,11 @@
 local locks     = require("locks")
 local make_sched = require("scheduler")
 
-return function(api, ws_url, opts)
+return function(api, opts)
     opts = opts or {}
+
+    local WS_BASE = api.url:gsub("/api/$", ""):gsub("^http", "ws")
+    local ws_url  = WS_BASE .. "/ws/computer?id=" .. os.getComputerID()
 
     local IDLE_TIMEOUT     = 300
     local queue            = {}  -- sequential
@@ -74,14 +77,19 @@ return function(api, ws_url, opts)
                     local cmd, load_err = loadstring(msg.command)
                     if cmd then
                         setfenv(cmd, getfenv())
+                        local was_stopped = false
                         parallel.waitForAny(
                             function() api.send_command_result(pcall(cmd)) end,
                             function()
                                 os.pullEvent("stop_signal")
+                                was_stopped = true
                                 queue = {}
                                 concurrent_queue = {}
                             end
                         )
+                        if was_stopped and api.gps_resync then
+                            pcall(api.gps_resync)
+                        end
                     else
                         print("[rc_loop] loadstring error: " .. tostring(load_err))
                         api.send_command_result(false, load_err)
@@ -179,33 +187,46 @@ return function(api, ws_url, opts)
         local active_ws = nil
 
         local function session_loop()
-            local MAX_RETRIES = 10
-            local retries     = 0
-            while retries < MAX_RETRIES do
-                print("Connecting WS... (attempt " .. (retries + 1) .. "/" .. MAX_RETRIES .. ")")
+            local RETRY_BASE_S = 2
+            local RETRY_MAX_S  = 60
+            local attempt      = 0
+            while true do
+                attempt = attempt + 1
+                print("Connecting WS... (attempt " .. attempt .. ")")
                 local ws, err = http.websocket(ws_url)
                 if not ws then
-                    retries = retries + 1
-                    print("WS failed: " .. tostring(err) .. ", retrying in 2s (" .. retries .. "/" .. MAX_RETRIES .. ")")
-                    os.sleep(2)
+                    local wait = math.min(RETRY_BASE_S * (2 ^ (attempt - 1)), RETRY_MAX_S)
+                    wait = wait + math.random() * 2
+                    print("WS failed: " .. tostring(err) .. ", retrying in " .. string.format("%.1f", wait) .. "s")
+                    os.sleep(wait)
                 else
-                    retries   = 0
+                    attempt   = 0
                     active_ws = ws
                     api.set_ws(ws)
                     api.send_status_update()
 
-                    local ok, err = pcall(receiver_fn, ws)
+                    -- Run receiver alongside any session_parallel coroutines.
+                    -- waitForAny kills all of them the moment receiver_fn returns (WS drop),
+                    -- so session_parallel coroutines are always scoped to exactly one session.
+                    --
+                    -- WARNING: session_parallel coroutines must not block on os.pullEvent
+                    -- waiting for a specific event — doing so can delay teardown because
+                    -- waitForAny only terminates after each coroutine yields back to the
+                    -- scheduler. Coroutines that only use os.sleep() are safe.
+                    local session_fns = { function() pcall(receiver_fn, ws) end }
+                    for _, fn in ipairs(opts.session_parallel or {}) do
+                        table.insert(session_fns, fn)
+                    end
+                    parallel.waitForAny(unpack(session_fns))
 
                     api.set_ws(nil)
                     ws.close()
                     active_ws = nil
 
-                    if not ok then print("WS session error: " .. tostring(err)) end
-                    print("WS dropped, reconnecting in 2s")
-                    os.sleep(2)
+                    print("WS dropped, reconnecting...")
+                    attempt = 0
                 end
             end
-            print("WS failed " .. MAX_RETRIES .. " times, giving up")
         end
 
         local function idle_watcher()
@@ -225,10 +246,19 @@ return function(api, ws_url, opts)
         if active_ws then active_ws.close() end
     end
 
+    local function http_post_timeout(url, body, headers, timeout_s)
+        local result = nil
+        parallel.waitForAny(
+            function() result = http.post(url, body, headers) end,
+            function() os.sleep(timeout_s) end
+        )
+        return result
+    end
+
     local function poll_fn()
         while true do
-            local res = http.post(api.url .. "getWsRequest", tostring(os.getComputerID()),
-                                  { ["Content-Type"] = "text/plain" })
+            local res = http_post_timeout(api.url .. "getWsRequest", tostring(os.getComputerID()),
+                                          { ["Content-Type"] = "text/plain" }, 15)
             if res then
                 local body = res.readAll()
                 res.close()
@@ -239,7 +269,7 @@ return function(api, ws_url, opts)
                     if not ok then print("[rc_loop] post-session send_status_update error: " .. tostring(err)) end
                 end
             end
-            os.sleep(30)
+            os.sleep(%%COMPUTER_POLL_INTERVAL_S%%)
         end
     end
 

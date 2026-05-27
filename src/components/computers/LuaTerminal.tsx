@@ -1,17 +1,17 @@
 'use client'
 
 import { useState } from 'react'
+import { FS } from '@/utils/fontSize'
 import { useWorldStore } from '@/store/useWorld'
 
 interface Props { computerId: number }
 
 export default function LuaTerminal({ computerId }: Props) {
   const [cmd, setCmd] = useState('')
-  const [forceConcurrent, setForceConcurrent] = useState(false)
   const sendCommand = useWorldStore(s => s.sendCommand)
   const commandResult = useWorldStore(s => s.commandResult[computerId])
 
-  const run = () => sendCommand(computerId, cmd, forceConcurrent ? true : undefined)
+  const run = () => sendCommand(computerId, cmd)
 
   return (
     <div className="code-pad">
@@ -26,11 +26,7 @@ export default function LuaTerminal({ computerId }: Props) {
         placeholder="-- write lua here, e.g. tapi.scan() | os.reboot() | return 42"
       />
       <div className="code-pad-foot">
-        <span className="muted" style={{ fontSize: 11 }}><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">↵</kbd> to run</span>
-        <label className="code-pad-concurrent">
-          <input type="checkbox" checked={forceConcurrent} onChange={e => setForceConcurrent(e.target.checked)} />
-          Concurrent
-        </label>
+        <span className="muted" style={{ fontSize: FS['11'] }}><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">↵</kbd> to run</span>
         <button className="btn btn-compact btn-primary" onClick={run}>Execute</button>
       </div>
       {commandResult != null && (

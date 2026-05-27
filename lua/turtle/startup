@@ -23,8 +23,8 @@ local boot = dofile("/boot.lua")
 
 boot.check_approved(base_url, "turtle")
 -- Re-downloads shared libs (keeping boot.lua current). "startup" in the type list causes this file to self-update; new version runs on next reboot.
-boot.get_files(base_url, "lua/shared/", {"boot.lua", "rc_loop.lua", "api_common.lua", "locks.lua", "scheduler.lua"})
-boot.get_files(base_url, "lua/turtle/", {"tapi", "location", "setLocRot", "rcTurtle.lua", "startup"})
+boot.get_files(base_url, "lua/shared/", {"boot.lua", "rc_loop.lua", "api_common.lua", "locks.lua", "scheduler.lua", "inventory_utils.lua"})
+boot.get_files(base_url, "lua/turtle/", {"tapi", "location", "setLocRot", "rcTurtle.lua", "miner_utils.lua", "startup"})
 
 -- Auto-equip wireless modem from inventory if found; required for GPS.
 for slot = 1, 16 do

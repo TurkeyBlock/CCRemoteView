@@ -1,5 +1,5 @@
 -- papi: player (neural interface) API
--- Provides GPS location, status updates (position only), and Plethora block scanning.
+-- Provides GPS location, status updates, Plethora block scanning, and introspection.
 -- WS and command-result handling delegated to api_common.make_ws_sender.
 --
 -- Neural interface peripheral model:
@@ -20,20 +20,114 @@ url = "%%APP_URL%%/api/"
 local api_common = dofile("/api_common.lua")
 local headers    = { ["Content-Type"] = "application/json" }
 
+-- Detect introspection module availability once at load time.
+-- Avoids repeated peripheral.find() calls in the hot poll loop.
+local _nc = peripheral.find("neuralInterface")
+local has_introspection = _nc ~= nil and type(_nc.getMetaOwner) == "function"
+_nc = nil
 
--- ─── GPS helpers ─────────────────────────────────────────────
+local function round2(n) return math.floor(n * 100 + 0.5) / 100 end
 
--- [concurrent]
-function get_location()
+-- Forward declarations — defined in the Glasses canvas section below.
+local glassesVisible = true
+local glassesSetVisible
+
+
+-- ─── Configuration ────────────────────────────────────────────────────────────
+
+-- Seconds between GPS position polls (sends only on change, while WebSocket-connected).
+GPS_UPDATE_INTERVAL = 0.5
+-- Seconds between inventory state polls (sends only on change, while WebSocket-connected).
+INVENTORY_POLL_INTERVAL = 2
+
+-- Lua patterns passed to neural.capture() — suppresses matching messages from public chat.
+local GLASSES_ON_PATTERN  = "^[Gg][Ll][Aa][Ss][Ss][Ee][Ss]:%s*[Oo][Nn]%s*$"
+local GLASSES_OFF_PATTERN = "^[Gg][Ll][Aa][Ss][Ss][Ee][Ss]:%s*[Oo][Ff][Ff]%s*$"
+
+-- Plethora neural interface equipment slot indices (1-indexed EntityEquipmentSlot):
+-- 1=mainhand, 2=offhand, 3=feet, 4=legs, 5=chest, 6=head
+local EQUIP_SLOT_NAMES = {
+    ["1"] = "mainhand", ["2"] = "offhand",
+    ["3"] = "feet",     ["4"] = "legs",
+    ["5"] = "chest",    ["6"] = "head",
+}
+
+local function build_equip_table(eq)
+    local items = {}
+    if type(eq.list) == "function" then
+        for slot, item in pairs(eq.list()) do
+            if type(item) == "table" and item.name then
+                local key = EQUIP_SLOT_NAMES[tostring(slot)] or tostring(slot)
+                items[key] = { name = item.name, count = item.count, damage = item.damage }
+            end
+        end
+    end
+    return items
+end
+
+
+-- ─── Location helpers ────────────────────────────────────────
+
+-- Returns nil, nil, nil, yaw, pitch from the neural interface's getMetaOwner().
+-- Plethora's getMetaOwner() returns 0,0,0 for x/y/z in this version (not absolute
+-- world coords), so position is always nil here — callers use GPS for that.
+local function get_orientation_via_introspection()
+    local neural = peripheral.find("neuralInterface")
+    if not neural or not neural.getMetaOwner then return nil, nil, nil, nil, nil end
+    local ok, meta = pcall(neural.getMetaOwner)
+    if not ok or type(meta) ~= "table" then return nil, nil, nil, nil, nil end
+    return nil, nil, nil, tonumber(meta.yaw), tonumber(meta.pitch)
+end
+
+-- Returns raw x, y, z floats from GPS (2s timeout). Returns nil, nil, nil on failure.
+local function get_location_via_gps()
     return api_common.gps_locate()
+end
+
+-- [concurrent] Returns x, y, z from GPS plus yaw, pitch from introspection when available.
+-- Returns up to 5 values: x, y, z (may be nil on GPS failure), yaw, pitch (nil if no introspection).
+function get_location()
+    local x, y, z = get_location_via_gps()
+    if has_introspection then
+        local _, _, _, yaw, pitch = get_orientation_via_introspection()
+        return x, y, z, yaw, pitch
+    end
+    return x, y, z
 end
 
 -- ─── Status / result helpers (HTTP) ──────────────────────────
 
 local _ws = api_common.make_ws_sender(url, headers)
-set_ws              = _ws.set_ws
 send_command_result = _ws.send_command_result
-send_chat           = api_common.make_send_chat(url, headers)
+local _raw_send_chat = api_common.make_send_chat(url, headers)
+send_chat = function(player, message, uuid)
+    local lower = message:lower()
+    if lower:match("^glasses:%s*on%s*$") then
+        if glassesSetVisible then glassesSetVisible(true) end
+        return
+    elseif lower:match("^glasses:%s*off%s*$") then
+        if glassesSetVisible then glassesSetVisible(false) end
+        return
+    end
+    _raw_send_chat(player, message, uuid)
+end
+
+function set_ws(ws)
+    _ws.set_ws(ws)
+    if ws then
+        local neural = peripheral.find("neuralInterface")
+        -- Re-register captures on every connect in case the peripheral was re-equipped.
+        if neural and neural.capture then
+            neural.capture(GLASSES_ON_PATTERN)
+            neural.capture(GLASSES_OFF_PATTERN)
+        end
+        -- Safety: if the chat recorder is absent, the player has no way to say
+        -- "Glasses: on". Force visibility so they can't be locked out of the overlay.
+        if not neural or not neural.capture then
+            if glassesSetVisible then glassesSetVisible(true) end
+        end
+    end
+end
 
 -- say(message): send chat via the neural interface directly.
 -- Unlike turtle/stationary/minecart which use peripheral.find("plethora:chat"),
@@ -47,15 +141,107 @@ function say(message)
 end
 
 function send_status_update()
-    local x, y, z = get_location()
+    local _, _, _, yaw, pitch = get_orientation_via_introspection()
+    local x, y, z = get_location_via_gps()
+    if x then x, y, z = round2(x), round2(y), round2(z) end
     local payload = {
-        id   = os.getComputerID(),
-        type = "player",
-        loc  = x and { x = math.floor(x), y = math.floor(y), z = math.floor(z) } or nil,
+        id    = os.getComputerID(),
+        type  = "player",
+        loc   = x and { x = x, y = y, z = z } or nil,
+        yaw   = yaw,    -- nil when introspection unavailable; serializeJSON omits nil
+        pitch = pitch,  -- nil when introspection unavailable; serializeJSON omits nil
     }
+    local neural = peripheral.find("neuralInterface")
+    if neural then
+        if neural.getName then payload.playerName = neural.getName() end
+        if neural.getEquipment then
+            payload.equipment = build_equip_table(neural.getEquipment())
+        end
+    end
     _ws.send_status_update(payload)
 end
 
+
+-- ─── Introspection module ────────────────────────────────────
+
+-- Build a plain slot-indexed table from a Plethora inventory proxy.
+-- Uses pairs(list()) to avoid the __len sparse-array serialization issue, and
+-- copies only {name,count,damage} so no Plethora method references are included.
+local function build_inv_table(inv)
+    local items = {}
+    if type(inv.list) == "function" then
+        for slot, item in pairs(inv.list()) do
+            if type(slot) == "number" and type(item) == "table" then
+                -- String key forces serializeJSON to emit a JSON object (iterates pairs)
+                -- rather than a JSON array (uses # which stops at the first gap).
+                items[tostring(slot)] = { name = item.name, count = item.count, damage = item.damage }
+            end
+        end
+    end
+    return items
+end
+
+-- [concurrent]
+function getInventory()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.getInventory then return false, "introspection module not equipped" end
+    local items = build_inv_table(neural.getInventory())
+    local count = 0
+    for _ in pairs(items) do count = count + 1 end
+    _ws.send_status_update({ id = os.getComputerID(), type = "player", inventory = items })
+    print("? inventory (" .. count .. " stacks)")
+    return true
+end
+
+-- [concurrent]
+function getEquipment()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.getEquipment then return false, "introspection module not equipped" end
+    local items = build_equip_table(neural.getEquipment())
+    _ws.send_status_update({ id = os.getComputerID(), type = "player", equipment = items })
+    return true
+end
+
+-- [concurrent]
+function getID()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.getID then return false, "introspection module not equipped" end
+    return neural.getID()
+end
+
+-- [concurrent]
+function getName()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.getName then return false, "introspection module not equipped" end
+    return neural.getName()
+end
+
+-- [concurrent]
+function getEnder()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.getEnder then return false, "introspection module not equipped" end
+    local items = build_inv_table(neural.getEnder())
+    local count = 0
+    for _ in pairs(items) do count = count + 1 end
+    _ws.send_status_update({ id = os.getComputerID(), type = "player", enderChest = items })
+    print("? ender chest (" .. count .. " stacks)")
+    return true
+end
+
+-- [concurrent]
+function getMetaOwner()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.getMetaOwner then return false, "introspection/sensor module not equipped" end
+    local meta = neural.getMetaOwner()
+    _ws.send_status_update({ id = os.getComputerID(), type = "player", metaOwner = meta })
+    return true
+end
 
 -- ─── Sense helper ────────────────────────────────────────────
 
@@ -79,9 +265,6 @@ end
 
 -- ─── Scan helper ─────────────────────────────────────────────
 
-local SCAN_INCLUDE_METADATA = true
-local SCAN_INCLUDE_STATE    = false
-
 -- [concurrent]
 function scan()
     local neural = peripheral.find("neuralInterface")
@@ -99,7 +282,7 @@ function scan()
         return false, "GPS fix failed"
     end
     local raw    = neural.scan(4)
-    local blocks = api_common.build_scan_blocks(raw, SCAN_INCLUDE_METADATA, SCAN_INCLUDE_STATE, false)
+    local blocks = api_common.build_scan_blocks(raw, api_common.SCAN_INCLUDE_METADATA, api_common.SCAN_INCLUDE_STATE, false)
     local ox, oy, oz = math.floor(x), math.floor(y), math.floor(z)
     local payload = { id = os.getComputerID(), origin = { x = ox, y = oy, z = oz }, blocks = blocks }
     local ok, err = api_common.send_scan_http(url, headers, payload)
@@ -109,4 +292,735 @@ function scan()
     end
     print("? block scan (" .. #blocks .. " blocks @ " .. ox .. "," .. oy .. "," .. oz .. ")")
     return true
+end
+
+
+-- ─── Glasses canvas ──────────────────────────────────────────────────────────
+
+-- Handle and property tables for live incremental canvas updates.
+-- glassesHandles:      id → canvas handle object (for setColor/setAlpha/remove)
+-- glassesProps:        id → full GlassesObject data (for reorder + non-color update re-draws)
+-- glassesOrder:        ordered list of IDs in canvas creation order (= z-order, bottom first)
+--                      Required to re-render a suffix when non-color properties change,
+--                      preserving the z-order of all objects above the edited one.
+-- glassesChildHandles: groupId → { childId → handle } for per-child setPosition without rerender
+-- glassesOpQueue:      list of pending op batches; drained by glasses_worker
+local glassesHandles      = {}
+local glassesProps        = {}
+local glassesOrder        = {}
+local glassesChildHandles = {}
+local glassesOpQueue      = {}
+
+local statusIndicator = nil
+
+-- Draws (or redraws) the always-on-top status indicator in the top-left corner.
+-- Must be called last after any canvas clear+fill so it sits above scene objects.
+local function draw_status_indicator(c, on)
+    if statusIndicator then pcall(function() statusIndicator.remove() end) end
+    local text = on and "Glasses on" or "Glasses off"
+    statusIndicator = c.addText({2, 2}, text, 0xAAAAAA * 256, 0.5)
+    statusIndicator.setAlpha(200)
+end
+
+-- Clear any stale canvas content left over from before the last reboot,
+-- draw the initial status indicator, and register the glasses-command captures.
+do
+    local neural = peripheral.find("neuralInterface")
+    if neural and neural.canvas then
+        local c = neural.canvas()
+        c.clear()
+        draw_status_indicator(c, glassesVisible)
+    end
+    if neural and neural.capture then
+        neural.capture(GLASSES_ON_PATTERN)
+        neural.capture(GLASSES_OFF_PATTERN)
+    end
+end
+
+
+-- rgba is a 32-bit packed integer: (rgb24 * 256) + alpha, matching the browser's
+-- GlassesObject.rgba field. Plethora's addXxx color parameter uses the same bit layout
+-- (R=bits31-24, G=bits23-16, B=bits15-8), but requires A=0 with setAlpha() called after.
+-- pleth_col strips the alpha byte; pleth_a extracts it.
+local function pleth_col(rgba)   return math.floor(rgba / 256) * 256 end
+local function pleth_a(rgba)     return rgba % 256 end
+
+-- Draws one object into canvas/group c WITHOUT updating global tracking tables.
+-- Used for group children. parent_id (optional): if provided, the returned handle is stored
+-- in glassesChildHandles[parent_id][obj.id] so per-child setPosition can be used later.
+-- alpha_factor (optional, 0–1): group transparency factor. Applied only when the child's
+-- own alpha is 255 (full opacity), so custom per-child opacity is preserved.
+local function draw_into(c, obj, parent_id, alpha_factor)
+    if obj.type == "group" then return end  -- groups cannot nest
+    alpha_factor = alpha_factor or 1.0
+    local col = obj.rgba ~= nil and pleth_col(obj.rgba) or 0
+    local raw_a = obj.rgba ~= nil and pleth_a(obj.rgba) or 0
+    -- Bake group alpha into child only when child is fully opaque
+    local a = (raw_a == 255) and math.floor(255 * alpha_factor) or raw_a
+    local h
+    if obj.type == "rect" then
+        h = c.addRectangle(obj.x, obj.y, obj.w, obj.h, col); h.setAlpha(a)
+    elseif obj.type == "text" then
+        local content   = obj.content or ""
+        local num_lines = 1
+        for _ in content:gmatch("\n") do num_lines = num_lines + 1 end
+        h = c.addText({obj.x, obj.y - num_lines * obj.size * 9}, content, col, obj.size)
+        h.setAlpha(a)
+        if obj.shadow ~= nil then h.setShadow(obj.shadow) end
+    elseif obj.type == "line" then
+        h = c.addLine({obj.x1, obj.y1}, {obj.x2, obj.y2}, col, obj.thickness); h.setAlpha(a)
+    elseif obj.type == "dot" then
+        h = c.addDot({obj.x, obj.y}, col, obj.size); h.setAlpha(a)
+    elseif obj.type == "polygon" then
+        local args = {}
+        for _, p in ipairs(obj.points) do table.insert(args, {p[1], p[2]}) end
+        table.insert(args, col)
+        h = c.addPolygon(table.unpack(args)); h.setAlpha(a)
+    elseif obj.type == "lines" then
+        local segs = {}
+        for i = 1, #obj.points - 1 do
+            local p1, p2 = obj.points[i], obj.points[i + 1]
+            local seg = c.addLine({p1[1], p1[2]}, {p2[1], p2[2]}, col, obj.thickness)
+            seg.setAlpha(a)
+            table.insert(segs, seg)
+        end
+        h = { _multi = true, handles = segs }
+    elseif obj.type == "item" then
+        local raw_item_a = obj.alpha or 255
+        local item_a = (raw_item_a == 255) and math.floor(255 * alpha_factor) or raw_item_a
+        local _ok, _r = pcall(function() return c.addItem({obj.x, obj.y}, obj.item, obj.damage, obj.scale) end)
+        h = _ok and _r or nil
+        if h and h.setAlpha then h.setAlpha(item_a) end
+    end
+    if h and parent_id and obj.id then
+        if not glassesChildHandles[parent_id] then glassesChildHandles[parent_id] = {} end
+        glassesChildHandles[parent_id][obj.id] = h
+    end
+end
+
+-- Draws one object onto canvas c and records handle, props, and z-order.
+local function draw_and_track(c, obj)
+    -- Items have no rgba field (they use alpha directly); guard to avoid nil arithmetic.
+    local col = obj.rgba ~= nil and pleth_col(obj.rgba) or 0
+    local a   = obj.rgba ~= nil and pleth_a(obj.rgba)   or 0
+    local h
+    if c then
+        if obj.type == "rect" then
+            h = c.addRectangle(obj.x, obj.y, obj.w, obj.h, col)
+            h.setAlpha(a)
+        elseif obj.type == "text" then
+            -- SVG y is the bottom of the text block; Plethora addText uses y as the top edge.
+            -- Subtract (num_lines * size * 9) so the block bottom aligns with the stored y.
+            local content   = obj.content or ""
+            local num_lines = 1
+            for _ in content:gmatch("\n") do num_lines = num_lines + 1 end
+            h = c.addText({obj.x, obj.y - num_lines * obj.size * 9}, content, col, obj.size)
+            h.setAlpha(a)
+            if obj.shadow ~= nil then h.setShadow(obj.shadow) end
+        elseif obj.type == "line" then
+            h = c.addLine({obj.x1, obj.y1}, {obj.x2, obj.y2}, col, obj.thickness)
+            h.setAlpha(a)
+        elseif obj.type == "dot" then
+            h = c.addDot({obj.x, obj.y}, col, obj.size)
+            h.setAlpha(a)
+        elseif obj.type == "polygon" then
+            local args = {}
+            for _, p in ipairs(obj.points) do table.insert(args, {p[1], p[2]}) end
+            table.insert(args, col)
+            h = c.addPolygon(table.unpack(args))
+            h.setAlpha(a)
+        elseif obj.type == "lines" then
+            -- Render as N-1 individual addLine segments so the path stays open (addLines
+            -- wraps back to the first point for 3+ points, which is wrong for a polyline).
+            local segs = {}
+            for i = 1, #obj.points - 1 do
+                local p1, p2 = obj.points[i], obj.points[i + 1]
+                local seg = c.addLine({p1[1], p1[2]}, {p2[1], p2[2]}, col, obj.thickness)
+                seg.setAlpha(a)
+                table.insert(segs, seg)
+            end
+            h = { _multi = true, handles = segs }
+        elseif obj.type == "item" then
+            local _ok, _r = pcall(function() return c.addItem({obj.x, obj.y}, obj.item, obj.damage, obj.scale) end)
+            h = _ok and _r or nil
+            if h and h.setAlpha then h.setAlpha(obj.alpha) end
+        elseif obj.type == "group" then
+            -- addGroup places children at coordinates relative to the group origin.
+            -- Moving the group handle moves all children automatically via Plethora.
+            -- Group2D.setAlpha exists but does not propagate to children in Plethora's renderer,
+            -- so we bake the group alpha factor into each fully-opaque child's setAlpha call.
+            h = c.addGroup({obj.x, obj.y})
+            local groupAlpha = (obj.alpha ~= nil and obj.alpha or 255) / 255
+            glassesChildHandles[obj.id] = {}
+            for _, child in ipairs(obj.children or {}) do
+                draw_into(h, child, obj.id, groupAlpha)
+            end
+        end
+    end
+    -- Track props/order always; track handle only when canvas was available.
+    -- When c=nil (glasses hidden), h stays nil so glassesSetVisible can re-render later.
+    -- When c!=nil but addItem failed, skip tracking (same as before) to avoid stale entries.
+    if h or not c then
+        glassesHandles[obj.id] = h
+        glassesProps[obj.id]   = obj
+        table.insert(glassesOrder, obj.id)
+    end
+end
+
+-- Handle wrappers that work for both single handles and the multi-handle table used by
+-- "lines" objects (which are rendered as N-1 individual addLine calls to avoid the
+-- addLines API closing the path back to the first point).
+local function h_remove(entry)
+    if type(entry) == "table" and entry._multi then
+        for _, h in ipairs(entry.handles) do h.remove() end
+    else
+        entry.remove()
+    end
+end
+local function h_set_color(entry, col)
+    if type(entry) == "table" and entry._multi then
+        for _, h in ipairs(entry.handles) do h.setColor(col) end
+    else
+        entry.setColor(col)
+    end
+end
+local function h_set_alpha(entry, a)
+    if type(entry) == "table" and entry._multi then
+        for _, h in ipairs(entry.handles) do h.setAlpha(a) end
+    else
+        entry.setAlpha(a)
+    end
+end
+
+-- Removes id from glassesOrder (linear scan; scenes are small so this is fine).
+local function remove_from_order(id)
+    for i = #glassesOrder, 1, -1 do
+        if glassesOrder[i] == id then
+            table.remove(glassesOrder, i)
+            return
+        end
+    end
+end
+
+-- Removes and re-creates all handles from glassesOrder[start_idx] to the end,
+-- in their current order and with their current (already-updated) glassesProps data.
+-- Used for non-color property updates where Plethora has no reliable position setters —
+-- re-drawing the suffix preserves z-order of everything above the edited object.
+local function rerender_suffix(c, start_idx)
+    -- Collect the suffix ID list before removing anything
+    local suffix = {}
+    for i = start_idx, #glassesOrder do
+        table.insert(suffix, glassesOrder[i])
+    end
+    -- Remove handles and trim glassesOrder to just the prefix
+    for _, id in ipairs(suffix) do
+        if glassesHandles[id] then
+            h_remove(glassesHandles[id])
+            glassesHandles[id] = nil
+            glassesChildHandles[id] = nil  -- clear stale child handles for groups
+        end
+    end
+    for i = #glassesOrder, start_idx, -1 do
+        table.remove(glassesOrder, i)
+    end
+    -- Re-add suffix in same order (glassesProps already updated with new values)
+    for _, id in ipairs(suffix) do
+        local obj = glassesProps[id]
+        if obj then draw_and_track(c, obj) end
+    end
+end
+
+-- Hides or shows the canvas. Hiding clears the canvas but keeps glassesProps/glassesOrder
+-- intact so the scene can be fully restored on show. Ops queued while hidden are discarded;
+-- a fresh setGlassesScene from the browser will resync state when glasses are turned back on.
+glassesSetVisible = function(on)
+    if on == glassesVisible then return end
+    local neural = peripheral.find("neuralInterface")
+    if not neural or not neural.canvas then return end
+    local c = neural.canvas()
+    if on then
+        glassesVisible = true
+        c.clear()
+        glassesHandles      = {}
+        glassesChildHandles = {}
+        local snapshot = glassesOrder  -- capture before reset; draw_and_track appends to glassesOrder
+        glassesOrder = {}
+        for _, id in ipairs(snapshot) do
+            local obj = glassesProps[id]
+            if obj then draw_and_track(c, obj) end
+        end
+        draw_status_indicator(c, true)
+        print("* glasses on")
+    else
+        glassesVisible = false
+        c.clear()
+        glassesHandles      = {}
+        glassesChildHandles = {}
+        draw_status_indicator(c, false)
+        print("* glasses off")
+    end
+end
+
+-- Processes one batch from glassesOpQueue. Batch format (all keys optional):
+--   clear:true                      — clear canvas and wipe all tracking tables
+--   rm:[id,...]                     — remove handles for listed IDs
+--   add:{rect:[...], group:[...]}   — add objects grouped by type
+--   upd:{id:{field:val,...},...}    — delta updates; color-only uses setters, anything
+--                                     else re-renders the suffix to preserve z-order
+--   child_upd:{gId:{cId:{x,y},...}} — move/update individual children via stored handles
+--   reorder:[id,...]                — new suffix ID order; re-adds from props
+-- clear is applied first; add runs after rm so a clear+add pair works in one batch.
+local function apply_glasses_ops(batch, c)
+    if batch.clear then
+        if c then c.clear() end
+        glassesHandles      = {}
+        glassesProps        = {}
+        glassesOrder        = {}
+        glassesChildHandles = {}
+    end
+
+    -- explicit removes
+    if type(batch.rm) == "table" then
+        for _, id in ipairs(batch.rm) do
+            if glassesHandles[id] then
+                h_remove(glassesHandles[id])
+                glassesHandles[id]      = nil
+                glassesChildHandles[id] = nil
+            end
+            -- always remove from props/order even if handle was already nil (hidden mode)
+            glassesProps[id] = nil
+            remove_from_order(id)
+        end
+    end
+
+    -- adds (type-keyed groups; type field is implicit to save wire space)
+    if type(batch.add) == "table" then
+        local type_groups = {"rect", "text", "line", "dot", "polygon", "lines", "item", "group"}
+        for _, t in ipairs(type_groups) do
+            if type(batch.add[t]) == "table" then
+                for _, obj in ipairs(batch.add[t]) do
+                    obj.type = t
+                    draw_and_track(c, obj)
+                end
+            end
+        end
+    end
+
+    -- delta updates. Strategy per field:
+    --   rgba              → setColor + setAlpha
+    --   x/y (non-line/poly) → setPosition
+    --   content (text)    → setText
+    --   shadow (text)     → setShadow
+    --   size (text/dot)   → setScale
+    --   scale (item)      → setScale
+    --   alpha (item)      → setAlpha
+    --   alpha (group)     → rerender_suffix (bakes factor into fully-opaque children)
+    --   w/h/points/x1..   → no native setter; re-render suffix to preserve z-order
+    if type(batch.upd) == "table" then
+        for id, delta in pairs(batch.upd) do
+            local h     = glassesHandles[id]
+            local props = glassesProps[id]
+            if props then
+                -- merge delta into stored props first (used by rerender_suffix)
+                for k, v in pairs(delta) do props[k] = v end
+                if not h then
+                    -- Handle was lost (e.g. addItem failed for an unknown item name).
+                    -- Attempt re-add at end of scene.
+                    draw_and_track(c, props)
+                else
+
+                -- Decide if any field needs a full re-render
+                local needs_rerender = false
+                for k in pairs(delta) do
+                    if k == "rgba" then
+                        -- handled by setter
+                    elseif k == "alpha" then
+                        -- items: handled by setter; groups: must rerender to bake factor into children
+                        if props.type == "group" then needs_rerender = true; break end
+                    elseif k == "x" or k == "y" then
+                        if props.type ~= "rect" and props.type ~= "text" and props.type ~= "dot" and props.type ~= "item" and props.type ~= "group" then
+                            needs_rerender = true; break
+                        end
+                    elseif k == "content" then
+                        if props.type ~= "text" then needs_rerender = true; break end
+                    elseif k == "shadow" then
+                        if props.type ~= "text" then needs_rerender = true; break end
+                    elseif k == "size" then
+                        if props.type ~= "text" and props.type ~= "dot" then needs_rerender = true; break end
+                    elseif k == "scale" then
+                        if props.type ~= "item" then needs_rerender = true; break end
+                    else
+                        -- w, h, x1, y1, x2, y2, points, thickness, damage, item, children
+                        needs_rerender = true; break
+                    end
+                end
+
+                if needs_rerender then
+                    local idx = nil
+                    for i, entry_id in ipairs(glassesOrder) do
+                        if entry_id == id then idx = i; break end
+                    end
+                    if idx then rerender_suffix(c, idx) end
+                else
+                    if delta.rgba ~= nil then
+                        h_set_color(h, pleth_col(props.rgba))
+                        h_set_alpha(h, pleth_a(props.rgba))
+                    end
+                    if delta.alpha ~= nil and props.type == "item" and type(h.setAlpha) == "function" then
+                        h.setAlpha(props.alpha)
+                    end
+                    if (delta.x ~= nil or delta.y ~= nil) and type(h.setPosition) == "function" then
+                        h.setPosition(props.x, props.y)
+                    end
+                    if delta.content ~= nil and props.type == "text" and type(h.setText) == "function" then
+                        h.setText(props.content)
+                    end
+                    if delta.shadow ~= nil and props.type == "text" and type(h.setShadow) == "function" then
+                        h.setShadow(props.shadow)
+                    end
+                    if delta.size ~= nil and (props.type == "text" or props.type == "dot") and type(h.setScale) == "function" then
+                        h.setScale(props.size)
+                    end
+                    if delta.scale ~= nil and props.type == "item" and type(h.setScale) == "function" then
+                        h.setScale(props.scale)
+                    end
+                end
+                end
+            end
+        end
+    end
+
+    -- reorder: suffix IDs in new order. The handler removes handles (NOT props) then
+    -- re-creates them in new order from cached props — no object data re-sent over wire.
+    if type(batch.reorder) == "table" then
+        for _, id in ipairs(batch.reorder) do
+            if glassesHandles[id] then
+                h_remove(glassesHandles[id])
+                glassesHandles[id]      = nil
+                glassesChildHandles[id] = nil
+            end
+            remove_from_order(id)
+        end
+        for _, id in ipairs(batch.reorder) do
+            local obj = glassesProps[id]
+            if obj then draw_and_track(c, obj) end
+        end
+    end
+
+    -- child_upd: move/update individual children within a group using stored handles.
+    -- { child_upd: { groupId: { childId: { x, y, ... } } } }
+    -- Uses setPosition for x/y when possible; falls back to full group rerender otherwise.
+    if type(batch.child_upd) == "table" then
+        for group_id, children_delta in pairs(batch.child_upd) do
+            local child_handles = glassesChildHandles[group_id]
+            local group_props   = glassesProps[group_id]
+            if child_handles and group_props then
+                local needs_group_rerender = false
+                for child_id, delta in pairs(children_delta) do
+                    -- Update stored child props
+                    for _, child in ipairs(group_props.children or {}) do
+                        if child.id == child_id then
+                            for k, v in pairs(delta) do child[k] = v end
+                            break
+                        end
+                    end
+                    local h = child_handles[child_id]
+                    -- x/y-only on non-multi handle → setPosition; anything else → full rerender
+                    local xy_only = true
+                    for k in pairs(delta) do
+                        if k ~= "x" and k ~= "y" then xy_only = false; break end
+                    end
+                    if h and xy_only and not (type(h) == "table" and h._multi) and type(h.setPosition) == "function" then
+                        local cx, cy = delta.x, delta.y
+                        if cx ~= nil and cy ~= nil then h.setPosition(cx, cy) end
+                    else
+                        needs_group_rerender = true
+                    end
+                end
+                if needs_group_rerender then
+                    local idx = nil
+                    for i, entry_id in ipairs(glassesOrder) do
+                        if entry_id == group_id then idx = i; break end
+                    end
+                    if idx then rerender_suffix(c, idx) end
+                end
+            end
+        end
+    end
+end
+
+-- session_parallel coroutine: wakes on "glasses_draw" events and drains the op queue.
+-- Concurrent because drawing must not block movement or other sequential commands.
+function glasses_worker()
+    while true do
+        os.pullEvent("glasses_draw")
+        while #glassesOpQueue > 0 do
+            local batch = table.remove(glassesOpQueue, 1)
+            -- Always apply ops to keep tracking tables current; only draw when visible.
+            -- Passing nil canvas skips all Plethora API calls in apply_glasses_ops while
+            -- still updating glassesProps/glassesOrder, so glassesSetVisible(true) can
+            -- render the correct up-to-date scene without a server re-sync.
+            local c = nil
+            if glassesVisible then
+                local neural = peripheral.find("neuralInterface")
+                if neural and neural.canvas then c = neural.canvas() end
+            end
+            local ok, err = pcall(apply_glasses_ops, batch, c)
+            if not ok then print("! glasses_worker: " .. tostring(err)) end
+            if c and batch.clear then draw_status_indicator(c, glassesVisible) end
+        end
+    end
+end
+
+-- Diagnostic: draws "A" at size 1–3 next to white reference rectangles of heights
+-- 6, 7, 8, 9, 10, 11, 12 px so you can visually match the text height in-game.
+-- Call via invokeCommand / setCommand, then look at the glasses and report which
+-- rectangle height matches the text. Clear with glassesClear() when done.
+-- [concurrent]
+function canvasTextSizeTest()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.canvas then return false, "glasses module not equipped" end
+    local c = neural.canvas()
+    c.clear()
+    local white   = 0xFFFFFF * 256
+    local start_x = 10
+    local heights = {6, 7, 8, 9, 10, 11, 12}
+    for i, height in ipairs(heights) do
+        local rect_x = start_x + (i - 1) * 18
+        local rect   = c.addRectangle(rect_x, 20, 6, height, white)
+        rect.setAlpha(255)
+        local label = c.addText({rect_x, 20 + height + 2}, tostring(height), white, 1)
+        label.setAlpha(255)
+    end
+    local sizes = {1, 2, 3}
+    for i, size in ipairs(sizes) do
+        local text_x = start_x + (i - 1) * 60
+        local sample = c.addText({text_x, 60}, "Ag sz=" .. size, white, size)
+        sample.setAlpha(255)
+    end
+    return true
+end
+
+-- [concurrent]
+function getCanvasSize()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.canvas then return false, "glasses module not equipped" end
+    local c = neural.canvas()
+    if type(c.getSize) ~= "function" then return false, "canvas.getSize not available" end
+    local w, h = c.getSize()
+    if not w then return false, "getSize returned no values" end
+    return tostring(w) .. "x" .. tostring(h)
+end
+
+-- [concurrent]
+-- Clears the canvas and wipes the handle/prop tracking tables so the live-stream
+-- state is consistent with the blank canvas.
+function glassesClear()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.canvas then return false, "glasses module not equipped" end
+    local c = neural.canvas()
+    c.clear()
+    glassesHandles = {}
+    glassesProps   = {}
+    glassesOrder   = {}
+    draw_status_indicator(c, glassesVisible)
+    return true
+end
+
+-- [concurrent]
+-- Full scene redraw from JSON. Also populates glassesHandles and glassesProps so
+-- live incremental ops work correctly after a baseline sync.
+-- json_str: JSON array of GlassesObjects with rgba field (32-bit packed: rgb24*256+alpha).
+function glassesSetCanvas(json_str)
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.canvas then return false, "glasses module not equipped" end
+    local scene = textutils.unserializeJSON(json_str)
+    if type(scene) ~= "table" then return false, "invalid scene JSON" end
+    local c = neural.canvas()
+    c.clear()
+    glassesHandles      = {}
+    glassesProps        = {}
+    glassesOrder        = {}
+    glassesChildHandles = {}
+    if glassesVisible then
+        for _, obj in ipairs(scene) do
+            draw_and_track(c, obj)
+        end
+    else
+        for _, obj in ipairs(scene) do
+            if obj.id then
+                glassesProps[obj.id] = obj
+                table.insert(glassesOrder, obj.id)
+            end
+        end
+    end
+    draw_status_indicator(c, glassesVisible)
+    return true
+end
+
+-- [concurrent]
+-- Receives a compact op batch from the server (JSON string) and pushes it onto
+-- glassesOpQueue for glasses_worker to process asynchronously. Returns immediately.
+-- Batch format: {rm, add, upd, reorder, clear} — see apply_glasses_ops for full spec.
+function glassesApplyOps(ops_json)
+    local batch = textutils.unserializeJSON(ops_json)
+    if type(batch) ~= "table" then return false, "invalid ops JSON" end
+    table.insert(glassesOpQueue, batch)
+    os.queueEvent("glasses_draw")
+    return true
+end
+
+
+-- ─── 3D canvas exploration ───────────────────────────────────────────────────
+
+-- Module-level handles shared across the three canvas3d* functions below.
+-- _c3d_root:  CanvasServer/ObjectRoot3D returned by canvas3d()
+-- _c3d_group: Group3D returned by root.create() — has addBox/addFrame/addItem/addLine
+-- _c3d_frame: the Frame3D added 5 blocks in +X relative to the player's position
+local _c3d_root  = nil
+local _c3d_group = nil
+local _c3d_frame = nil
+
+-- [concurrent]
+-- Creates a 3D canvas centred on the player, clears any prior content, then adds a
+-- frame 5 blocks in the +X direction (relative to the player). Prints its initial
+-- rotation. canvas3d() returns the root (CanvasServer); root.create() returns the
+-- Group3D on which addBox/addFrame/addItem/addLine are available.
+-- getRotation() returns nil when the frame faces the player (Plethora default).
+function canvas3dCreate()
+    local neural = peripheral.find("neuralInterface")
+    if not neural then return false, "no neural interface found" end
+    if not neural.canvas3d then return false, "glasses 3D module not equipped" end
+    _c3d_root = neural.canvas3d()
+    _c3d_root.clear()
+    _c3d_group = _c3d_root.create()
+    -- addFrame is an invisible container for 2D elements; addBox creates visible geometry
+    local box = _c3d_group.addBox(5, 0, 0, 1, 1, 1, 0xFF0000)
+    box.setAlpha(200)
+    _c3d_frame = _c3d_group.addFrame({ 5, 0, 0 })
+    _c3d_frame.addText({ 0, 0 }, "X+5", 0xFFFFFFFF)
+    local rx, ry, rz = _c3d_frame.getRotation()
+    if rx == nil then
+        print("frame rotation: nil (facing player)")
+    else
+        print("frame rotation: " .. tostring(rx) .. ", " .. tostring(ry) .. ", " .. tostring(rz))
+    end
+    return true
+end
+
+-- [concurrent]
+-- Prints the current rotation of the frame created by canvas3dCreate.
+-- getRotation() returns nil when the frame is set to face the player.
+function canvas3dGetRotation()
+    if not _c3d_frame then return false, "no frame — call canvas3dCreate first" end
+    local rx, ry, rz = _c3d_frame.getRotation()
+    if rx == nil then
+        print("rotation: nil (facing player)")
+    else
+        print("rotation: " .. tostring(rx) .. ", " .. tostring(ry) .. ", " .. tostring(rz))
+    end
+    return true
+end
+
+-- [concurrent]
+-- Prints the position of the frame via getPosition(). The Plethora docs expose
+-- getPosition() on 3D objects; there is no getLocation() in the documented API.
+function canvas3dGetLocation()
+    if not _c3d_frame then return false, "no frame — call canvas3dCreate first" end
+    local px, py, pz = _c3d_frame.getPosition()
+    print("frame position: " .. tostring(px) .. ", " .. tostring(py) .. ", " .. tostring(pz))
+    return true
+end
+
+
+-- ─── Live update coroutines ───────────────────────────────────────────────────
+-- Passed via opts.session_parallel or opts.extra_parallel in rcPlayer.lua.
+-- Rule: NEVER send anything to the server unless ws_active. Internal polling is fine.
+
+-- Full-time coroutine (extra_parallel): handles "Glasses: on/off" chat commands.
+-- capture() suppresses matched messages from Minecraft chat and fires chat_capture
+-- instead of chat_message, so this must listen for chat_capture specifically.
+function glasses_chat_handler()
+    while true do
+        local _, message = os.pullEvent("chat_capture")
+        local lower = message:lower()
+        if lower:match("^glasses:%s*on%s*$") then
+            if glassesSetVisible then glassesSetVisible(true) end
+        elseif lower:match("^glasses:%s*off%s*$") then
+            if glassesSetVisible then glassesSetVisible(false) end
+        end
+    end
+end
+
+-- Polls GPS every GPS_UPDATE_INTERVAL seconds. Sends only when position has changed.
+-- Spawned fresh each WS session via session_parallel, so local state resets automatically
+-- on reconnect — the first update after connect always fires.
+function gps_updater()
+    local last_x, last_y, last_z = nil, nil, nil
+    local last_yaw, last_pitch = nil, nil
+    local gps_ok = nil  -- nil=unknown, true=working, false=failed
+
+    while true do
+        local raw_x, raw_y, raw_z, yaw, pitch = get_location()
+        local x, y, z
+        if raw_x then
+            x, y, z = round2(raw_x), round2(raw_y), round2(raw_z)
+            if gps_ok ~= true then
+                print("GPS fix (" .. x .. "," .. y .. "," .. z .. ")")
+                gps_ok = true
+            end
+        elseif gps_ok ~= false then
+            print("! GPS fix failed — loc will not update (no GPS hosts in range?)")
+            gps_ok = false
+        end
+
+        local pos_changed  = x ~= nil and (x ~= last_x or y ~= last_y or z ~= last_z)
+        local look_changed = has_introspection and (yaw ~= last_yaw or pitch ~= last_pitch)
+        local has_data     = x ~= nil or yaw ~= nil or pitch ~= nil
+
+        if has_data and (pos_changed or look_changed) then
+            last_x, last_y, last_z = x or last_x, y or last_y, z or last_z
+            last_yaw, last_pitch = yaw, pitch
+            local payload = { id = os.getComputerID(), type = "player" }
+            if x   ~= nil then payload.loc   = { x = x, y = y, z = z } end
+            if yaw ~= nil then payload.yaw   = yaw   end
+            if pitch ~= nil then payload.pitch = pitch end
+            _ws.send_status_update(payload)
+        end
+
+        os.sleep(GPS_UPDATE_INTERVAL)
+    end
+end
+
+-- Polls the player's inventory every INVENTORY_POLL_INTERVAL seconds. Sends only when
+-- contents have changed. Spawned fresh each WS session via session_parallel, so the
+-- cached hash resets automatically on reconnect.
+-- Skips sending an empty inventory until at least one non-empty result has been
+-- observed — prevents a spurious {} overwrite when Plethora's proxy hasn't
+-- populated yet on the first call.
+function inventory_updater()
+    local last_hash          = nil
+    local has_seen_non_empty = false
+    while true do
+        local neural = peripheral.find("neuralInterface")
+        if neural and neural.getInventory then
+            local items = build_inv_table(neural.getInventory())
+            local count = 0
+            for _ in pairs(items) do count = count + 1 end
+            local ok, hash = pcall(textutils.serializeJSON, items)
+            if ok and hash ~= last_hash then
+                if count > 0 or has_seen_non_empty then
+                    has_seen_non_empty = has_seen_non_empty or count > 0
+                    last_hash = hash
+                    _ws.send_status_update({ id = os.getComputerID(), type = "player", inventory = items })
+                    print("? inventory (" .. count .. " stacks)")
+                end
+            end
+        end
+        os.sleep(INVENTORY_POLL_INTERVAL)
+    end
 end

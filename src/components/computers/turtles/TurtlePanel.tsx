@@ -1,6 +1,7 @@
 'use client'
 
-import { useRef, useState, useEffect } from 'react'
+import { memo, useRef, useState, useEffect } from 'react'
+import ConfirmDialog from '@/components/modals/ConfirmDialog'
 import { useComputerPanel } from '../useComputerPanel'
 import TurtleInventory from './TurtleInventory'
 import FuelGauge from './FuelGauge'
@@ -11,12 +12,15 @@ import { useWorldStore } from '@/store/useWorld'
 
 interface Props { computerId: number }
 
-export default function TurtlePanel({ computerId }: Props) {
-  const { computer, focusOnComputer, followComputer, sendStopSignal, isFollowing } = useComputerPanel(computerId)
+export default memo(function TurtlePanel({ computerId }: Props) {
+  const { focusOnComputer, followComputer, sendStopSignal, isFollowing } = useComputerPanel(computerId)
+  const computer = useWorldStore(s => s.computers[computerId])
   const invokeCommand = useWorldStore(s => s.invokeCommand)
+
   const commandResult = useWorldStore(s => s.commandResult[computerId])
 
   const [inspectResult, setInspectResult] = useState<unknown>(null)
+  const [stopOpen, setStopOpen] = useState(false)
   const inspectPendingRef = useRef(false)
 
   // Capture the next commandResult that arrives after the Inspect button is clicked
@@ -35,7 +39,7 @@ export default function TurtlePanel({ computerId }: Props) {
 
   return (
     <>
-      {computer?.inv && (
+      {(computer as any)?.inv && (
         <Section
           label="Inventory"
           right={
@@ -56,12 +60,25 @@ export default function TurtlePanel({ computerId }: Props) {
         </Section>
       )}
 
-      <Section label="Fuel" right={computer ? `${computer.fuelLevel ?? 0} / ${computer.fuelLimit ?? 0}` : undefined}>
+      <Section label="Fuel" right={computer ? `${(computer as any).fuelLevel ?? 0} / ${(computer as any).fuelLimit ?? 0}` : undefined}>
         <FuelGauge computerId={computerId} />
       </Section>
 
       <Section label="Movement">
         <MovementControl computerId={computerId} />
+      </Section>
+
+      <Section label="Scan">
+        <div className="btn-row-2">
+          <button
+            className="btn btn-compact"
+            onClick={() => invokeCommand(computerId, 'scan')}
+          >Block Scan</button>
+          <button
+            className="btn btn-compact"
+            onClick={() => invokeCommand(computerId, 'sense')}
+          >Entity Scan</button>
+        </div>
       </Section>
 
       <Section label="Camera">
@@ -79,10 +96,19 @@ export default function TurtlePanel({ computerId }: Props) {
         </div>
         <button
           className="btn btn-danger btn-block"
-          onClick={() => sendStopSignal(computerId)}
+          onClick={() => setStopOpen(true)}
         >
           ● Stop ●
         </button>
+        <ConfirmDialog
+          open={stopOpen}
+          title="Stop turtle"
+          message="In-progress actions will be interrupted."
+          confirmLabel="Stop"
+          confirmDanger
+          onConfirm={() => { setStopOpen(false); sendStopSignal(computerId) }}
+          onCancel={() => setStopOpen(false)}
+        />
       </Section>
 
       <Section label="Lua · Remote Execute">
@@ -90,4 +116,4 @@ export default function TurtlePanel({ computerId }: Props) {
       </Section>
     </>
   )
-}
+})

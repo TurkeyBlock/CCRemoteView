@@ -1,10 +1,8 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useWorldStore } from '@/store/useWorld'
-import { useWorldViewStore, getBlockIconInfo, getItemIconInfo } from '@/store/useWorldView'
 import type { ItemStack } from '@/types/world'
-import BlockIcon from './BlockIcon'
+import InventorySlotIcon from './InventorySlotIcon'
+import { useInventoryIcon } from './useInventoryIcon'
 
 interface Props {
   invSlot?: ItemStack
@@ -16,18 +14,7 @@ interface Props {
 }
 
 export default function GenericInventorySlot({ invSlot, slotNum, computerId, side, isAdjacent, invokeCommand }: Props) {
-  const assetURL = useWorldStore(s => s.assetURL)
-  const blockMapsLoaded = useWorldViewStore(s => s.blockMapsLoaded)
-  const loadBlockMaps = useWorldViewStore(s => s.loadBlockMaps)
-
-  useEffect(() => { loadBlockMaps() }, [loadBlockMaps])
-
-  const blockInfo = invSlot && blockMapsLoaded
-    ? getBlockIconInfo(assetURL, invSlot.name, invSlot.damage ?? 0)
-    : null
-  const itemInfo = invSlot && blockMapsLoaded && !blockInfo
-    ? getItemIconInfo(assetURL, invSlot.name, invSlot.damage ?? 0)
-    : null
+  const icon = useInventoryIcon(invSlot)
 
   function startDrag(e: React.DragEvent) {
     if (!invSlot || slotNum == null || !isAdjacent) return
@@ -52,23 +39,7 @@ export default function GenericInventorySlot({ invSlot, slotNum, computerId, sid
       className="inv-slot"
       title={invSlot?.name ?? ''}
     >
-      {invSlot && (
-        blockInfo
-          ? <BlockIcon src={blockInfo.url} uv={blockInfo.uv} />
-          : !blockMapsLoaded
-            ? <span style={{ fontSize: '9px', color: 'var(--fg-mute)', textAlign: 'center', wordBreak: 'break-all', padding: '2px', lineHeight: 1.1 }}>
-                {invSlot.name.includes(':') ? invSlot.name.split(':')[1] : invSlot.name}
-              </span>
-            : <img
-                style={{ width: '80%', imageRendering: 'pixelated' }}
-                src={itemInfo?.url ?? `${assetURL}items/${invSlot.name.replace(':', '/')}.png`}
-                alt={invSlot.name}
-                onError={e => { (e.target as HTMLImageElement).src = '/favicon-32x32.png' }}
-              />
-      )}
-      {invSlot && (
-        <div className="inv-slot-count">{invSlot.count}</div>
-      )}
+      {invSlot && <InventorySlotIcon invSlot={invSlot} icon={icon} />}
     </div>
   )
 }

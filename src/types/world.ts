@@ -1,28 +1,68 @@
-interface ComputerState {
+interface ComputerBase {
     id: number,
-    label: "",
-    type?: 'turtle' | 'minecart' | 'player' | 'stationary',
+    label: string,
     loc: Vec,
     rot: number,
-    inv: ItemStack[],
-    selectedSlot: number,
+    wsConnected?: boolean,
+    wsRequestAt?: number | null,
+    modified?: number,
+    lastPoll?: number,
+    entities?: EntitySighting[],
+    peripherals?: string[],
+    actionSeq?: number,
+    metaOwner?: unknown,
+    // Transport marker — present only on delta transactions sent by transactComputerDelta.
+    // Tells the browser to merge rather than replace. Never persisted in Zustand.
+    _delta?: true,
+}
+
+interface TurtleState extends ComputerBase {
+    type: 'turtle',
+    inv?: ItemStack[],
+    selectedSlot?: number,
     view?: {
         front?: Block | null,
         top?: Block | null,
         bottom?: Block | null,
     },
     adjacentInventory?: Record<string, { inventory: Inventory, inventorySize: number }>,
-    fuelLevel: number,
-    fuelLimit: number,
-    ws_connected?: boolean,
-    ws_request_at?: number | null,
-    modified?: number,
-    lastPoll?: number,
-    entities?: EntitySighting[],
-    chatLog?: ChatMessage[],
-    peripherals?: string[],
-    actionSeq?: number,
+    fuelLevel?: number,
+    fuelLimit?: number,
 }
+
+interface PlayerState extends ComputerBase {
+    type: 'player',
+    playerName?: string,
+    inventory?: Record<string, ItemStack>,
+    equipment?: Record<string, ItemStack>,
+    enderChest?: Record<string, ItemStack>,
+    yaw?: number,
+    pitch?: number,
+    health?: number,
+    maxHealth?: number,
+    foodLevel?: number,
+    glassesScene?: import('./glasses').GlassesObject[],
+}
+
+interface MinecartState extends ComputerBase {
+    type: 'minecart',
+}
+
+interface StationaryState extends ComputerBase {
+    type: 'stationary',
+}
+
+// Computers whose type hasn't been reported yet
+interface UnknownComputerState extends ComputerBase {
+    type?: undefined,
+}
+
+type ComputerState = TurtleState | PlayerState | MinecartState | StationaryState | UnknownComputerState
+
+function isTurtle(c: ComputerState): c is TurtleState { return c.type === 'turtle' }
+function isPlayer(c: ComputerState): c is PlayerState { return c.type === 'player' }
+function isMinecart(c: ComputerState): c is MinecartState { return c.type === 'minecart' }
+function isStationary(c: ComputerState): c is StationaryState { return c.type === 'stationary' }
 
 interface EntitySighting {
     id: string,
@@ -37,11 +77,13 @@ interface ChatMessage {
     message: string,
     uuid: string,
     timestamp: number,
+    computerId?: number,
 }
 
 interface SimState {
     computers: { [id: string]: ComputerState },
     world: { [locString: string]: Block },
+    chatLog: ChatMessage[],
 }
 
 interface Block {
@@ -72,4 +114,5 @@ type Vec = {
 
 type Inventory = [{ name: string, count: number }]
 
-export type { ComputerState, SimState, Block, ItemStack, Item, Vec, Inventory, EntitySighting, ChatMessage };
+export type { ComputerState, TurtleState, PlayerState, MinecartState, StationaryState, SimState, Block, ItemStack, Item, Vec, Inventory, EntitySighting, ChatMessage };
+export { isTurtle, isPlayer, isMinecart, isStationary };

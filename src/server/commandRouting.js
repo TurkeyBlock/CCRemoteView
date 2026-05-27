@@ -1,10 +1,11 @@
 'use strict';
 
 const commandRouting = require('../../lua/command_routing.json');
+const { escapeLuaStringArg } = require('./utils/luaEscape');
 
 function extractFunctionName(cmd) {
-  const m = cmd.match(/(?:return\s+)?(?:\w+\.)?(\w+)\s*\(/);
-  return m ? m[1] : null;
+  const match = cmd.match(/(?:return\s+)?(?:\w+\.)?(\w+)\s*\(/);
+  return match ? match[1] : null;
 }
 
 function isConcurrentCommand(computerType, cmd) {
@@ -42,24 +43,34 @@ function validateArgs(argSchemas, argValues) {
   return null;
 }
 
+const SPECIAL_BUILDERS = {
+  dropToChest([slot, side, count]) {
+    const DROP_FN_BY_SIDE = { top: 'dropUp', bottom: 'dropDown' };
+    const dropFn = DROP_FN_BY_SIDE[side] ?? 'drop';
+    return `tapi.select(${slot}); turtle.${dropFn}(${count}); tapi.send_status_update()`;
+  },
+  transferSlot([fromSlot, toSlot, count]) {
+    return `local s=turtle.getSelectedSlot(); tapi.select(${fromSlot}); turtle.transferTo(${toSlot},${count}); tapi.select(s); tapi.send_status_update()`;
+  },
+  glassesSetCanvas([json]) {
+    return `return papi.glassesSetCanvas("${escapeLuaStringArg(json)}")`;
+  },
+  glassesApplyOps([json]) {
+    return `return papi.glassesApplyOps("${escapeLuaStringArg(json)}")`;
+  },
+};
+
 // Constructs the Lua command string from validated args.
 // Handles both standard module.function(args) and compound multi-statement commands.
 function buildLuaCommand(computerType, commandName, argSchemas, argValues) {
-  if (commandName === 'dropToChest') {
-    const [slot, side, count] = argValues;
-    const dropFn = side === 'top' ? 'dropUp' : side === 'bottom' ? 'dropDown' : 'drop';
-    return `tapi.select(${slot}); turtle.${dropFn}(${count}); tapi.send_status_update()`;
-  }
-  if (commandName === 'transferSlot') {
-    const [fromSlot, toSlot, count] = argValues;
-    return `local s=turtle.getSelectedSlot(); tapi.select(${fromSlot}); turtle.transferTo(${toSlot},${count}); tapi.select(s); tapi.send_status_update()`;
-  }
+  const builder = SPECIAL_BUILDERS[commandName];
+  if (builder) return builder(argValues);
   const module = commandRouting[computerType].module;
   const luaArgs = argSchemas
     .map((schema, i) => {
       const val = argValues[i];
       if (val == null) return null;
-      if (schema.type === 'string') return `"${String(val).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+      if (schema.type === 'string') return `"${escapeLuaStringArg(val)}"`;
       if (schema.type === 'number') return String(Number(val));
       if (schema.type === 'boolean') return val ? 'true' : 'false';
       return null;

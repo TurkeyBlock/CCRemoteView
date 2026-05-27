@@ -5,13 +5,22 @@
 --        boot.get_files(base_url, "lua/shared/", {"boot.lua", "rc_loop.lua"})
 --        boot.get_files(base_url, "lua/turtle/", {"tapi", "rcTurtle.lua", "startup"})
 
+local function http_get_timeout(url, timeout_s)
+    local result = nil
+    parallel.waitForAny(
+        function() result = http.get(url, nil) end,
+        function() os.sleep(timeout_s) end
+    )
+    return result
+end
+
 local function get_file(base_url, src_path, dest_name)
     local url = base_url .. src_path .. dest_name
-    local res = http.get(url, nil)
+    local res = http_get_timeout(url, 15)
     while not res do
         print("Error on GET " .. url .. " - retrying in 5 seconds")
         sleep(5)
-        res = http.get(url, nil)
+        res = http_get_timeout(url, 15)
     end
     local f = fs.open(dest_name, "w")
     f.write(res.readAll())
@@ -37,12 +46,23 @@ local function get_files(base_url, src_path, files)
     term.write("complete\n")
 end
 
+local function http_post_timeout(url, body, headers, timeout_s)
+    local result = nil
+    parallel.waitForAny(
+        function() result = http.post(url, body, headers) end,
+        function() os.sleep(timeout_s) end
+    )
+    return result
+end
+
 local function check_approved(base_url, device_name)
+    local backoff = 5
     while true do
-        local res = http.post(
+        local res = http_post_timeout(
             base_url .. "api/getWsRequest",
             tostring(os.getComputerID()),
-            { ["Content-Type"] = "text/plain" }
+            { ["Content-Type"] = "text/plain" },
+            15
         )
         if res then
             local code = res.getResponseCode()
@@ -63,15 +83,18 @@ local function check_approved(base_url, device_name)
                 else
                     print("Waiting for admin approval...")
                 end
-                print("Retrying in 10 seconds.")
-                sleep(10)
+                print("Retrying...")
+                sleep(backoff + math.random(0, 3))
+                backoff = math.min(backoff * 1.5, 60)
             else
                 print("Unexpected response: " .. code)
-                sleep(10)
+                sleep(backoff + math.random(0, 3))
+                backoff = math.min(backoff * 1.5, 60)
             end
         else
             print("Could not reach server, retrying...")
-            sleep(5)
+            sleep(math.min(backoff + math.random(0, 3), 30))
+            backoff = math.min(backoff * 1.5, 60)
         end
     end
 end

@@ -1,18 +1,24 @@
 'use client'
 
-import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react'
+import { useState, useEffect, useRef, forwardRef } from 'react'
+import { FS } from '@/utils/fontSize'
+import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useWorldStore } from '@/store/useWorld'
 import { useUserStore } from '@/store/useUser'
-import { isStale } from '@/utils/stale'
+import { closeAllMenus } from '@/components/ui'
+import ConfirmDialog from '@/components/modals/ConfirmDialog'
+import { Modal } from '@/components/modals/Modal'
+import { usePanelHandle, type PanelHandle } from './panelHandle'
+import { fetchWithTimeout } from '@/utils/fetchWithTimeout'
 
 interface Props { onOpened?: () => void }
-export interface PanelHandle { setOpen: (v: boolean) => void }
+export type { PanelHandle }
 
 const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened }, ref) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; right?: number }>({ top: 0 })
   const btnRef = useRef<HTMLButtonElement>(null)
-  useImperativeHandle(ref, () => ({ setOpen }), [])
+  usePanelHandle(ref, setOpen)
   const [pending, setPending] = useState<string[]>([])
   const [approved, setApproved] = useState<string[]>([])
   const [pendingIds, setPendingIds] = useState<{ id: string; ip: string; requestedAt: number }[]>([])
@@ -21,8 +27,20 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
   const [operatorRequests, setOperatorRequests] = useState<{ sub: string; email: string; requestedAt: number }[]>([])
   const [operators, setOperators] = useState<{ sub: string; email: string | null }[]>([])
   const [clearingWorld, setClearingWorld] = useState(false)
+  const [pendingConfirm, setPendingConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
   const pollHandle = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const computers = useWorldStore(s => s.computers)
+  const computers = useStoreWithEqualityFn(
+    useWorldStore,
+    s => s.computers,
+    (prev, next) => {
+      const pk = Object.keys(prev), nk = Object.keys(next)
+      if (pk.length !== nk.length) return false
+      for (const id of nk) {
+        if (!prev[id] || prev[id].label !== next[id].label) return false
+      }
+      return true
+    }
+  )
   const removeComputer = useWorldStore(s => s.removeComputer)
   const clearBlocks = useWorldStore(s => s.clearBlocks)
 
@@ -34,11 +52,15 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
 
   async function fetchAll() {
     try {
+      const json = async (url: string) => {
+        try { const r = await fetchWithTimeout(url); return r.ok ? await r.json() : null }
+        catch { return null }
+      }
       const [ips, ids, requests, ops] = await Promise.all([
-        fetch('/api/admin/computerIps').then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch('/api/admin/computerIds').then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch('/api/admin/operatorRequests').then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch('/api/admin/operators').then(r => r.ok ? r.json() : null).catch(() => null),
+        json('/api/admin/computerIps'),
+        json('/api/admin/computerIds'),
+        json('/api/admin/operatorRequests'),
+        json('/api/admin/operators'),
       ])
       if (ips) { setPending(ips.pending); setApproved(ips.approved) }
       if (ids) { setPendingIds(ids.pending); setApprovedIds(ids.approved); setAllowByIp(ids.allowByIp) }
@@ -56,37 +78,38 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
 
   function toggle() {
     const next = !open
+    closeAllMenus()
     setOpen(next)
     if (next) onOpened?.()
   }
 
   async function post(url: string, body?: object) {
-    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
+    await fetchWithTimeout(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
     await fetchAll()
   }
 
   async function handleSetAllowByIp(enabled: boolean) {
-    await fetch('/api/admin/setAllowByIp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) })
+    await fetchWithTimeout('/api/admin/setAllowByIp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) })
     await fetchAll()
   }
 
   async function handleApproveOperator(sub: string) {
-    await fetch('/api/admin/approveOperator', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sub }) })
+    await fetchWithTimeout('/api/admin/approveOperator', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sub }) })
     await Promise.all([fetchAll(), useUserStore.getState().fetchMe()])
   }
 
   async function handleDenyOperator(sub: string) {
-    await fetch('/api/admin/denyOperatorRequest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sub }) })
+    await fetchWithTimeout('/api/admin/denyOperatorRequest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sub }) })
     await Promise.all([fetchAll(), useUserStore.getState().fetchMe()])
   }
 
   async function handleRevokeOperator(sub: string) {
-    await fetch('/api/admin/revokeOperator', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sub }) })
+    await fetchWithTimeout('/api/admin/revokeOperator', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sub }) })
     await Promise.all([fetchAll(), useUserStore.getState().fetchMe()])
   }
 
   async function deleteComputer(id: string | number) {
-    await fetch('/api/admin/deleteComputer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
+    await fetchWithTimeout('/api/admin/deleteComputer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
     removeComputer(id)
     await fetchAll()
   }
@@ -94,23 +117,23 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
   async function handleClearWorld() {
     setClearingWorld(true)
     await Promise.all([
-      fetch('/api/admin/clearWorld', { method: 'POST' }).then(() => clearBlocks()),
+      fetchWithTimeout('/api/admin/clearWorld', { method: 'POST' }).then(() => clearBlocks()),
       new Promise(r => setTimeout(r, 500)),
     ])
     setClearingWorld(false)
   }
 
-  const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 12, color: 'var(--fg-mute)' }
+  const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: FS['12'], color: 'var(--fg-mute)' }
 
   return (
     <div style={{ position: 'relative' }}>
       <button ref={btnRef} className="btn btn-compact" onClick={toggle}>
-        Admin <span style={{ marginLeft: 5, opacity: 0.55, fontSize: 9 }}>▼</span>
+        Admin <span style={{ marginLeft: 5, opacity: 0.55, fontSize: FS['9'] }}>▼</span>
       </button>
 
       {open && (
         <>
-          <div style={{ position: 'fixed', inset: 0, zIndex: 999 }} onClick={() => setOpen(false)} />
+          <Modal layer="dialog" dim={0} center={false} onBackdropClick={() => setOpen(false)} />
           <div className="dropdown" style={{ top: pos.top, right: pos.right, maxHeight: '80vh', overflowY: 'auto' }}>
 
             <div className="dropdown-section">
@@ -132,7 +155,7 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
                 {approved.map(ip => (
                   <div key={ip} style={rowStyle}>
                     <span className="mono">{ip}</span>
-                    <button className="btn btn-compact btn-danger" onClick={() => post('/api/admin/revokeComputer', { ip })}>Revoke</button>
+                    <button className="btn btn-compact btn-danger" onClick={() => setPendingConfirm({ title: 'Revoke IP', message: `Remove ${ip} from approved IPs?`, onConfirm: () => post('/api/admin/revokeComputer', { ip }) })}>Revoke</button>
                   </div>
                 ))}
               </div>
@@ -146,7 +169,7 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
                 <div key={t.id} style={rowStyle}>
                   <span>
                     <span className="mono">ID {t.id}</span>
-                    <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>from {t.ip}</span>
+                    <span className="muted" style={{ fontSize: FS['11'], marginLeft: 6 }}>from {t.ip}</span>
                   </span>
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button className="btn btn-compact" style={{ color: 'var(--green)', borderColor: 'var(--green)' }} onClick={() => post('/api/admin/approveComputerId', { id: t.id })}>Approve</button>
@@ -162,7 +185,7 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
                 {approvedIds.map(id => (
                   <div key={id} style={rowStyle}>
                     <span className="mono">ID {id}</span>
-                    <button className="btn btn-compact btn-danger" onClick={() => post('/api/admin/revokeComputerId', { id })}>Revoke</button>
+                    <button className="btn btn-compact btn-danger" onClick={() => setPendingConfirm({ title: 'Revoke ID', message: `Remove turtle ID ${id} from approved IDs?`, onConfirm: () => post('/api/admin/revokeComputerId', { id }) })}>Revoke</button>
                   </div>
                 ))}
               </div>
@@ -205,7 +228,7 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
                 {operators.map(op => (
                   <div key={op.sub} style={rowStyle}>
                     <span>{op.email ?? 'unknown'}</span>
-                    <button className="btn btn-compact btn-danger" onClick={() => handleRevokeOperator(op.sub)}>Revoke</button>
+                    <button className="btn btn-compact btn-danger" onClick={() => setPendingConfirm({ title: 'Revoke operator', message: `Remove operator access for ${op.email ?? 'this user'}?`, onConfirm: () => handleRevokeOperator(op.sub) })}>Revoke</button>
                   </div>
                 ))}
               </div>
@@ -217,9 +240,8 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
               <div className="heading">Turtles</div>
               {Object.keys(computers).length > 0 ? Object.entries(computers).map(([id, turtle]) => (
                 <div key={id} style={rowStyle}>
-                  <span style={isStale(turtle) ? { color: 'var(--accent)' } : {}}>
+                  <span>
                     <span className="mono">#{id}</span> {turtle.label ?? ''}
-                    {isStale(turtle) && <span className="muted" style={{ fontSize: 11 }}> (stale)</span>}
                   </span>
                   <button className="btn btn-compact btn-danger" onClick={() => deleteComputer(id)}>Delete</button>
                 </div>
@@ -231,13 +253,22 @@ const AdminPanel = forwardRef<PanelHandle, Props>(function AdminPanel({ onOpened
             <button
               className="btn btn-danger btn-block"
               disabled={clearingWorld}
-              onClick={handleClearWorld}
+              onClick={() => setPendingConfirm({ title: 'Clear world', message: 'This will remove all scanned block data. This cannot be undone.', onConfirm: handleClearWorld })}
             >
               {clearingWorld ? 'Clearing...' : 'Clear World'}
             </button>
           </div>
         </>
       )}
+      <ConfirmDialog
+        open={pendingConfirm !== null}
+        title={pendingConfirm?.title ?? ''}
+        message={pendingConfirm?.message ?? ''}
+        confirmLabel={pendingConfirm?.title.startsWith('Clear') ? 'Clear' : 'Revoke'}
+        confirmDanger
+        onConfirm={() => { pendingConfirm?.onConfirm(); setPendingConfirm(null) }}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </div>
   )
 })

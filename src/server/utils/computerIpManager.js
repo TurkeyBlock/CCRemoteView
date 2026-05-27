@@ -1,65 +1,32 @@
-const fs = require('fs');
+const ApprovalRegistry = require('./approvalRegistry');
 
 class ComputerIpManager {
-  saveFile = './src/server/data/computer_ips.json';
-  approved = new Set();
-  pending = new Set();
-
-  constructor() {
-    this.load();
+  constructor({ file = './src/server/data/computer_ips.json', legacyFile = './src/server/data/turtle_ips.json' } = {}) {
+    this.registry = new ApprovalRegistry({
+      file,
+      legacyFile,
+      keyOf: (ip) => ip,
+      persistPending: true,
+      revokeRemovesPending: true,
+    });
   }
 
-  isApproved(ip) { return this.approved.has(ip); }
-  isPending(ip) { return this.pending.has(ip); }
+  get approved() { return new Set(this.registry.approvedArray()); }
+  get pending()  { return new Set(this.registry.pending()); }
 
-  addPending(ip) {
-    this.pending.add(ip);
-    this.save();
-  }
+  isApproved(ip) { return this.registry.isApproved(ip); }
+  isPending(ip)  { return this.registry.isPending(ip); }
 
-  deny(ip) {
-    this.pending.delete(ip);
-    this.save();
-  }
-
-  approve(ip) {
-    this.pending.delete(ip);
-    this.approved.add(ip);
-    this.save();
-  }
-
-  revoke(ip) {
-    this.approved.delete(ip);
-    this.pending.delete(ip);
-    this.save();
-  }
+  addPending(ip) { this.registry.addPending(ip); }
+  deny(ip)       { this.registry.deny(ip); }
+  approve(ip)    { this.registry.approve(ip); }
+  revoke(ip)     { this.registry.revoke(ip); }
 
   getAll() {
     return {
-      approved: [...this.approved],
-      pending: [...this.pending],
+      approved: this.registry.approvedArray(),
+      pending: this.registry.pending(),
     };
-  }
-
-  save() {
-    fs.mkdirSync('./src/server/data', { recursive: true });
-    const tmp = this.saveFile + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({
-      approved: [...this.approved],
-      pending: [...this.pending],
-    }));
-    fs.renameSync(tmp, this.saveFile);
-  }
-
-  load() {
-    try {
-      // Support migration from old turtle_ips.json filename
-      const legacy = './src/server/data/turtle_ips.json';
-      const src = fs.existsSync(this.saveFile) ? this.saveFile : legacy;
-      const data = JSON.parse(fs.readFileSync(src, 'utf8'));
-      this.approved = new Set(data.approved || []);
-      this.pending = new Set(data.pending || []);
-    } catch { }
   }
 }
 

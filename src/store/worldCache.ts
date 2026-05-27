@@ -1,20 +1,24 @@
-import type { Block } from '../types/world'
-
-const DB_NAME = 'turtleHost'
+const DB_NAME    = 'turtleHost'
 const STORE_NAME = 'worldCache'
-const CACHE_KEY = 'state'
+const CACHE_KEY  = 'state'
+const DB_VERSION = 2  // v2: blockData is Int32Array, not number[]
 
 interface CachedWorld {
   lastTransactionId: number
   computers: Record<string, unknown>
   palette: string[]
-  blockData: number[]
+  blockData: Int32Array
+  chatLog?: unknown[]
 }
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1)
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE_NAME)
+    const req = indexedDB.open(DB_NAME, DB_VERSION)
+    req.onupgradeneeded = () => {
+      const db = req.result
+      if (db.objectStoreNames.contains(STORE_NAME)) db.deleteObjectStore(STORE_NAME)
+      db.createObjectStore(STORE_NAME)
+    }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
   })
@@ -23,29 +27,17 @@ function openDb(): Promise<IDBDatabase> {
 export async function saveWorldToCache(
   lastTransactionId: number,
   computers: Record<string, unknown>,
-  blocks: Record<string, Block>
+  palette: string[],
+  blockData: Int32Array,
+  chatLog?: unknown[],
 ): Promise<void> {
-  const palette: string[] = []
-  const nameToIdx: Record<string, number> = {}
-  const blockData: number[] = []
-
-  for (const [locString, block] of Object.entries(blocks)) {
-    if (nameToIdx[block.name] === undefined) {
-      nameToIdx[block.name] = palette.length
-      palette.push(block.name)
-    }
-    const [x, y, z] = locString.split(',').map(Number)
-    blockData.push(x, y, z, nameToIdx[block.name], block.metadata ?? 0)
-  }
-
-  // Strip entities — ephemeral and potentially large
   const computersForCache: Record<string, unknown> = {}
   for (const [id, c] of Object.entries(computers)) {
     const { entities: _e, ...rest } = c as Record<string, unknown>
     computersForCache[id] = rest
   }
 
-  const entry: CachedWorld = { lastTransactionId, computers: computersForCache, palette, blockData }
+  const entry: CachedWorld = { lastTransactionId, computers: computersForCache, palette, blockData, chatLog: chatLog ?? [] }
   const db = await openDb()
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite')
@@ -59,7 +51,10 @@ export async function saveWorldToCache(
 export async function loadWorldFromCache(): Promise<{
   lastTransactionId: number
   computers: Record<string, unknown>
-  blocks: Record<string, Block>
+  palette: string[]
+  data: Int32Array
+  dataLen: number
+  chatLog: unknown[]
 } | null> {
   const db = await openDb()
   const entry: CachedWorld | undefined = await new Promise((resolve, reject) => {
@@ -72,13 +67,15 @@ export async function loadWorldFromCache(): Promise<{
 
   if (!entry) return null
 
-  const blocks: Record<string, Block> = {}
-  const { palette, blockData } = entry
-  for (let i = 0; i < blockData.length; i += 5) {
-    const locString = `${blockData[i]},${blockData[i + 1]},${blockData[i + 2]}`
-    const block = { name: palette[blockData[i + 3]], metadata: blockData[i + 4] ?? 0 }
-    blocks[locString] = block
-  }
+  const raw = entry.blockData as Int32Array | ArrayBuffer
+  const data = raw instanceof Int32Array ? raw : new Int32Array(raw)
 
-  return { lastTransactionId: entry.lastTransactionId, computers: entry.computers, blocks }
+  return {
+    lastTransactionId: entry.lastTransactionId,
+    computers: entry.computers,
+    palette: entry.palette,
+    data,
+    dataLen: data.length,
+    chatLog: Array.isArray(entry.chatLog) ? entry.chatLog : [],
+  }
 }

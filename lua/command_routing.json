@@ -72,7 +72,24 @@
       "get_location":          { "concurrent": true,  "args": [] },
       "scan":                  { "concurrent": true,  "args": [] },
       "sense":                 { "concurrent": true,  "args": [] },
-      "say":                   { "concurrent": true,  "args": [{ "name": "message",   "type": "string", "required": true,  "maxLength": 500 }] }
+      "say":                   { "concurrent": true,  "args": [{ "name": "message",   "type": "string", "required": true,  "maxLength": 500 }] },
+      "getInventory":          { "concurrent": true,  "args": [] },
+      "getEquipment":          { "concurrent": true,  "args": [] },
+      "getID":                 { "concurrent": true,  "args": [] },
+      "getName":               { "concurrent": true,  "args": [] },
+      "getEnder":              { "concurrent": true,  "args": [] },
+      "getMetaOwner":          { "concurrent": true,  "args": [] },
+      "glassesClear":          { "concurrent": true,  "args": [] },
+      "canvasTextSizeTest":    { "concurrent": true,  "args": [] },
+      "glassesSetCanvas":      { "concurrent": true,  "compound": true, "args": [
+        { "name": "scene", "type": "string", "required": true, "maxLength": 16000 }
+      ]},
+      "glassesApplyOps":       { "concurrent": true,  "compound": true, "args": [
+        { "name": "ops",   "type": "string", "required": true, "maxLength": 8000 }
+      ]},
+      "canvas3dCreate":        { "concurrent": true,  "args": [] },
+      "canvas3dGetRotation":   { "concurrent": true,  "args": [] },
+      "canvas3dGetLocation":   { "concurrent": true,  "args": [] }
     }
   },
   "stationary": {

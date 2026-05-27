@@ -1,8 +1,10 @@
 'use client'
 
-import { useWorldStore, worldBlocks } from '@/store/useWorld'
+import { useWorldStore, lookupBlock } from '@/store/useWorld'
+import { FS } from '@/utils/fontSize'
 import { useWorldViewStore } from '@/store/useWorldView'
 import type { Inventory } from '@/types/world'
+import { normalizeInventory } from '@/utils/inventory'
 import GenericInventorySlot from './GenericInventorySlot'
 
 interface Props {
@@ -12,21 +14,18 @@ interface Props {
   blockPos: { x: number; y: number; z: number } | null
 }
 
+function getSide(dy: number): string {
+  if (dy > 0) return 'top';
+  if (dy < 0) return 'bottom';
+  return 'front';
+}
+
 export default function InventoryView({ inventory, inventorySize, computerId, blockPos }: Props) {
   const invokeCommand = useWorldStore(s => s.invokeCommand)
   const computers = useWorldStore(s => s.computers)
-  const block = blockPos ? worldBlocks[`${blockPos.x},${blockPos.y},${blockPos.z}`] : null
+  const block = blockPos ? lookupBlock(`${blockPos.x},${blockPos.y},${blockPos.z}`) : null
 
-  const normalized: Record<number, { name: string; count: number }> = {}
-  if (inventory) {
-    if (Array.isArray(inventory)) {
-      for (let i = 0; i < (inventory as any[]).length; i++) {
-        if ((inventory as any[])[i] != null && (inventory as any[])[i] !== false) normalized[i + 1] = (inventory as any[])[i]
-      }
-    } else {
-      Object.assign(normalized, inventory)
-    }
-  }
+  const normalized = normalizeInventory<{ name: string; count: number }>(inventory)
 
   const turtleLoc = computers[computerId]?.loc
   let side: string | undefined
@@ -36,7 +35,7 @@ export default function InventoryView({ inventory, inventorySize, computerId, bl
     const dy = blockPos.y - turtleLoc.y
     const dz = Math.abs(blockPos.z - turtleLoc.z)
     isAdjacent = dx + Math.abs(dy) + dz === 1
-    side = dy > 0 ? 'top' : dy < 0 ? 'bottom' : 'front'
+    side = getSide(dy)
   }
 
   const blockName = block?.name
@@ -53,7 +52,7 @@ export default function InventoryView({ inventory, inventorySize, computerId, bl
         <button
           className="btn btn-compact"
           onClick={() => useWorldViewStore.setState({ selectedInventoryPos: null })}
-          style={{ padding: '1px 7px', fontSize: 14, lineHeight: 1 }}
+          style={{ padding: '1px 7px', fontSize: FS['14'], lineHeight: 1 }}
         >×</button>
       </div>
       <div className="inv-chest-body">

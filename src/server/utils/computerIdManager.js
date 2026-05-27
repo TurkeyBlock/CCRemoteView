@@ -1,71 +1,40 @@
-const fs = require('fs');
+const ApprovalRegistry = require('./approvalRegistry');
 
 class ComputerIdManager {
-  pendingIds = []; // [{ id, ip, requestedAt }]
-  approvedIds = new Set();
-  allowByIp = true; // default: original behaviour — individual approval is opt-in
-  idFile = './src/server/data/computer_ids.json';
+  constructor({ file = './src/server/data/computer_ids.json', legacyFile = './src/server/data/turtle_ids.json' } = {}) {
+    this.registry = new ApprovalRegistry({
+      file,
+      legacyFile,
+      keyOf: (entry) => entry.id,
+      persistPending: false, // pending is not persisted — computers re-request on reconnect
+      revokeRemovesPending: false,
+      extraFields: [{ name: 'allowByIp', default: false }],
+    });
+  }
 
-  constructor() { this.load(); }
+  get pendingIds()  { return this.registry.pending(); }
+  get approvedIds() { return new Set(this.registry.approvedArray()); }
+  get allowByIp()   { return this.registry.getExtra('allowByIp'); }
 
-  isPending(id)  { return this.pendingIds.some(t => t.id === String(id)); }
-  isApproved(id) { return this.allowByIp || this.approvedIds.has(String(id)); }
+  isPending(id)  { return this.registry.isPending(String(id)); }
+  isApproved(id) { return this.allowByIp || this.registry.isApproved(String(id)); }
 
   addPending(id, ip) {
-    if (this.isPending(id) || this.approvedIds.has(String(id))) return;
-    this.pendingIds.push({ id: String(id), ip, requestedAt: Date.now() });
-    this.save();
+    this.registry.addPending({ id: String(id), ip, requestedAt: Date.now() });
   }
 
-  approve(id) {
-    this.pendingIds = this.pendingIds.filter(t => t.id !== String(id));
-    this.approvedIds.add(String(id));
-    this.save();
-  }
+  approve(id) { this.registry.approve(String(id)); }
+  deny(id)    { this.registry.deny(String(id)); }
+  revoke(id)  { this.registry.revoke(String(id)); }
 
-  deny(id) {
-    this.pendingIds = this.pendingIds.filter(t => t.id !== String(id));
-    this.save();
-  }
-
-  revoke(id) {
-    this.approvedIds.delete(String(id));
-    this.save();
-  }
-
-  setAllowByIp(enabled) {
-    this.allowByIp = enabled;
-    this.save();
-  }
+  setAllowByIp(enabled) { this.registry.setExtra('allowByIp', enabled); }
 
   getAll() {
     return {
-      pending: this.pendingIds,
-      approved: [...this.approvedIds],
+      pending: this.registry.pending(),
+      approved: this.registry.approvedArray(),
       allowByIp: this.allowByIp,
     };
-  }
-
-  save() {
-    fs.mkdirSync('./src/server/data', { recursive: true });
-    const tmp = this.idFile + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({
-      approved: [...this.approvedIds],
-      allowByIp: this.allowByIp,
-      // pending is not persisted — computers re-request on reconnect
-    }));
-    fs.renameSync(tmp, this.idFile);
-  }
-
-  load() {
-    try {
-      // Support migration from old turtle_ids.json filename
-      const legacy = './src/server/data/turtle_ids.json';
-      const src = fs.existsSync(this.idFile) ? this.idFile : legacy;
-      const data = JSON.parse(fs.readFileSync(src, 'utf8'));
-      this.approvedIds = new Set(data.approved ?? []);
-      this.allowByIp   = data.allowByIp ?? true;
-    } catch {}
   }
 }
 
