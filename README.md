@@ -126,7 +126,7 @@ Plethora Peripherals enables all scanning, entity detection, and HUD features. M
 | `plethora:scanner` | `scan()` — 9×9×9 area block scan | All computer types. Turtle: equip in the **left slot** or leave in turtle's inventory. Player: attach as a neural interface module. |
 | `plethora:sensor` | `sense()` — detect nearby mobs and players | All computer types. Turtle: equip in the **left slot** or leave in turtle's inventory. Player: attach as a neural interface module. |
 | `plethora:chat` | `say()` — listen to in-game chat messages. Sending chats may be done via neural interface or with player-bound chat peripherals. | All computer types.
-| Advanced wireless modem | GPS location fix - turtles can (following initial setup) derrive location without this, but other computers can not. | Turtle startup auto-equips one from inventory into the **right slot**. A GPS satellite network must be set up in-world. |
+| Advanced wireless modem | GPS location fix - turtles can (following initial setup) derrive location without this, but other computers can not. | Turtle startup auto-equips one from inventory into the **right slot**. GPS hosts must be set up in-world. |
 | `plethora:glasses` module | Glasses HUD canvas editor; all `glasses*` commands | Player (neural interface) only. |
 
 On turtles the **right slot** is reserved for the wireless modem and the **left slot** is hot-swappable — you can swap between scanner, sensor, and chat peripherals at runtime without rebooting. Only one Plethora peripheral can occupy that slot at a time.
